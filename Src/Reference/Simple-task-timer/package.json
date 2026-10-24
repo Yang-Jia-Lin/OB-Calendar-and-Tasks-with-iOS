@@ -1,0 +1,12 @@
+{
+  "name": "obsidian-simple-task-timer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "简洁待办计时，通过 Full Calendar Remastered 将实际时间写入日历",
+  "scripts": {
+    "build": "node Scripts/build.cjs",
+    "test": "node --test Tests/*.test.cjs",
+    "check": "node Scripts/check.cjs"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,19 @@
+declare global {
+  interface HTMLElement {
+    // Obsidian adds helper methods at runtime; declare them here so we avoid 'any' casts.
+    empty(): void;
+    createDiv(
+      o?: { cls?: string; text?: string; attr?: Record<string, string> } | string
+    ): HTMLDivElement;
+    createSpan(
+      o?: { cls?: string; text?: string; attr?: Record<string, string> } | string
+    ): HTMLSpanElement;
+    createEl<K extends keyof HTMLElementTagNameMap>(
+      tag: K,
+      o?: { cls?: string; text?: string; attr?: Record<string, string> } | string,
+      callback?: (el: HTMLElementTagNameMap[K]) => void
+    ): HTMLElementTagNameMap[K];
+  }
+}
+
+export {}; // Ensure this file is treated as a module.

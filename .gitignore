@@ -1,0 +1,12 @@
+**/node_modules/
+.vscode/
+.runtime/
+.obsidian/
+.env
+.env.*
+!.env.example
+*.local.json
+*.log
+Src/Reference/Simple-task-timer/data.json
+Src/Reference/Simple-task-timer/sessions/
+Src/Reference/Simple-task-timer/Preview/test-results/

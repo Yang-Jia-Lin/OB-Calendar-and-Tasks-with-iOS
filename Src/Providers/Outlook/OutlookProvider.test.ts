@@ -1,0 +1,278 @@
+/**
+ * @jest-environment jsdom
+ */
+import * as React from 'react';
+import { OutlookProvider } from './OutlookProvider';
+import FullCalendarPlugin from '../../main';
+
+describe('OutlookProvider Configuration Wrapper', () => {
+  let mockPlugin: FullCalendarPlugin;
+
+  beforeEach(() => {
+    mockPlugin = {} as FullCalendarPlugin;
+  });
+
+  it('should propagate accountId correctly to onSave from the static component wrapper', () => {
+    const ConfigComponent = OutlookProvider.getConfigurationComponent();
+    const onSaveMock = jest.fn();
+    const onCloseMock = jest.fn();
+
+    const props = {
+      plugin: mockPlugin,
+      config: {},
+      onConfigChange: jest.fn(),
+      context: {
+        allDirectories: [],
+        usedDirectories: [],
+        headings: []
+      },
+      onSave: onSaveMock,
+      onClose: onCloseMock
+    };
+
+    // Use createElement since ConfigComponent is ComponentType (could be class or function)
+    const element = React.createElement(ConfigComponent, props);
+
+    expect(element).toBeDefined();
+    expect(element.props.onClose).toBe(onCloseMock);
+
+    const selectedConfigs = [
+      {
+        id: 'outlook_123',
+        name: 'My Outlook Calendar',
+        color: '#00ff00',
+        calendarId: 'outlook_123'
+      }
+    ];
+    const accountId = 'ms_test@outlook.com';
+    element.props.onSave(selectedConfigs, accountId);
+
+    expect(onSaveMock).toHaveBeenCalledWith(selectedConfigs, accountId);
+  });
+});
+
+import { PluginState } from "../../Core/PluginState";
+import { OFCEvent } from "../../Types";
+import { fromOutlookEvent, toOutlookEvent } from "./Parser/parser_outlook";
+
+jest.mock("../../Core/PluginState");
+jest.mock("../../Utils/showNotice");
+
+interface MockVault {
+  getAbstractFileByPath: jest.Mock;
+  create: jest.Mock;
+}
+
+interface MockMetadataCache {
+  getFileCache: jest.Mock;
+  on: jest.Mock;
+  offref: jest.Mock;
+}
+
+interface MockApp {
+  vault: MockVault;
+  metadataCache: MockMetadataCache;
+}
+
+interface MockCreatedFile {
+  path: string;
+  content: string;
+}
+
+describe('OutlookProvider createLinkedNote', () => {
+  let mockPlugin: { app: MockApp };
+  let mockApp: MockApp;
+  let provider: OutlookProvider;
+  const mockEvent: OFCEvent = {
+    title: 'Outlook Linked Note Event',
+    type: 'single',
+    date: '2026-05-21',
+    endDate: null,
+    allDay: true,
+    uid: 'outlook-uid-123',
+    description: 'Meeting agenda details',
+    location: 'Teams Meeting Room'
+  };
+
+  beforeEach(() => {
+    mockApp = {
+      vault: {
+        getAbstractFileByPath: jest.fn().mockReturnValue(null),
+        create: jest.fn().mockImplementation((path: string, content: string): MockCreatedFile => {
+          return { path, content };
+        })
+      },
+      metadataCache: {
+        getFileCache: jest.fn(),
+        on: jest.fn(),
+        offref: jest.fn()
+      }
+    };
+    mockPlugin = { app: mockApp };
+    provider = new OutlookProvider(
+      {
+        id: 'outlook_1',
+        name: 'My Outlook Calendar',
+        calendarId: 'primary',
+        microsoftAccountId: 'ms-acc-123'
+      },
+      mockPlugin as unknown as FullCalendarPlugin
+    );
+  });
+
+  it('should fall back to DEFAULT_TEMPLATE when linkedNoteTemplate setting is blank', async () => {
+    PluginState.getSettings = jest.fn().mockReturnValue({
+      linkedNotesDirectory: 'Calendar/Notes',
+      linkedNoteTemplate: ''
+    });
+
+    const file = (await provider.createLinkedNote(mockEvent)) as MockCreatedFile | null;
+    expect(file).toBeDefined();
+    expect(file!.path).toBe('Calendar/Notes/Outlook Linked Note Event.md');
+    expect(file!.content).toContain('# Outlook Linked Note Event');
+    expect(file!.content).toContain('**Calendar**: My Outlook Calendar');
+    expect(file!.content).toContain('fc-event-uid: "outlook-uid-123"');
+  });
+
+  it('should use custom template when linkedNoteTemplate setting is provided', async () => {
+    PluginState.getSettings = jest.fn().mockReturnValue({
+      linkedNotesDirectory: 'Calendar/Notes',
+      linkedNoteTemplate: 'Teams: {{title}}'
+    });
+
+    const file = (await provider.createLinkedNote(mockEvent)) as MockCreatedFile | null;
+    expect(file).toBeDefined();
+    expect(file!.path).toBe('Calendar/Notes/Outlook Linked Note Event.md');
+    expect(file!.content).toContain('Teams: Outlook Linked Note Event');
+  });
+});
+
+describe('OutlookProvider reminder mapping', () => {
+  it('maps Outlook reminders to provider alarms', () => {
+    const event = fromOutlookEvent({
+      id: 'outlook-event-1',
+      subject: 'Outlook Reminder',
+      isAllDay: false,
+      start: { dateTime: '2026-06-15T10:00:00', timeZone: 'Europe/Amsterdam' },
+      end: { dateTime: '2026-06-15T11:00:00', timeZone: 'Europe/Amsterdam' },
+      isReminderOn: true,
+      reminderMinutesBeforeStart: 35
+    });
+
+    expect(event?.alarms).toEqual([{ minutesBefore: 35, action: 'DISPLAY' }]);
+  });
+
+  it('serializes provider alarms as Outlook reminders', () => {
+    const event = {
+      title: 'Outlook Reminder',
+      type: 'single',
+      date: '2026-06-15',
+      endDate: null,
+      allDay: false,
+      startTime: '10:00',
+      endTime: '11:00',
+      alarms: [{ minutesBefore: 35, action: 'DISPLAY' }]
+    } as OFCEvent;
+
+    expect(toOutlookEvent(event)).toMatchObject({
+      isReminderOn: true,
+      reminderMinutesBeforeStart: 35
+    });
+  });
+});
+
+describe('OutlookProvider timezone handling', () => {
+  it('converts UTC timed event from Outlook to effective display timezone', () => {
+    (PluginState.getSettings as jest.Mock).mockReturnValue({
+      displayTimezone: 'Europe/Berlin'
+    });
+
+    const event = fromOutlookEvent({
+      id: 'outlook-event-tz-1',
+      subject: 'Sync Meeting',
+      isAllDay: false,
+      start: { dateTime: '2026-06-15T10:00:00.0000000', timeZone: 'UTC' },
+      end: { dateTime: '2026-06-15T11:00:00.0000000', timeZone: 'UTC' }
+    });
+
+    expect(event).toBeDefined();
+    expect(event?.allDay).toBe(false);
+    expect(event?.type).toBe('single');
+    // In summer, Europe/Berlin is UTC+2, so 10:00 UTC is 12:00 local time
+    if (event && event.type === 'single' && !event.allDay) {
+      expect(event.date).toBe('2026-06-15');
+      expect(event.startTime).toBe('12:00');
+      expect(event.endTime).toBe('13:00');
+      expect(event.timezone).toBe('Europe/Berlin');
+    }
+  });
+
+  it('preserves native event timezone when provided from Outlook', () => {
+    (PluginState.getSettings as jest.Mock).mockReturnValue({
+      displayTimezone: 'America/New_York'
+    });
+
+    const event = fromOutlookEvent({
+      id: 'outlook-event-tz-2',
+      subject: 'Paris Meeting',
+      isAllDay: false,
+      start: { dateTime: '2026-06-15T14:00:00.0000000', timeZone: 'Europe/Paris' },
+      end: { dateTime: '2026-06-15T15:00:00.0000000', timeZone: 'Europe/Paris' }
+    });
+
+    expect(event).toBeDefined();
+    expect(event?.allDay).toBe(false);
+    if (event && !event.allDay) {
+      expect(event.startTime).toBe('14:00');
+      expect(event.endTime).toBe('15:00');
+      expect(event.timezone).toBe('Europe/Paris');
+    }
+  });
+
+  it('normalizes Windows timezone name to IANA in fromOutlookEvent', () => {
+    (PluginState.getSettings as jest.Mock).mockReturnValue({
+      displayTimezone: 'UTC'
+    });
+
+    const event = fromOutlookEvent({
+      id: 'outlook-event-tz-3',
+      subject: 'Pacific Meeting',
+      isAllDay: false,
+      start: { dateTime: '2026-06-15T09:00:00.0000000', timeZone: 'Pacific Standard Time' },
+      end: { dateTime: '2026-06-15T10:00:00.0000000', timeZone: 'Pacific Standard Time' }
+    });
+
+    expect(event).toBeDefined();
+    if (event && !event.allDay) {
+      expect(event.startTime).toBe('09:00');
+      expect(event.endTime).toBe('10:00');
+      expect(event.timezone).toBe('America/Los_Angeles');
+    }
+  });
+
+  it('uses resolveEffectiveTimezone in toOutlookEvent when event.timezone is missing', () => {
+    (PluginState.getSettings as jest.Mock).mockReturnValue({
+      displayTimezone: 'Asia/Tokyo'
+    });
+
+    const event = {
+      title: 'New Event',
+      type: 'single',
+      date: '2026-10-16',
+      endDate: null,
+      allDay: false,
+      startTime: '14:00',
+      endTime: '15:00'
+    } as OFCEvent;
+
+    const payload = toOutlookEvent(event) as {
+      start: { dateTime: string; timeZone: string };
+      end: { dateTime: string; timeZone: string };
+    };
+
+    expect(payload.start.timeZone).toBe('Asia/Tokyo');
+    expect(payload.end.timeZone).toBe('Asia/Tokyo');
+    expect(payload.start.dateTime).toBe('2026-10-16T14:00:00');
+    expect(payload.end.dateTime).toBe('2026-10-16T15:00:00');
+  });
+});
