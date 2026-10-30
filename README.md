@@ -1,75 +1,60 @@
-# OB-Calendar-and-Tasks-with-iOS
+# 日历与待办计时
 
-基于 Full Calendar Remastered 精简开发的 Obsidian 插件，目标是在一个页面中完成日历、待办和实际用时记录。
+Obsidian 桌面插件 `calendar-task-timer`，当前版本 **0.2.10**。本地 Markdown 待办、专注计时、可编辑时间轴；日历复用已安装的 Full Calendar Remastered（FCR）公开 API。
 
-## 目录
+## 安装与升级
 
-根目录只保留三个文件：.gitignore、LICENSE.md、README.md。
+1. 构建后将 `Plugin/calendar-task-timer` 复制到笔记库的 `.obsidian/plugins/`，启用插件和 FCR。
+2. 在本插件设置中“连接 FCR”，完成授权并选择默认分类。分类来自可写 CalDAV 日历。
+3. 已安装 0.2.x：先暂停或结束计时、禁用插件，只替换 `main.js`、`manifest.json`、`styles.css`，保留 `data.json`、`sessions` 和 `Migration`，再启用。
+4. 从“简洁待办计时”首次迁入：先结束并禁用旧插件，在新版尚无记录时点击“导入旧版”。保留旧文件与 UID，不导入授权令牌。
 
-```text
-Src/                             源码和开发配置
-  Core/、Providers/、Ui/          日历、待办、同步和界面
-  Features/                      功能模块
-  Build/                         构建脚本和测试配置
-  Testing/                       测试辅助代码
-  Reference/                     待整合的计时参考
-  Vendor/                        第三方代码
-  package.json、pnpm-*.yaml       依赖和命令配置
-  tsconfig.json                  TypeScript 配置
-  node_modules/                  自动安装的开发依赖，不提交 Git
-Data/                            静态资源与项目资料
-  I18n/                          中文、英文界面文字
-  Fixtures/                      测试样例
-  Docs/                          项目说明与开发记录
-  manifest.json                  插件名称、版本和 ID
-Results/                         可重建的临时结果，按需保留或清理
-Plugin/
-  full-calendar-remastered/      最终安装目录，只有下面三个文件
-    main.js
-    manifest.json
-    styles.css
-```
+`npm run release` 生成 `Results/Release/calendar-task-timer-<版本>.zip`，包内恰有三个标准插件文件。构建和发布命令不会自动安装到日常笔记库。
 
-项目目录首字母大写；node_modules、.git、.vscode 和 __tests__ 等工具约定名称保持原样。插件安装目录名使用 manifest 中的 ID。Results、Plugin、开发依赖和编辑器本机设置不提交 Git。
+## 使用
 
-测试文件跟随对应功能留在 Src 中。package.json、锁文件、pnpm 配置和 TypeScript 配置均收进 Src，它也是 Node 项目的入口目录。
+- 新建待办时选择分类，可设置日期；点击 ▷ 计时。点击标题可改名称、分类和日期。
+- 待办支持手动／日期／标题排序。手动模式拖动 ⠿，或聚焦手柄后按 Alt + ↑ / ↓；分类内排序保留其他分类位置。⇅ 可排序或隐藏分类。
+- 计时支持暂停／继续、补改开始时间和本次分类。“结束并完成”先保存本机并完成本地待办，再后台上传；“只记时间”保留待办。
+- 时间轴合并日程、工时和待同步记录。点击可编辑起止、分类或删除；暂停分段分别计时，删除只处理选中时段。全天和重复日程交给完整 FCR。
+- 右上角同步按钮提供进度、错误与重试。网络错误退避重试；授权或真实内容冲突等待处理。不要删除日志来清空队列。
+- 宽屏时间轴／待办为 1:2，窄屏自动堆叠。专注区平滑展开，支持明暗主题、减少动画、字号和字重；底部状态栏显示当前或下一项。
+
+遇到旧“需要核对”项，先刷新再重试。已修复未确认写入后不刷新，以及资源元数据、零秒格式、缺省字段造成的假冲突；真实内容变化仍停止覆盖。
 
 ## 开发
 
-在仓库根目录运行：
+在 `Coding` 目录运行，使用 Node.js 24 和 PowerShell 7：
 
 ```powershell
-pnpm --dir Src install --frozen-lockfile
-pnpm --dir Src run compile
-pnpm --dir Src test
-pnpm --dir Src run test:timer
-pnpm --dir Src run build
+npm ci
+npm run check
+npm test
+npm run release
+npm run preview
+# 预览服务运行后，另一个终端执行：
+npm run test:ui
 ```
 
-也可以先进入 Src，再使用 pnpm run build 等命令。开发监听命令为 pnpm --dir Src run dev。
+预览地址 `http://127.0.0.1:4173`，也可打开 `Results/Preview/index.html`。示例可模拟断网／慢上传，不连接真实账户。浏览器检查默认使用 Chrome，可通过 `CTT_CHROME` 指定路径。
 
-构建直接生成 Plugin/<manifest.id>/ 中的三个安装文件，不保存重复的构建副本。许可证保留在仓库根目录。构建不会自动安装到日常笔记库。
+```text
+Coding/
+  Shared/             模型、计时、时间轴与后台调度
+  Providers/Fcr/      公开 API 桥接与日历对账
+  Clients/Obsidian/   生命周期、Markdown、日志、UI 和设置
+  Build/              构建、测试和三文件打包
+  Preview/ Tests/     独立示例与回归测试
+  Probes/             独立提醒事项验证工具，不进入插件包
+Notes/                当前架构、工程约定与验证记录
+Plugin/               最新三文件插件（生成、忽略提交）
+Results/              预览、测试、发布与本机探针环境（忽略提交）
+```
 
-Results/Cache 是依赖下载缓存，Results/Tests 是手动保存的测试报告，都可以删除；安装依赖或再次保存报告时可能重新生成。Src 内的测试代码和 node_modules 开发依赖不属于这些临时结果。
+文档：[架构与范围](Notes/Architecture.md)、[开发与仓库维护](Notes/Development.md)、[验证状态](Notes/Verification.md)。提醒事项另见[探针说明](Coding/Probes/IcloudReminders/README.md)、[验证标准](Notes/04-iCloud接口验证方案.md)和[实测记录](Notes/10-提醒事项接口实测记录.md)。
 
-如需手动安装，将 Plugin 内的整个插件 ID 文件夹放入笔记库的 .obsidian/plugins/。当前仍暂用上游插件 ID，正式改版发布前会确定独立名称与 ID。
+## 边界与来源
 
-## 当前进度
+当前待办仍存 OB，独立提醒事项探针成功不代表已接入插件；不做跨设备活动计时接力。FCR 查询来自缓存，不是独立服务端条件事务；真实 OB/iCloud 完整往返和实机性能仍待验收。升级前应暂停／结束；异常重启按最后可靠心跳恢复为暂停，可能少计最后约 15 秒。
 
-- 已删除 AI、天气、统计图表、成就月报、可用时间分享、上游更新弹窗和 NLP 文字快速创建功能。
-- 保留日历视图、事件编辑、重复日程、时区、CalDAV / iCloud 同步和待办基础。
-- 中英文翻译直接内置，中文界面可离线加载。
-- Src/Reference/Simple-task-timer/ 是已认可的计时参考，尚未整合进主插件。
-- Apple 新版提醒事项接入仍待验证。
-
-- [需求与项目范围](Data/Docs/项目说明.md)
-- [源码结构](Data/Docs/功能结构分析.md)
-- [开发与验证记录](Data/Docs/开发与验证.md)
-
-## 来源与许可
-
-本项目修改自 [Full Calendar Remastered](https://github.com/obsidian-full-calendar-remastered/plugin-full-calendar)，基线提交为 54efcc2eb089c2410ac67d955714c30b218e6628。原始 Full Calendar 由 Davis Haupt 开发，Remastered 由 Jovi Koikkara 及上游贡献者维护。
-
-改版沿用 [GPL-3.0 许可证](LICENSE.md)。Src/Reference/Simple-task-timer/ 保留其 MIT 许可。此仓库独立管理 Git 历史，尚未发布改版安装包。
-
-源码仓库：[Yang-Jia-Lin/OB-Calendar-and-Tasks-with-iOS](https://github.com/Yang-Jia-Lin/OB-Calendar-and-Tasks-with-iOS)。
+计时部分改编自旧工程 MIT `Simple-task-timer`，版权保留在 [LICENSE.md](LICENSE.md) 和构建文件头。FCR 是独立依赖，当前源码未复制其 GPL 实现。旧 FCR 工程保留于此远程仓库的早期提交。

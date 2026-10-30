@@ -1,7 +1,0 @@
-dist/
-preview/bundle.js
-preview/test-results/
-node_modules/
-data.json
-sessions/
-*.log

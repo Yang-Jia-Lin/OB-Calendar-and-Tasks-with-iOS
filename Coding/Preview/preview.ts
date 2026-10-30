@@ -1,0 +1,104 @@
+import { FcrBridge, type FcrApi } from "../Providers/Fcr/bridge";
+import { clone, uid, type Task, type Entry } from "../Shared/contracts";
+import { TimerController, blankJournal, validateJournal } from "../Shared/timer";
+import { dayKey, dateParts, eventForSegment } from "../Shared/time";
+import { mergeTimeline } from "../Shared/timeline";
+import { TimerUI, type ViewModel, type Actions } from "../Clients/Obsidian/ui";
+import { el, options, button } from "../Clients/Obsidian/dom";
+import { Dialogs, type DialogHost } from "../Clients/Obsidian/dialogs";
+import { appearance, applyAppearance, mountTimerView, DEFAULT_APPEARANCE } from "../Clients/Obsidian/appearance";
+import { setupStatus, updateStatus } from "../Clients/Obsidian/status";
+import { categoryPreferences, renderCategorySettings } from "../Clients/Obsidian/categories";
+import { reorderTaskSlots, taskSort, type TaskSort } from "../Clients/Obsidian/taskOrder";
+import { SyncWorker } from "../Shared/sync";
+import { pendingView, syncKey } from "../Clients/Obsidian/syncStatus";
+const key = "calendar-task-timer-preview-v2", today = dayKey();
+const calendars = [{ id: "research", name: "科研", type: "caldav", color: "#c8a0b2" }, { id: "work", name: "工作", type: "caldav", color: "#82a6c0" }, { id: "personal", name: "个人", type: "caldav", color: "#9bb69f" }];
+let tasks: Task[] = [
+  { id: "t1", title: "梳理论文中的核心问题", calendarId: "research", due: today, completed: false, kind: "local" },
+  { id: "t2", title: "整理多摄像头数据集", calendarId: "research", completed: false, kind: "local" },
+  { id: "t3", title: "准备项目周报", calendarId: "work", due: today, completed: false, kind: "local" },
+  { id: "t4", title: "晚间阅读", calendarId: "personal", completed: false, kind: "local" }
+];
+let entries: Entry[] = [], defaultCalendarId = "research", date = today, busy = false, error = "", offline = false;
+let typography = { ...DEFAULT_APPEARANCE };
+let categories = categoryPreferences();
+let syncDelay = 0;
+let worker: SyncWorker | undefined;
+let sortMode: TaskSort = "manual";
+const instant = (time: string) => +new Date(`${today}T${time}:00`);
+const firstTask = { id: "demo-work", title: "论文阅读", kind: "local" as const, completed: true, calendarId: "research" };
+const seed = blankJournal();
+const demoRecord = { id: "demo-session", title: "论文阅读", task: firstTask, calendarId: "research", zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  startedAt: instant("09:10"), endedAt: instant("10:00"), runningSince: null, lastHeartbeat: instant("10:00"), segments: [{ start: instant("09:10"), end: instant("10:00"), uid: "simple-task-timer-demo-session-0", saved: true }], completeTask: false, taskSaved: true, status: "saved" as const, error: "" };
+const demoEvent = eventForSegment(demoRecord, demoRecord.segments[0]); demoRecord.segments[0] = { ...demoRecord.segments[0], snapshot: demoEvent } as typeof demoRecord.segments[0];
+seed.records.push(demoRecord);
+entries.push({ id: "demo-event-1", calendarId: "research", event: demoEvent });
+const makeEvent = (id: string, title: string, start: string, end: string, calendarId: string) => {
+  const a = dateParts(instant(start), "UTC"), b = dateParts(instant(end), "UTC");
+  entries.push({ id, calendarId, event: { type: "single", uid: id, title, date: a.date, endDate: b.date, startTime: a.time, endTime: b.time, timezone: "UTC", allDay: false, isTask: false } });
+};
+makeEvent("demo-event-2", "项目讨论", "10:30", "11:15", "work"); makeEvent("demo-event-3", "实验方案整理", "14:00", "15:00", "research"); makeEvent("demo-event-4", "健身", "19:00", "20:00", "personal");
+let initial = seed;
+try { const saved = JSON.parse(localStorage.getItem(key) || "null"); if (saved) { initial = validateJournal(saved.journal); tasks = saved.tasks; entries = saved.entries; defaultCalendarId = saved.defaultCalendarId; typography = appearance(saved.typography); categories = categoryPreferences(saved.categories); sortMode = taskSort(saved.taskSort); } } catch { /* Invalid preview fixtures are reset; no real data exists here. */ }
+const write = () => { localStorage.setItem(key, JSON.stringify({ journal: controller.state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode })); };
+const effect = async () => { if (syncDelay) await new Promise(resolve => setTimeout(resolve, syncDelay)); if (offline) throw new Error("模拟断网：操作已保存在本机，联网后可重试。"); };
+const api: FcrApi = {
+  getCalendarSources: () => clone(calendars), getProviderCapabilities: () => ({ canCreate: true, canEdit: true, canDelete: true }),
+  getAllEvents: () => calendars.map(c => ({ ...c, events: entries.filter(e => e.calendarId === c.id).map(e => ({ id: e.id, event: clone(e.event) })) })),
+  getEvents: () => entries.map(e => ({ id: e.id, startMillis: +new Date(`${e.event.date}T${e.event.startTime}${e.event.timezone === "UTC" ? "Z" : ""}`), endMillis: +new Date(`${e.event.endDate || e.event.date}T${e.event.endTime}${e.event.timezone === "UTC" ? "Z" : ""}`), isTask: false })),
+  createEvent: async (calendarId, event) => { await effect(); entries.push({ id: uid(), calendarId, event: clone(event) }); write(); return true; },
+  updateEvent: async (id, event) => { await effect(); const found = entries.find(e => e.id === id); if (!found) return false; found.event = clone(event); write(); return true; },
+  deleteEvent: async id => { await effect(); entries = entries.filter(e => e.id !== id); write(); },
+  revalidateRemoteCalendars: () => {}, openCalendar: async () => { notice("预览仅展示时间轴；真实插件会打开 FCR。"); }
+};
+const bridge = new FcrBridge({}, () => null, async () => {}); bridge.authorized = api;
+let ui: TimerUI;
+const notice = (text: string) => { const node = document.querySelector<HTMLElement>("#toast")!; node.textContent = text; setTimeout(() => { if (node.textContent === text) node.textContent = ""; }, 4000); };
+const controller = new TimerController({ state: initial, background: true, persist: async state => { localStorage.setItem(key, JSON.stringify({ journal: state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode })); }, calendar: bridge,
+  tasks: { complete: async task => { const found = tasks.find(t => t.id === task.id); if (!found) throw new Error("待办已删除"); if (!found.completed && found.title !== task.title) throw new Error("待办已变化"); found.completed = true; write(); } }, onChange: () => { render(); worker?.wake(); } });
+worker = new SyncWorker(controller, { enabled: () => true, changed: () => render(), settled: () => { write(); render(); } });
+const host: DialogHost = { notice, open: (title, render) => { const restore = document.activeElement; const d = document.createElement("dialog"); document.body.append(d); const root = el(d, "div", "ctt-dialog"); applyAppearance(root, typography); el(root, "h2", "", title); render(root, () => d.close()); d.addEventListener("close", () => { d.remove(); if (restore instanceof HTMLElement && restore.isConnected) restore.focus(); }); d.showModal(); } };
+const dialogs = new Dialogs(host, controller, bridge, () => calendars, () => defaultCalendarId, async () => { write(); render(); }, id => worker!.retry(`delete:${id}`));
+async function run(fn: () => Promise<unknown>) { if (busy) return false; busy = true; error = ""; render(); try { await fn(); return true; } catch (e) { error = (e as Error).message; return false; } finally { busy = false; render(); } }
+function model(): ViewModel { const state = controller.state;
+  return { connected: true, busy, error, sources: calendars, calendars, defaultCalendarId, active: state.active, tasks, date, appearance: typography, categoryPreferences: categories, taskSort: sortMode,
+    rows: mergeTimeline(bridge.timeline(date), state.records, date, state.operations, state.deletions), pending: pendingView(state, worker?.view), sync: worker?.view };
+}
+function render() { ui?.update(model()); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }
+const actions: Actions = {
+  connect: () => {}, refresh: () => { void run(async () => { bridge.refresh(); await controller.reconcileDeletions(); notice("已刷新示例日历"); }); }, openCalendar: () => { void bridge.openCalendar(); },
+  categorySettings: () => host.open("分类排序与显示", (root, close) => {
+    const categoryRoot = el(root, "div"); renderCategorySettings(categoryRoot, calendars, categories, async next => { categories = next; write(); render(); });
+    button(root, "完成", close);
+  }),
+  settings: () => host.open("预览设置", (root, close) => {
+    const l = el(root, "label", "ctt-field"); el(l, "span", "", "默认分类"); const select = el(l, "select"); options(select, calendars, defaultCalendarId);
+    const sizeLabel = el(root, "label", "ctt-field"); el(sizeLabel, "span", "", "页面字号"); const size = el(sizeLabel, "select");
+    for (let n = 13; n <= 20; n++) { const option = el(size, "option", "", `${n}px`); option.value = String(n); } size.value = String(typography.fontSize);
+    const weightLabel = el(root, "label", "ctt-field"); el(weightLabel, "span", "", "页面字重"); const weight = el(weightLabel, "select");
+    for (const [v, title] of [[400, "常规"], [500, "适中"], [600, "加粗"]] as const) { const option = el(weight, "option", "", title); option.value = String(v); } weight.value = String(typography.fontWeight);
+    button(root, "保存", () => { defaultCalendarId = select.value; typography = appearance({ fontSize: Number(size.value), fontWeight: Number(weight.value) }); write(); render(); close(); }, "ctt-primary"); }),
+  date: value => { date = value; render(); },
+  sortTasks: mode => run(async () => { const before = sortMode; sortMode = mode; try { write(); } catch (e) { sortMode = before; throw e; } }),
+  reorderTasks: (next, expected) => run(async () => { if (sortMode !== "manual") throw new Error("请先切换手动排序。"); const before = tasks; tasks = reorderTaskSlots(tasks, next, expected); try { write(); } catch (e) { tasks = before; throw e; } }),
+  add: (title, due, calendarId) => run(async () => { if (!title.trim()) throw new Error("请填写名称。"); bridge.assertWritable(calendarId); tasks.push({ id: uid(), title, due, calendarId, completed: false, kind: "local" }); write(); }),
+  start: task => { void run(() => controller.start(task, task.calendarId || defaultCalendarId)); },
+  complete: task => { task.completed = true; write(); render(); }, editTask: task => dialogs.task(task, async patch => { Object.assign(task, patch); write(); }),
+  pause: () => { void run(() => controller.pause()); }, resume: () => { void run(() => controller.resume()); }, finish: complete => { void run(async () => { await controller.finish(complete); write(); }); },
+  editStart: () => dialogs.start(), category: id => { void run(() => controller.updateActive({ calendarId: id })); },
+  newEvent: () => dialogs.event(date), editRow: row => { if (row.deleting && row.deletionId) { dialogs.deletion(row.deletionId); return; } if (row.pending && !row.recordId) { notice(row.error || "请先重试待同步操作。"); return; } if (row.recordId) dialogs.record(controller.state.records.find(r => r.id === row.recordId)!, row.segmentUid); else dialogs.event(date, row); },
+  resolveDeletion: id => dialogs.deletion(id),
+  retry: id => { void run(async () => { await worker?.retry(syncKey(id)); }); },
+  keep: id => { void run(() => controller.keepCalendarOnly(id)); }
+};
+ui = new TimerUI(mountTimerView(document.querySelector<HTMLElement>("#app")!), actions);
+setupStatus(document.querySelector<HTMLElement>("#preview-status")!, () => document.querySelector<HTMLElement>(".ctt-shell")!.scrollTo({ top: 0 }));
+render(); void controller.recover().then(() => worker?.wake());
+setInterval(() => { ui.tick(); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }, 1000); setInterval(() => { void controller.heartbeat(); }, 15000);
+document.querySelector<HTMLInputElement>("#offline")!.onchange = e => { offline = (e.target as HTMLInputElement).checked; if (!offline) void worker?.resume("network"); };
+document.querySelector<HTMLSelectElement>("#sync-delay")!.onchange = e => { syncDelay = Number((e.target as HTMLSelectElement).value); };
+document.querySelector<HTMLInputElement>("#theme")!.onchange = e => document.documentElement.classList.toggle("theme-dark", (e.target as HTMLInputElement).checked);
+document.querySelector<HTMLButtonElement>("#reset")!.onclick = () => { localStorage.removeItem(key); location.reload(); };
+(window as any).__preview = { controller, bridge, model, render, worker, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
+window.addEventListener("beforeunload", () => worker?.stop());

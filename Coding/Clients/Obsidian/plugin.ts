@@ -1,0 +1,212 @@
+import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, type WorkspaceLeaf } from "obsidian";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { TimerController, blankJournal } from "../../Shared/timer";
+import { uid, type Task, type TimelineRow } from "../../Shared/contracts";
+import { dayKey } from "../../Shared/time";
+import { mergeTimeline } from "../../Shared/timeline";
+import { FcrBridge } from "../../Providers/Fcr/bridge";
+import { MarkdownTasks } from "./tasks";
+import { JournalStore, prepareLegacyImport, type Settings } from "./journal";
+import { TimerUI, type ViewModel, type Actions } from "./ui";
+import { Dialogs, type DialogHost } from "./dialogs";
+import { appearance, applyAppearance, mountTimerView, DEFAULT_APPEARANCE } from "./appearance";
+import { setupStatus, updateStatus } from "./status";
+import { categoryPreferences, renderCategorySettings, type CategoryPreferences } from "./categories";
+import { taskSort, TASK_SORT_LABELS, type TaskSort } from "./taskOrder";
+import { SyncWorker } from "../../Shared/sync";
+import { pendingView, syncKey } from "./syncStatus";
+const VIEW = "calendar-task-timer-view";
+function hash(text: string) { let n = 2166136261; for (const c of text) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0).toString(16); }
+class TimerView extends ItemView {
+  ui?: TimerUI;
+  constructor(leaf: WorkspaceLeaf, private owner: CalendarTaskTimer) { super(leaf); }
+  getViewType() { return VIEW; } getDisplayText() { return "日历与待办计时"; } getIcon() { return "timer"; }
+  async onOpen() { this.ui = new TimerUI(mountTimerView(this.contentEl), this.owner.actions()); this.render(); }
+  render() { this.ui?.update(this.owner.model()); }
+  async onClose() { this.ui?.destroy(); }
+}
+class FormModal extends Modal {
+  private restore: Element | null = null;
+  constructor(app: CalendarTaskTimer["app"], private title: string, private renderForm: (root: HTMLElement, close: () => void) => void) { super(app); }
+  onOpen() { this.restore = document.activeElement; this.titleEl.textContent = this.title; this.contentEl.classList.add("ctt-dialog"); this.renderForm(this.contentEl, () => this.close()); }
+  onClose() { this.contentEl.replaceChildren(); if (this.restore instanceof HTMLElement && this.restore.isConnected) this.restore.focus(); }
+}
+class TimerSettings extends PluginSettingTab {
+  constructor(app: CalendarTaskTimer["app"], private owner: CalendarTaskTimer) { super(app, owner); }
+  display() {
+    const p = this.owner, root = this.containerEl; root.replaceChildren();
+    new Setting(root).setName("日历连接").setDesc("使用 FCR 已配置的日历。")
+      .addButton(b => b.setButtonText("连接 FCR").onClick(() => { void p.run(async () => { await p.bridge.connect(true); await p.worker?.resume("auth"); await p.refresh(); this.display(); }); }));
+    let calendars: { id: string; name: string }[] = []; try { calendars = p.bridge.writableCalendars(); } catch {}
+    new Setting(root).setName("默认分类").setDesc("新待办预填此分类。日历失效时不会自动改投。")
+      .addDropdown(d => { d.addOption("", "选择分类"); for (const c of calendars) d.addOption(c.id, c.name); d.setValue(p.settings.defaultCalendarId).onChange(async value => { p.settings.defaultCalendarId = value; await p.saveSettings(); p.render(); }); });
+    new Setting(root).setName("待办分类排序与显示");
+    const categoryRoot = root.ownerDocument.createElement("div"); root.append(categoryRoot);
+    renderCategorySettings(categoryRoot, calendars, p.settings, next => p.saveCategoryPreferences(next));
+    new Setting(root).setName("待办显示顺序").setDesc("手动模式可拖动任务左侧手柄，或用 Alt + ↑ / ↓ 排序。")
+      .addDropdown(d => d.addOptions(TASK_SORT_LABELS).setValue(taskSort(p.settings.taskSort)).onChange(value => { void p.run(() => p.saveTaskSort(taskSort(value))); }));
+    new Setting(root).setName("页面字号").setDesc("计时、待办和时间轴一起调整。")
+      .addSlider(s => s.setLimits(13, 20, 1).setValue(appearance(p.settings).fontSize).setDynamicTooltip().onChange(async value => { p.settings.fontSize = value; p.render(); await p.saveSettings(); }));
+    new Setting(root).setName("页面字重").addDropdown(d => d.addOptions({ "400": "常规", "500": "适中", "600": "加粗" }).setValue(String(appearance(p.settings).fontWeight)).onChange(async value => { p.settings.fontWeight = Number(value); p.render(); await p.saveSettings(); }));
+    new Setting(root).setName("待办文件").addText(t => { t.setValue(p.settings.tasksPath); t.inputEl.onchange = () => { void p.run(async () => { const before = p.settings.tasksPath; p.settings.tasksPath = t.inputEl.value; try { p.tasks.path(); await p.saveSettings(); await p.refresh(); } catch (e) { p.settings.tasksPath = before; throw e; } }); }; });
+    new Setting(root).setName("打开待办文件").addButton(b => b.setButtonText("打开").onClick(() => { void p.run(async () => { const file = await p.tasks.file(true); if (file) await p.app.workspace.getLeaf(false).openFile(file); }); }));
+    new Setting(root).setName("导入旧版数据").setDesc("先结束计时并禁用旧插件。仅导入当前设备设置和日志；原文件与授权令牌保留。新版已有记录时不允许覆盖。")
+      .addButton(b => b.setButtonText(p.settings.importedLegacy ? "已导入" : "导入旧版").setDisabled(p.settings.importedLegacy).onClick(() => { void p.run(async () => { await p.importLegacy(); this.display(); }); }));
+  }
+}
+export default class CalendarTaskTimer extends Plugin {
+  settings: Settings = { defaultCalendarId: "", tasksPath: "待办计时/待办.md", importedLegacy: false, ...DEFAULT_APPEARANCE };
+  controller!: TimerController; bridge!: FcrBridge; tasks!: MarkdownTasks; dialogs!: Dialogs;
+  worker?: SyncWorker;
+  get connected() { return this.bridge?.connected ?? false; }
+  private busy = false; private error = ""; private date = dayKey(); private items: Task[] = [];
+  private store!: JournalStore; private base = ""; private vaultId = ""; private pluginDir = ""; private status?: HTMLElement;
+  private token: string | null = null; private importing = false; private timers = new Set<number>();
+  private unloaded = false; private snapshotQueued = false;
+  private calendarView: { date: string; sources: ViewModel["sources"]; calendars: ViewModel["calendars"]; rows: TimelineRow[]; error: string } = { date: "", sources: [], calendars: [], rows: [], error: "" };
+  async onload() {
+    const data = await this.loadData() || {};
+    for (const k of ["defaultCalendarId", "tasksPath"] as const) if (typeof data[k] === "string") this.settings[k] = data[k];
+    this.settings.importedLegacy = data.importedLegacy === true;
+    Object.assign(this.settings, appearance(data));
+    Object.assign(this.settings, categoryPreferences(data));
+    this.settings.taskSort = taskSort(data.taskSort);
+    this.base = (this.app.vault.adapter as any).getBasePath?.(); if (!this.base) throw new Error("本版仅支持桌面 Obsidian。");
+    this.vaultId = hash(this.base); this.pluginDir = path.join(this.base, this.manifest.dir || `${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+    const key = `calendar-task-timer-device-${this.vaultId}`;
+    let device = window.localStorage.getItem(key); if (!/^[a-f0-9-]{36}$/i.test(device || "")) { device = uid(); window.localStorage.setItem(key, device); }
+    this.store = new JournalStore(path.join(this.pluginDir, "sessions", `${device}.json`));
+    const secretKey = `calendar-task-timer-${this.vaultId}`, secretStorage = (this.app as any).secretStorage;
+    this.bridge = new FcrBridge(this.app as any, () => secretStorage?.getSecret?.(secretKey) || this.token,
+      async token => { if (secretStorage?.setSecret) await secretStorage.setSecret(secretKey, token); else this.token = token; });
+    this.tasks = new MarkdownTasks(this.app, () => this.settings.tasksPath);
+    const state = await this.store.load();
+    if (state.legacyImport && !this.settings.importedLegacy) { this.settings = { ...this.settings, ...state.legacyImport, importedLegacy: true }; await this.saveSettings(); }
+    this.controller = new TimerController({ state, persist: s => this.store.save(s), calendar: this.bridge, background: true,
+      tasks: { complete: task => this.completeOriginal(task) }, onChange: () => { this.render(); this.worker?.wake(); } });
+    const recovered = await this.controller.recover();
+    this.worker = new SyncWorker(this.controller, { channel: this.store.file.toLowerCase(), enabled: () => this.connected && !this.importing && !this.unloaded && navigator.onLine !== false,
+      changed: () => this.render(), settled: () => { this.readCalendarView(); this.scheduleSnapshot(); } });
+    const host: DialogHost = { open: (title, render) => new FormModal(this.app, title, (root, close) => { applyAppearance(root, this.settings); render(root, close); }).open(), notice: text => { new Notice(text); } };
+    this.dialogs = new Dialogs(host, this.controller, this.bridge, () => this.bridge.writableCalendars(), () => this.settings.defaultCalendarId, () => this.refreshLocal(), id => this.worker!.retry(`delete:${id}`));
+    this.registerView(VIEW, leaf => new TimerView(leaf, this)); this.addRibbonIcon("timer", "日历与待办计时", () => { void this.openView(); });
+    this.addCommand({ id: "open", name: "打开计时与时间轴", callback: () => { void this.openView(); } });
+    this.addCommand({ id: "pause-resume", name: "暂停／继续当前计时", callback: () => { void this.run(() => this.controller.state.active?.runningSince == null ? this.controller.resume() : this.controller.pause()); } });
+    this.addCommand({ id: "finish", name: "结束计时并完成待办", callback: () => this.actions().finish(true) });
+    this.addSettingTab(new TimerSettings(this.app, this)); this.status = this.addStatusBarItem(); setupStatus(this.status, () => { void this.openView(); });
+    this.registerInterval(window.setInterval(() => this.tick(), 1000));
+    this.registerInterval(window.setInterval(() => { if (!this.importing) void this.controller.heartbeat().catch(e => this.fail(e)); }, 15000));
+    this.registerInterval(window.setInterval(() => { if (!this.busy) void this.refresh(true).catch(e => this.fail(e)); }, 30000));
+    this.registerEvent(this.app.vault.on("modify", file => { if (file.path === this.settings.tasksPath) this.later(() => { void this.refreshLocal().catch(e => this.fail(e)); }, 180); }));
+    this.app.workspace.onLayoutReady(() => { void (async () => { try { await this.bridge.connect(false); await this.worker?.resume("auth"); } catch {} await this.refresh(); if (recovered) new Notice("上次计时已恢复为暂停。"); })().catch(e => this.fail(e)); });
+    const online = () => { void this.worker?.resume("network").catch(e => this.fail(e)); };
+    window.addEventListener("online", online); this.register(() => window.removeEventListener("online", online));
+    // Save an extra heartbeat when hidden; crash recovery stops at the last durable heartbeat.
+    const visibility = () => { if (document.visibilityState === "hidden") void this.controller.heartbeat().catch(e => this.fail(e)); };
+    document.addEventListener("visibilitychange", visibility); this.register(() => document.removeEventListener("visibilitychange", visibility));
+    await this.refresh();
+  }
+  onunload() { this.unloaded = true; this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
+  async openView() { let leaf = this.app.workspace.getLeavesOfType(VIEW)[0]; if (!leaf) { leaf = this.app.workspace.getLeaf("tab"); await leaf.setViewState({ type: VIEW, active: true }); } await this.app.workspace.revealLeaf(leaf); }
+  async saveSettings() { await this.saveData(this.settings); }
+  async saveTaskSort(mode: TaskSort) {
+    const previous = this.settings.taskSort; this.settings.taskSort = mode;
+    try { await this.saveSettings(); } catch (e) { this.settings.taskSort = previous; throw e; }
+    this.render();
+  }
+  async saveCategoryPreferences(next: CategoryPreferences) {
+    const previous = categoryPreferences(this.settings); Object.assign(this.settings, categoryPreferences(next));
+    try { await this.saveSettings(); } catch (e) { Object.assign(this.settings, previous); throw e; }
+    this.render();
+  }
+  private openCategorySettings() {
+    new FormModal(this.app, "分类排序与显示", (root, close) => {
+      applyAppearance(root, this.settings);
+      const categoryRoot = root.ownerDocument.createElement("div"); root.append(categoryRoot);
+      renderCategorySettings(categoryRoot, this.model().calendars, this.settings, next => this.saveCategoryPreferences(next));
+      const done = root.ownerDocument.createElement("button"); done.textContent = "完成"; done.onclick = close; root.append(done);
+    }).open();
+  }
+  private later(fn: () => void, ms: number) { const id = window.setTimeout(() => { this.timers.delete(id); fn(); }, ms); this.timers.add(id); }
+  private scheduleSnapshot() { if (this.snapshotQueued || this.unloaded) return; this.snapshotQueued = true; this.later(() => { this.snapshotQueued = false; if (!this.unloaded) void this.refresh().catch(e => this.fail(e)); }, 200); }
+  private async refreshLocal() { this.items = await this.tasks.list(); if (!this.unloaded) { this.render(); this.worker?.wake(); } }
+  private fail(e: unknown) { this.error = (e as Error).message || String(e); this.render(); }
+  async run(fn: () => Promise<unknown>): Promise<boolean> { if (this.busy || this.importing) return false; this.busy = true; this.error = ""; this.render(); try { await fn(); return true; } catch (e) { this.fail(e); return false; } finally { this.busy = false; this.render(); } }
+  private async completeOriginal(task: Task) {
+    if (task.kind === "local") { await this.tasks.completeLocal(task); return; }
+    const entry = this.bridge.entries().find(e => e.calendarId === task.calendarId && (task.uid ? e.event.uid === task.uid : e.id === task.id));
+    if (!entry || entry.event.type !== "single" || !(entry.event.isTask || entry.event.completed != null)) throw new Error("旧版原待办不存在或不再支持完成；工时已保留。");
+    if (entry.event.completed) return;
+    if (await this.bridge.api().updateEvent(entry.id, { ...entry.event, isTask: true, completed: new Date().toISOString() }) !== true) throw new Error("工时已保存，原待办完成待重试。");
+  }
+  private readCalendarView() {
+    const next: typeof this.calendarView = { date: this.date, sources: [], calendars: [], rows: [], error: "" };
+    try { if (this.connected) { next.sources = this.bridge.sources(); next.calendars = this.bridge.writableCalendars(); next.rows = this.bridge.timeline(this.date); } }
+    catch (e) { next.error = (e as Error).message; }
+    this.calendarView = next;
+  }
+  async refresh(reconcileDeletions = false) {
+    this.items = await this.tasks.list();
+    if (this.connected && !this.settings.defaultCalendarId) {
+      const matches = this.bridge.writableCalendars().filter(c => c.name.replace(/[^\p{L}\p{N}]/gu, "") === "科研");
+      if (matches.length === 1) { this.settings.defaultCalendarId = matches[0].id; await this.saveSettings(); }
+    }
+    if (reconcileDeletions && this.connected) await this.controller.reconcileDeletions();
+    this.readCalendarView();
+    this.render();
+    this.worker?.wake();
+  }
+  model(): ViewModel {
+    const { sources, calendars, rows: remote, error: calendarError } = this.connected ? this.calendarView : { sources: [], calendars: [], rows: [], error: "" };
+    const error = this.error || calendarError; let rows = remote;
+    const state = this.controller?.state || blankJournal();
+    rows = mergeTimeline(rows, state.records, this.date, state.operations, state.deletions);
+    const pending = pendingView(state, this.worker?.view);
+    return { connected: this.connected, busy: this.busy, error, sources, calendars, defaultCalendarId: this.settings.defaultCalendarId, active: state.active, tasks: this.items, date: this.date, rows, pending, sync: this.worker?.view, appearance: appearance(this.settings), categoryPreferences: categoryPreferences(this.settings), taskSort: taskSort(this.settings.taskSort) };
+  }
+  actions(): Actions { return {
+    connect: () => { void this.run(async () => { await this.bridge.connect(true); await this.worker?.resume("auth"); await this.refresh(); }); },
+    refresh: () => { void this.run(async () => { if (!this.connected) await this.bridge.connect(true); await this.worker?.resume("auth"); this.bridge.refresh(); await this.refresh(); this.later(() => { void this.refresh(true).catch(e => this.fail(e)); }, 1800); this.later(() => { void this.refresh(true).catch(e => this.fail(e)); }, 5000); }); },
+    settings: () => { const setting = (this.app as any).setting; setting.open(); setting.openTabById(this.manifest.id); },
+    categorySettings: () => this.openCategorySettings(),
+    openCalendar: () => { void this.run(async () => { await this.bridge.connect(true); await this.bridge.openCalendar(); await this.refresh(); }); }, date: value => { this.date = value; this.readCalendarView(); this.render(); },
+    sortTasks: mode => this.run(() => this.saveTaskSort(mode)),
+    reorderTasks: (next, expected) => this.run(async () => { if (taskSort(this.settings.taskSort) !== "manual") throw new Error("请先切换手动排序。"); await this.tasks.reorder(next, expected); this.items = await this.tasks.list(); }),
+    add: (title, due, calendarId) => this.run(async () => { this.bridge.assertWritable(calendarId); await this.tasks.add(title, due, calendarId); await this.refreshLocal(); }),
+    start: task => { void this.run(async () => { if ((this.app as any).plugins?.getPlugin?.("simple-task-timer")?.controller?.state?.active) throw new Error("旧插件仍在计时，请先结束旧版会话。"); const category = task.calendarId || this.settings.defaultCalendarId;
+      this.bridge.assertWritable(category); if (!task.calendarId) { await this.tasks.update(task, { calendarId: category }); this.items = this.items.map(t => t.id === task.id ? { ...t, calendarId: category } : t); } await this.controller.start({ ...task, calendarId: category }, category); }); },
+    complete: task => { void this.run(async () => { await this.tasks.update(task, { completed: true }); await this.refreshLocal(); }); },
+    editTask: task => this.dialogs.task(task, patch => this.tasks.update(task, patch)),
+    pause: () => { void this.run(() => this.controller.pause()); }, resume: () => { void this.run(() => this.controller.resume()); },
+    finish: complete => { void this.run(async () => { const r = await this.controller.finish(complete); new Notice(r.error ? "工时已保存到本机，请在同步队列核对待办状态" : "本机已保存，工时将在后台同步"); await this.refreshLocal(); }); },
+    editStart: () => this.dialogs.start(), category: id => { void this.run(() => this.controller.updateActive({ calendarId: id })); },
+    newEvent: () => { try { this.dialogs.event(this.date); } catch (e) { this.fail(e); } },
+    editRow: row => { try { if (row.deleting && row.deletionId) { this.dialogs.deletion(row.deletionId); return; } if (row.pending && !row.recordId) { new Notice(row.error || "请先在待同步中重试。"); return; } if (row.recordId) this.dialogs.record(this.controller.state.records.find(r => r.id === row.recordId)!, row.segmentUid); else this.dialogs.event(this.date, row); } catch (e) { this.fail(e); } },
+    resolveDeletion: id => this.dialogs.deletion(id),
+    retry: id => { void this.run(async () => { await this.worker?.retry(syncKey(id)); this.render(); }); },
+    keep: id => { void this.run(async () => { await this.controller.keepCalendarOnly(id); await this.refresh(); }); }
+  }; }
+  render() { if (this.unloaded) return; for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as TimerView).render?.(); this.tick(); }
+  private tick() { for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as TimerView).ui?.tick();
+    if (this.status) updateStatus(this.status, this.controller?.state.active || null, this.items, taskSort(this.settings.taskSort)); }
+  async importLegacy() {
+    if (this.settings.importedLegacy) throw new Error("此设备已经导入过旧版。");
+    const plugins = (this.app as any).plugins;
+    const oldDir = path.join(this.base, this.app.vault.configDir, "plugins/simple-task-timer");
+    const oldDevice = window.localStorage.getItem(`simple-task-timer-device-${this.vaultId}`);
+    if (!oldDevice || !/^[a-f0-9-]{36}$/i.test(oldDevice)) throw new Error("找不到当前设备旧日志标识，不会猜测导入其他设备记录。");
+    const legacySettings = JSON.parse(await fs.readFile(path.join(oldDir, "data.json"), "utf8"));
+    const legacyRaw = await fs.readFile(path.join(oldDir, "sessions", `${oldDevice}.json`), "utf8");
+    const imported = prepareLegacyImport(legacySettings, JSON.parse(legacyRaw), this.controller.state, !!(plugins?.enabledPlugins?.has("simple-task-timer") || plugins?.getPlugin?.("simple-task-timer")));
+    const testPath = new MarkdownTasks(this.app, () => imported.settings.tasksPath); testPath.path();
+    this.importing = true;
+    try {
+      const backup = path.join(this.pluginDir, "Migration", String(Date.now())); await fs.mkdir(backup, { recursive: true });
+      await fs.writeFile(path.join(backup, "legacy-journal.json"), legacyRaw, { mode: 0o600 });
+      await fs.writeFile(path.join(backup, "settings.json"), JSON.stringify({ before: this.settings, imported: imported.settings }, null, 2), { mode: 0o600 });
+      await this.store.save(imported.journal); this.controller.state = imported.journal;
+      this.settings = { ...this.settings, ...imported.settings }; await this.saveSettings(); await this.refresh(); new Notice("旧设置与当前设备记录已导入，请连接 FCR 授权。");
+    } finally { this.importing = false; }
+  }
+}

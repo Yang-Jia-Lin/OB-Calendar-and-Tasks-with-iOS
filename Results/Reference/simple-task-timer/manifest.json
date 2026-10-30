@@ -1,9 +1,0 @@
-{
-  "id": "simple-task-timer",
-  "name": "简洁待办计时",
-  "version": "0.1.0",
-  "minAppVersion": "1.12.7",
-  "description": "待办、正向计时、完成后写入日历。复用 Full Calendar Remastered 的日历连接。",
-  "author": "Personal tools",
-  "isDesktopOnly": true
-}
