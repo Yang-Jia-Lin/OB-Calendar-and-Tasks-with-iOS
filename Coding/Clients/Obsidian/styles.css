@@ -67,14 +67,14 @@
 .ctt-tabs { display: flex; gap: 5px; overflow-x: auto; margin: -4px 0 12px; flex-shrink: 0; padding: 3px 1px; }
 .ctt-shell .ctt-tab { flex-shrink: 0; font-size: calc(var(--ctt-font-size, 15px) - 1px); color: var(--ctt-muted); background: transparent; border: 1px solid transparent; min-height: 31px; padding: 3px 10px; box-shadow: none; }
 .ctt-shell .ctt-tab.is-selected { color: var(--text-normal); border-color: var(--ctt-border); background: var(--background-secondary); box-shadow: 0 2px 4px #18283b0b; }
-.ctt-inbox { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--ctt-border); border-radius: 12px; padding: 12px; margin: 0 0 15px; box-shadow: var(--ctt-shadow); background: var(--background-primary); }
-.ctt-shell .ctt-inbox input.ctt-new-title { display: block; flex-shrink: 0; width: 100%; height: calc(var(--ctt-font-size, 15px) * 1.5 + 16px); min-height: 38px; margin: 0; border: 0; background: transparent; box-shadow: none; padding: 8px; line-height: 1.5; font-size: var(--ctt-font-size, 15px); }
-.ctt-inbox-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.ctt-inbox { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border: 1px solid var(--ctt-border); border-radius: 12px; padding: 8px 10px; margin: 0 0 15px; box-shadow: var(--ctt-shadow); background: var(--background-primary); }
+.ctt-shell .ctt-inbox input.ctt-new-title { display: block; flex: 1 1 180px; width: auto; height: calc(var(--ctt-font-size, 15px) * 1.5 + 10px); min-height: 36px; margin: 0; border: 0; background: transparent; box-shadow: none; padding: 5px 8px; line-height: 1.5; font-size: var(--ctt-font-size, 15px); }
+.ctt-inbox-tools { display: flex; flex: 0 1 auto; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-width: 0; max-width: 100%; margin-left: auto; }
 .ctt-inbox-tools select { max-width: 140px; font-size: calc(var(--ctt-font-size, 15px) - 2px); min-height: 31px; }
 .ctt-optional-date { display: flex; align-items: center; color: var(--ctt-muted); font-size: 11px; gap: 3px; }
 .ctt-optional-date span { display: none; }
 .ctt-optional-date input { width: 132px; font-size: calc(var(--ctt-font-size, 15px) - 2px); background: transparent; border: 0; min-height: 31px; }
-.ctt-inbox-tools > button { margin-left: auto; font-size: calc(var(--ctt-font-size, 15px) - 2px); min-height: 31px; }
+.ctt-inbox-tools > button { font-size: calc(var(--ctt-font-size, 15px) - 2px); min-height: 31px; }
 .ctt-optional-date button { font-size: calc(var(--ctt-font-size, 15px) - 2px); min-height: 31px; padding: 0 5px; }
 .theme-dark .ctt-shell, .theme-dark .ctt-dialog { color-scheme: dark; }
 .ctt-task-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--ctt-border); }

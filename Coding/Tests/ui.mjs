@@ -17,6 +17,8 @@ try {
   check('Obsidian host keeps padding and scrolling on a dedicated app mount', await page.evaluate(() => { const host = document.querySelector('#app'), app = document.querySelector('.ctt-shell'); return app.parentElement === host && host.style.padding === '0px' && parseFloat(getComputedStyle(app).paddingLeft) >= 18 && getComputedStyle(app).overflowY === 'auto'; }));
   check('Status bar names the next open task while idle', (await page.locator('#preview-status').textContent()).includes('下一项 · 梳理论文中的核心问题'));
   check('Wide layout gives the todo column twice the timeline width', await page.evaluate(() => {const a=document.querySelector('.ctt-timeline').getBoundingClientRect(),b=document.querySelector('.ctt-tasks').getBoundingClientRect();return Math.abs(b.width/a.width-2)<.02;}));
+  check('Wide task composer keeps the title and right-aligned controls in one compact row', await page.locator('.ctt-inbox').evaluate(e=>{const f=e.getBoundingClientRect(),a=e.querySelector('.ctt-new-title').getBoundingClientRect(),b=e.querySelector('.ctt-inbox-tools').getBoundingClientRect();return f.height<=70&&b.left>=a.right+8&&Math.abs((a.top+a.bottom-b.top-b.bottom)/2)<2&&f.right-b.right<=12;}));
+  await screenshot('19-compact-inbox-wide');
   await page.waitForFunction(()=>!document.querySelector('.ctt-timeline-list').classList.contains('is-compact'));
   const normalCard = await page.locator('.ctt-event').first().evaluate(e=>{const s=getComputedStyle(e);return {height:e.getBoundingClientRect().height,color:s.borderLeftColor,radius:s.borderRadius,shadow:s.boxShadow};});
   check('A short timeline retains the original spacious cards', normalCard.height>=84 && !await page.locator('.ctt-timeline-list').evaluate(e=>e.classList.contains('is-compact')));
@@ -34,8 +36,15 @@ try {
   check('Timeline date controls wrap inside the narrower column', await page.locator('.ctt-timeline-tools').evaluate(e=>{const b=e.getBoundingClientRect(),p=e.closest('.ctt-timeline').getBoundingClientRect();return b.left>=p.left-1&&b.right<=p.right+1;}));
   await page.evaluate(()=>{const s=document.createElement('style');s.id='native-input-fixture';s.textContent='.ctt-shell input {height:32px;padding:8px;}';document.head.append(s);window.__preview.model().appearance.fontSize=20;window.__preview.render();});
   await page.getByRole('textbox',{name:'新待办名称'}).fill('聚焦输入检查');
-  check('Large focused input stays clear of category and date controls under host input styles', await page.locator('.ctt-inbox').evaluate(e=>{const a=e.querySelector('.ctt-new-title').getBoundingClientRect(),b=e.querySelector('.ctt-inbox-tools').getBoundingClientRect();return b.top-a.bottom>=8&&a.height>=44;}));
+  check('Large focused input stays clear of category and date controls under host input styles', await page.locator('.ctt-inbox').evaluate(e=>{const a=e.querySelector('.ctt-new-title').getBoundingClientRect(),b=e.querySelector('.ctt-inbox-tools').getBoundingClientRect();return (b.left-a.right>=8||b.top-a.bottom>=8)&&a.height>=40;}));
   await screenshot('18-focused-inbox-layout');
+  await page.setViewportSize({width:320,height:800});
+  await page.getByRole('button',{name:'设置待办日期'}).click();
+  await page.getByLabel('待办日期，可留空').fill('2026-11-02');
+  await page.keyboard.press('Escape');
+  check('Narrow composer wraps without overlap when a date is expanded at maximum font size', await page.locator('.ctt-inbox').evaluate(e=>{const f=e.getBoundingClientRect(),title=e.querySelector('.ctt-new-title').getBoundingClientRect(),tools=e.querySelector('.ctt-inbox-tools').getBoundingClientRect(),rects=[...e.querySelectorAll('select,input[type=date],button[type=submit]')].map(n=>n.getBoundingClientRect());return tools.top>=title.bottom+8&&rects.every(r=>r.left>=f.left&&r.right<=f.right)&&rects.every((a,i)=>rects.slice(i+1).every(b=>a.right<=b.left||b.right<=a.left||a.bottom<=b.top||b.bottom<=a.top));}));
+  await screenshot('20-narrow-inbox-date');
+  await page.getByLabel('待办日期，可留空').fill('');
   await page.evaluate(()=>{document.querySelector('#native-input-fixture').remove();window.__preview.model().appearance.fontSize=15;window.__preview.render();});
   await page.getByRole('textbox',{name:'新待办名称'}).fill('');await page.setViewportSize({width:1440,height:1000});
   check('Bottom padding is compact without adding a trailing timeline card gap', await page.evaluate(()=>parseFloat(getComputedStyle(document.querySelector('.ctt-shell')).paddingBottom)<=8&&parseFloat(getComputedStyle(document.querySelector('.ctt-event:last-child')).marginBottom)===0));

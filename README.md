@@ -1,6 +1,6 @@
 # 日历与待办计时
 
-Obsidian 桌面插件 `calendar-task-timer`，当前版本 **0.2.10**。本地 Markdown 待办、专注计时、可编辑时间轴；日历复用已安装的 Full Calendar Remastered（FCR）公开 API。
+Obsidian 桌面插件 `calendar-task-timer`，当前版本 **0.2.11**。本地 Markdown 待办、专注计时、可编辑时间轴；日历复用已安装的 Full Calendar Remastered（FCR）公开 API。
 
 ## 安装与升级
 
