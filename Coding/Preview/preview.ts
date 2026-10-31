@@ -1,5 +1,4 @@
 import { TimerApi, taskRef } from "../Clients/Obsidian/api";
-import { mountTaskCard } from "../Clients/Obsidian/card";
 import { FcrBridge, type FcrApi } from "../Providers/Fcr/bridge";
 import { clone, uid, type Task, type Entry } from "../Shared/contracts";
 import { TimerController, blankJournal, validateJournal } from "../Shared/timer";
@@ -110,12 +109,5 @@ document.querySelector<HTMLInputElement>("#offline")!.onchange = e => { offline 
 document.querySelector<HTMLSelectElement>("#sync-delay")!.onchange = e => { syncDelay = Number((e.target as HTMLSelectElement).value); };
 document.querySelector<HTMLInputElement>("#theme")!.onchange = e => document.documentElement.classList.toggle("theme-dark", (e.target as HTMLInputElement).checked);
 document.querySelector<HTMLButtonElement>("#reset")!.onclick = () => { localStorage.removeItem(key); location.reload(); };
-(window as any).__preview = { controller, bridge, model, render, worker, api: timerApi, mountTaskCard, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
+(window as any).__preview = { controller, bridge, model, render, worker, api: timerApi, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
 window.addEventListener("beforeunload", () => worker?.stop());
-
-let disposeCard: (() => void) | undefined;
-document.querySelector<HTMLButtonElement>("#show-card")!.onclick = () => {
-  const panel = document.querySelector<HTMLElement>("#research-card")!;
-  if (disposeCard) { disposeCard(); disposeCard = undefined; panel.hidden = true; return; }
-  panel.hidden = false; disposeCard = mountTaskCard(panel, timerApi!, taskRef(tasks.find(t => t.id === "t1")!), { source: "components", path: "research.md" });
-};

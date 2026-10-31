@@ -1,4 +1,4 @@
-import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, MarkdownRenderChild, type WorkspaceLeaf } from "obsidian";
+import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, type WorkspaceLeaf } from "obsidian";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { TimerController, blankJournal } from "../../Shared/timer";
@@ -16,8 +16,8 @@ import { categoryPreferences, renderCategorySettings, type CategoryPreferences }
 import { taskSort, TASK_SORT_LABELS, type TaskSort } from "./taskOrder";
 import { SyncWorker } from "../../Shared/sync";
 import { pendingView, syncKey } from "./syncStatus";
-import { TimerApi, taskRef, type ActionResult } from "./api";
-import { mountTaskCard, parseCardRef } from "./card";
+import { TimerApi, taskRef, type ActionResult, type TaskRef } from "./api";
+import { componentTaskBindings } from "./components";
 const VIEW = "calendar-task-timer-view";
 function hash(text: string) { let n = 2166136261; for (const c of text) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0).toString(16); }
 class TimerView extends ItemView {
@@ -33,6 +33,20 @@ class FormModal extends Modal {
   constructor(app: CalendarTaskTimer["app"], private title: string, private renderForm: (root: HTMLElement, close: () => void) => void) { super(app); }
   onOpen() { this.restore = document.activeElement; this.titleEl.textContent = this.title; this.contentEl.classList.add("ctt-dialog"); this.renderForm(this.contentEl, () => this.close()); }
   onClose() { this.contentEl.replaceChildren(); if (this.restore instanceof HTMLElement && this.restore.isConnected) this.restore.focus(); }
+}
+class TaskChoiceModal extends Modal {
+  private selected: TaskRef | null = null;
+  constructor(app: CalendarTaskTimer["app"], private noteName: string, private tasks: Task[], private previous: TaskRef | undefined, private done: (ref: TaskRef | null) => void) { super(app); }
+  onOpen() {
+    this.titleEl.textContent = `选择计时任务 · ${this.noteName}`;
+    const initial = this.tasks.find(t => t.id === this.previous?.id && t.path === this.previous?.path) || this.tasks[0];
+    let selected = initial.id;
+    new Setting(this.contentEl).setName("关联已有待办").setDesc("保存后，此课题卡片下次点击直接开始；不会复制待办。")
+      .addDropdown(d => { for (const task of this.tasks) d.addOption(task.id, task.title); d.setValue(selected).onChange(value => { selected = value; }); });
+    new Setting(this.contentEl).addButton(b => b.setButtonText("取消").onClick(() => this.close()))
+      .addButton(b => b.setButtonText("保存选择").setCta().onClick(() => { this.selected = taskRef(this.tasks.find(t => t.id === selected)!); this.close(); }));
+  }
+  onClose() { this.contentEl.replaceChildren(); this.done(this.selected); }
 }
 class TimerSettings extends PluginSettingTab {
   constructor(app: CalendarTaskTimer["app"], private owner: CalendarTaskTimer) { super(app, owner); }
@@ -53,6 +67,12 @@ class TimerSettings extends PluginSettingTab {
     new Setting(root).setName("页面字重").addDropdown(d => d.addOptions({ "400": "常规", "500": "适中", "600": "加粗" }).setValue(String(appearance(p.settings).fontWeight)).onChange(async value => { p.settings.fontWeight = Number(value); p.render(); await p.saveSettings(); }));
     new Setting(root).setName("待办文件").addText(t => { t.setValue(p.settings.tasksPath); t.inputEl.onchange = () => { void p.run(async () => { const before = p.settings.tasksPath; p.settings.tasksPath = t.inputEl.value; try { p.tasks.path(); await p.saveSettings(); await p.refresh(); } catch (e) { p.settings.tasksPath = before; throw e; } }); }; });
     new Setting(root).setName("打开待办文件").addButton(b => b.setButtonText("打开").onClick(() => { void p.run(async () => { const file = await p.tasks.file(true); if (file) await p.app.workspace.getLeaf(false).openFile(file); }); }));
+    const bindings = componentTaskBindings(p.settings.componentTaskBindings);
+    if (Object.keys(bindings).length) {
+      new Setting(root).setName("Components 卡片按钮绑定").setDesc("卡片使用 Components 原生按钮；任务关联保存在本插件设置中。");
+      for (const [note, ref] of Object.entries(bindings)) new Setting(root).setName(note).setDesc(p.model().tasks.find(t => t.path === ref.path && t.id === ref.id)?.title || "原任务不可用，请重新选择")
+        .addButton(b => b.setButtonText("重新选择任务").onClick(() => { void p.configureNoteTask(note).then(() => this.display()).catch(e => new Notice((e as Error).message)); }));
+    }
     new Setting(root).setName("导入旧版数据").setDesc("先结束计时并禁用旧插件。仅导入当前设备设置和日志；原文件与授权令牌保留。新版已有记录时不允许覆盖。")
       .addButton(b => b.setButtonText(p.settings.importedLegacy ? "已导入" : "导入旧版").setDisabled(p.settings.importedLegacy).onClick(() => { void p.run(async () => { await p.importLegacy(); this.display(); }); }));
   }
@@ -62,6 +82,7 @@ export default class CalendarTaskTimer extends Plugin {
   controller!: TimerController; bridge!: FcrBridge; tasks!: MarkdownTasks; dialogs!: Dialogs;
   worker?: SyncWorker;
   api!: TimerApi;
+  private noteChoices = new Map<string, Promise<TaskRef | null>>();
   get connected() { return this.bridge?.connected ?? false; }
   private busy = false; private error = ""; private date = dayKey(); private items: Task[] = [];
   private store!: JournalStore; private base = ""; private vaultId = ""; private pluginDir = ""; private status?: HTMLElement;
@@ -75,6 +96,7 @@ export default class CalendarTaskTimer extends Plugin {
     Object.assign(this.settings, appearance(data));
     Object.assign(this.settings, categoryPreferences(data));
     this.settings.taskSort = taskSort(data.taskSort);
+    this.settings.componentTaskBindings = componentTaskBindings(data.componentTaskBindings);
     this.base = (this.app.vault.adapter as any).getBasePath?.(); if (!this.base) throw new Error("本版仅支持桌面 Obsidian。");
     this.vaultId = hash(this.base); this.pluginDir = path.join(this.base, this.manifest.dir || `${this.app.vault.configDir}/plugins/${this.manifest.id}`);
     const key = `calendar-task-timer-device-${this.vaultId}`;
@@ -90,22 +112,13 @@ export default class CalendarTaskTimer extends Plugin {
       tasks: { complete: task => this.completeOriginal(task) }, onChange: () => { this.render(); this.worker?.wake(); } });
     const recovered = await this.controller.recover();
     this.initializeApi();
-    this.registerMarkdownCodeBlockProcessor("calendar-task-timer", (source, root, ctx) => {
-      try {
-        const ref = parseCardRef(source), api = this.api;
-        ctx.addChild(new class extends MarkdownRenderChild {
-          private dispose?: () => void;
-          onload() { this.dispose = mountTaskCard(root, api, ref, { source: root.closest(".components--DynamicDataView-PageCard") ? "components" : "markdown", path: ctx.sourcePath }); }
-          onunload() { this.dispose?.(); }
-        }(root));
-      } catch (e) { root.textContent = `任务计时：${(e as Error).message}`; }
-    });
     this.worker = new SyncWorker(this.controller, { channel: this.store.file.toLowerCase(), enabled: () => this.connected && !this.importing && !this.unloaded && navigator.onLine !== false,
       changed: () => this.render(), settled: () => { this.readCalendarView(); this.scheduleSnapshot(); } });
     const host: DialogHost = { open: (title, render) => new FormModal(this.app, title, (root, close) => { applyAppearance(root, this.settings); render(root, close); }).open(), notice: text => { new Notice(text); } };
     this.dialogs = new Dialogs(host, this.controller, this.bridge, () => this.bridge.writableCalendars(), () => this.settings.defaultCalendarId, () => this.refreshLocal(), id => this.worker!.retry(`delete:${id}`));
     this.registerView(VIEW, leaf => new TimerView(leaf, this)); this.addRibbonIcon("timer", "日历与待办计时", () => { void this.openView(); });
     this.addCommand({ id: "open", name: "打开计时与时间轴", callback: () => { void this.openView(); } });
+    this.addCommand({ id: "start-note-task", name: "开始当前课题的计时任务", callback: () => { void this.startFromNote(this.app.workspace.getActiveFile()?.path || ""); } });
     this.addCommand({ id: "pause-resume", name: "暂停／继续当前计时", callback: () => { const s = this.api.getState().active; void this.showResult(s?.runningSince == null ? this.api.resume(s?.id || "") : this.api.pause(s.id)); } });
     this.addCommand({ id: "finish-record-only", name: "结束计时只记时间", callback: () => this.actions().finish(false) });
     this.addCommand({ id: "finish", name: "结束计时并完成待办", callback: () => this.actions().finish(true) });
@@ -135,6 +148,38 @@ export default class CalendarTaskTimer extends Plugin {
   }
   async openView() { let leaf = this.app.workspace.getLeavesOfType(VIEW)[0]; if (!leaf) { leaf = this.app.workspace.getLeaf("tab"); await leaf.setViewState({ type: VIEW, active: true }); } await this.app.workspace.revealLeaf(leaf); }
   async saveSettings() { await this.saveData(this.settings); }
+  configureNoteTask(notePath: string): Promise<TaskRef | null> {
+    const existing = this.noteChoices.get(notePath); if (existing) return existing;
+    const choice = this.chooseNoteTask(notePath); this.noteChoices.set(notePath, choice);
+    void choice.finally(() => this.noteChoices.delete(notePath)).catch(() => {}); return choice;
+  }
+  private async chooseNoteTask(notePath: string) {
+    const file = this.app.vault.getAbstractFileByPath(notePath);
+    if (!file || !("extension" in file) || file.extension !== "md") throw new Error("请从一张 Markdown 课题卡片或课题笔记开始计时。");
+    const tasks = (await this.tasks.list()).filter(t => !t.completed);
+    if (!tasks.length) throw new Error("配置的待办文件中没有未完成任务，请先在插件页添加待办。");
+    const previous = componentTaskBindings(this.settings.componentTaskBindings);
+    const selected = await new Promise<TaskRef | null>(resolve => {
+      const modal = new TaskChoiceModal(this.app, file.name, tasks, previous[notePath], resolve);
+      this.register(() => modal.close()); modal.open();
+    });
+    if (!selected || this.unloaded) return null;
+    const before = componentTaskBindings(this.settings.componentTaskBindings), next = { ...before, [notePath]: selected };
+    this.settings.componentTaskBindings = next;
+    try { await this.saveSettings(); } catch (e) { if (this.settings.componentTaskBindings === next) this.settings.componentTaskBindings = before; throw e; }
+    return selected;
+  }
+  async startFromNote(notePath: string, chooseTask = false): Promise<ActionResult> {
+    let result: ActionResult;
+    try {
+      if (this.unloaded) return { ok: false, code: "unavailable", message: "计时插件已卸载。" };
+      const file = this.app.vault.getAbstractFileByPath(notePath);
+      if (!file || !("extension" in file) || file.extension !== "md") throw new Error("请从课题卡片开始，或先打开对应课题笔记。");
+      const ref = !chooseTask && componentTaskBindings(this.settings.componentTaskBindings)[notePath] || await this.configureNoteTask(notePath);
+      result = ref ? await this.api.start(ref, { source: "components", path: notePath }) : { ok: false, code: "cancelled", message: "已取消选择任务。" };
+    } catch (e) { result = { ok: false, code: "action-error", message: (e as Error).message }; }
+    await this.showResult(Promise.resolve(result)); return result;
+  }
   async saveTaskSort(mode: TaskSort) {
     const previous = this.settings.taskSort; this.settings.taskSort = mode;
     try { await this.saveSettings(); } catch (e) { this.settings.taskSort = previous; throw e; }
@@ -165,7 +210,7 @@ export default class CalendarTaskTimer extends Plugin {
   async run(fn: () => Promise<unknown>): Promise<boolean> { try { await this.execute(fn); return true; } catch (e) { this.fail(e); return false; } }
   private async showResult(result: Promise<ActionResult>) {
     const r = await result;
-    if (!r.ok) { this.fail(new Error(r.message)); new Notice(r.message); }
+    if (!r.ok) { if (r.code !== "cancelled") { this.fail(new Error(r.message)); new Notice(r.message); } }
     else if (r.recordId) new Notice(r.warning || "本机已保存，工时将在后台同步");
   }
   private async completeOriginal(task: Task) {

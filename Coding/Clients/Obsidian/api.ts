@@ -8,7 +8,7 @@ export interface TimerState {
   available: boolean; active: Session | null; tasks: Task[]; pending: number; sync?: SyncView;
 }
 export type ActionResult = { ok: true; sessionId: string; recordId?: string; pending?: boolean; warning?: string }
-  | { ok: false; code: "unavailable" | "active-session" | "stale-session" | "invalid-task" | "action-error"; message: string; sessionId?: string };
+  | { ok: false; code: "unavailable" | "active-session" | "stale-session" | "invalid-task" | "action-error" | "cancelled"; message: string; sessionId?: string };
 class EntryError extends Error {
   constructor(readonly code: Extract<ActionResult, { ok: false }>["code"], message: string) { super(message); }
 }

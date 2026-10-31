@@ -1,6 +1,6 @@
 {
   "name": "calendar-task-timer-workspace",
-  "version": "0.2.12",
+  "version": "0.2.14",
   "private": true,
   "scripts": {
     "check": "tsc --noEmit",
@@ -8,7 +8,7 @@
     "release": "pwsh -NoProfile -File Build/release.ps1",
     "test": "node Build/test.mjs",
     "preview": "node Preview/server.mjs",
-    "test:ui": "node Tests/ui.mjs && node Tests/card-ui.mjs"
+    "test:ui": "node Tests/ui.mjs"
   },
   "devDependencies": {
     "@types/node": "25.9.9",

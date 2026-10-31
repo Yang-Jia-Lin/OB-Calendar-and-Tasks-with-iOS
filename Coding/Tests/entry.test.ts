@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TimerApi, taskRef } from "../Clients/Obsidian/api";
 import { MarkdownTasks } from "../Clients/Obsidian/tasks";
-import { parseCardRef } from "../Clients/Obsidian/card";
 import { TimerController } from "../Shared/timer";
 import { clone, type Task, type CalendarPort } from "../Shared/contracts";
 import { elapsed } from "../Shared/time";
@@ -104,8 +103,4 @@ test("Markdown resolver is read-only and refuses wrong paths and ambiguous IDs",
   assert.equal((await tasks.resolve({ kind: "local", path: "tasks.md", id: "a" })).title, "first");
   await assert.rejects(tasks.resolve({ kind: "local", path: "other.md", id: "a" }));
   text += "- [ ] duplicate <!-- simple-task:a -->\n"; await assert.rejects(tasks.resolve({ kind: "local", path: "tasks.md", id: "a" })); assert.equal(changes, 0);
-});
-test("card input requires a stable provider/path/ID reference", () => {
-  assert.deepEqual(parseCardRef('{"kind":"local","path":"tasks.md","id":"a"}'), { kind: "local", path: "tasks.md", id: "a" });
-  for (const value of ["null", "{}", '{"kind":"local","path":1,"id":"a"}', '{"kind":"local","path":"tasks.md","title":"same title"}']) assert.throws(() => parseCardRef(value));
 });

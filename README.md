@@ -4,7 +4,7 @@ AI 开发入口：[Agents/AGENTS.md](Agents/AGENTS.md)。检查产物集中在 A
 
 面向电脑主力记录的日历／待办工作台，结合 OB 科研执行入口与 iPad 原生应用。**目标业务数据统一使用 iCloud：日历保存安排和实际记录，提醒事项保存行动任务。**
 
-当前已交付的是 Obsidian 插件 `calendar-task-timer` **0.2.12**：Markdown 待办、共享计时入口和可编辑时间轴，日历通过 FCR 访问。Components 可通过 Markdown 章节封面渲染同一任务的计时控件；本机样例已配置，加载新版后的实机闭环待验收。独立桌面 APP、双日期和提醒事项产品接入尚未完成。
+当前已交付的是 Obsidian 插件 `calendar-task-timer` **0.2.14**：Markdown 待办、共享计时入口和可编辑时间轴，日历通过 FCR 访问。Components 使用用户已有的原生按钮属性，调用脚本启动同一任务；不嵌入 Markdown 控件、不修改卡片封面。独立桌面 APP、双日期和提醒事项产品接入尚未完成。
 
 ## 2026-10-31 设计基线
 
@@ -14,7 +14,7 @@ AI 开发入口：[Agents/AGENTS.md](Agents/AGENTS.md)。检查产物集中在 A
 - 生活活动可直接补记，科研采用任务→计时→工时流程；结束计时与完成任务分开。
 - iPad 沿用原生应用，Android 暂缓。活动计时先在本设备恢复；本地草稿和恢复日志不属于额外云端主库。
 
-先读[需求与实施顺序](Notes/1-产品需求.md)，再读[架构与 Components 接入设计](Notes/2-架构设计.md)。以下安装／使用说明描述现有 0.2.12；P1 保留 Markdown 任务兼容方案。
+先读[需求与实施顺序](Notes/1-产品需求.md)，再读[架构与 Components 接入设计](Notes/2-架构设计.md)。以下安装／使用说明描述现有 0.2.14；P1 保留 Markdown 任务兼容方案。
 
 ## 安装与升级
 
@@ -23,7 +23,7 @@ AI 开发入口：[Agents/AGENTS.md](Agents/AGENTS.md)。检查产物集中在 A
 3. 已安装 0.2.x：先暂停或结束计时、禁用插件，只替换 `main.js`、`manifest.json`、`styles.css`，保留 `data.json`、`sessions` 和 `Migration`，再启用。
 4. 从“简洁待办计时”首次迁入：先结束并禁用旧插件，在新版尚无记录时点击“导入旧版”。保留旧文件与 UID，不导入授权令牌。
 
-`npm run build` 生成 `Results/Release/V<版本>_calendar-task-timer/`，只含三个标准插件文件，不生成 ZIP。版本取自 manifest（例如 `V0.2.12_calendar-task-timer`）；目录统一拼写为 `Results/Release`。
+`npm run build` 生成 `Results/Release/V<版本>_calendar-task-timer/`，只含三个标准插件文件，不生成 ZIP。版本取自 manifest（例如 `V0.2.14_calendar-task-timer`）；目录统一拼写为 `Results/Release`。
 
 插件更新并检查通过后，`npm run release` 自动将这三个文件覆盖到 `D:\笔记\.obsidian\plugins\calendar-task-timer/`，保留设置、会话和迁移数据；旧文件有变化才备份，不自动重载运行中的插件。只生成目录可用 `npm run release -- -NoInstall`；预览／稳定版可用 `-Channel preview`／`-Channel stable`，在文件夹名追加对应标注。换库可用 `-VaultPath`。
 
@@ -40,19 +40,19 @@ AI 开发入口：[Agents/AGENTS.md](Agents/AGENTS.md)。检查产物集中在 A
 
 ## 从课题卡片计时
 
-在课题笔记的独立章节中放置下面的代码块。`path` 必须等于插件设置中的待办文件，`id` 取该待办行的 `simple-task` 标记；不要填写任务标题或行号。
+沿用 Components 已有的按钮属性，在按钮配置中选择“运行脚本”，表达式填写：
 
-````markdown
-## 课题计时
-
-```calendar-task-timer
-{"kind":"local","path":"待办计时/待办.md","id":"替换为已有任务ID"}
+```js
+CalendarTaskTimerStart()
 ```
-````
 
-Components 动态卡片视图选择“文本内容”封面、来源“指定章节内容”、章节 `## 课题计时`。没有该章节的卡片不显示计时控件。开始后停留原页面；插件页、命令和卡片共用会话。“结束只记时间”保留待办，“结束并完成”才勾选原待办。另有任务正在计时时，先明确结束当前会话再切换。
+将 [CalendarTaskTimerStart.js](Coding/Clients/Obsidian/CalendarTaskTimerStart.js) 放入 Components 设置中的脚本目录。本机已放在 `D:\笔记\Others\Components\script\CalendarTaskTimerStart.js`，并只为用户已创建的按钮补了上述表达式，保留其名称、位置和样式。
 
-高级本地脚本可通过 `app.plugins.getPlugin("calendar-task-timer").api` 使用 v1 的 `start(ref, context?)`、`pause(sessionId)`、`resume(sessionId)`、`finish(sessionId, completeTask = false)`、`getState()` 和 `subscribe(listener)`。动作返回带 `ok` 的明确结果；成功返回会话 ID，结束另返回记录 ID／待同步状态，失败返回代码和消息。订阅返回取消函数，外部组件卸载时必须调用；插件卸载会禁用入口并清空订阅。不要直接写计时日志或调用内部 Controller。
+该脚本使用 Components 提供的当前卡片笔记上下文，调用插件的 `startFromNote(notePath)`。已绑定的课题点击后直接开始；未绑定时选择一次插件中的已有待办，关联保存在插件设置 `componentTaskBindings`。可在插件设置“Components 卡片按钮绑定”中重新选择；也可将按钮表达式改为 `CalendarTaskTimerStart(true)`，在开始前重新选择。不会复制任务或按标题匹配，课题 Markdown 正文无需代码块或其他改动。
+
+卡片只负责开始。暂停／继续／结束沿用插件页和命令；状态在插件页和状态栏查看。默认结束只记时间，明确选择“结束并完成”才完成原待办。所有入口继续复用同一 Controller、日志和后台队列，另一任务正在计时时先明确结束再切换。
+
+高级本地脚本仍可调用插件 `api` v1 的 `start(ref, context?)`、`pause(sessionId)`、`resume(sessionId)`、`finish(sessionId, completeTask = false)`、`getState()` 和 `subscribe(listener)`。外部订阅须在卸载时取消；原生开始按钮本身不创建订阅或独立计时器。
 
 ## 开发
 

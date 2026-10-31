@@ -247,81 +247,6 @@
     }
   };
 
-  // Clients/Obsidian/card.ts
-  init_time();
-  function mountTaskCard(root, api2, ref, context) {
-    const doc = root.ownerDocument;
-    root.classList.add("ctt-card");
-    const title = doc.createElement("div"), status = doc.createElement("div"), controls = doc.createElement("div"), message = doc.createElement("div");
-    title.textContent = "\u4EFB\u52A1\u8BA1\u65F6";
-    title.className = "ctt-card-title";
-    status.setAttribute("role", "status");
-    status.className = "ctt-card-status";
-    controls.className = "ctt-card-controls";
-    message.className = "ctt-card-message";
-    message.setAttribute("role", "status");
-    root.replaceChildren(title, status, controls, message);
-    const stop = (e) => e.stopPropagation();
-    for (const event of ["click", "dblclick", "pointerdown", "keydown"]) root.addEventListener(event, stop);
-    let disposed = false, working = false, state = api2.getState(), controlKey = "";
-    const run2 = async (action) => {
-      if (disposed || working) return;
-      working = true;
-      message.textContent = "";
-      render2();
-      try {
-        const result = await action();
-        if (!disposed) message.textContent = result.ok ? result.recordId ? result.warning || "\u5DE5\u65F6\u5DF2\u4FDD\u5B58\u5728\u672C\u673A\uFF0C\u540E\u53F0\u540C\u6B65\u4E2D\u3002" : "" : result.message;
-      } catch (e) {
-        if (!disposed) message.textContent = e.message;
-      } finally {
-        working = false;
-        if (!disposed) render2();
-      }
-    };
-    const add = (label, action) => {
-      const button2 = doc.createElement("button");
-      button2.type = "button";
-      button2.textContent = label;
-      button2.disabled = working || !state.available;
-      button2.onclick = () => {
-        void run2(action);
-      };
-      controls.append(button2);
-    };
-    function render2() {
-      if (disposed) return;
-      const active = state.active, own = active && sameTask(active.task, ref);
-      const task = state.tasks.find((t) => sameTask(t, ref));
-      title.textContent = own ? active.title : task?.title || "\u4EFB\u52A1\u8BA1\u65F6";
-      status.textContent = !state.available ? "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D" : own ? `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8FDB\u884C\u4E2D"} \xB7 ${secondsText(elapsed(active))}` : active ? `\u6B63\u5728\u8BA1\u65F6\uFF1A${active.title}\uFF1B\u8BF7\u5148\u7ED3\u675F\u540E\u5207\u6362` : task?.completed ? "\u4EFB\u52A1\u5DF2\u5B8C\u6210" : `\u5C1A\u672A\u5F00\u59CB${state.pending ? ` \xB7 ${state.pending} \u9879\u5F85\u540C\u6B65` : ""}`;
-      const key2 = JSON.stringify([active?.id, active?.runningSince == null, working, state.available, task?.completed]);
-      if (key2 === controlKey) return;
-      controlKey = key2;
-      controls.replaceChildren();
-      if (own) {
-        const id = active.id;
-        add(active.runningSince == null ? "\u7EE7\u7EED" : "\u6682\u505C", () => active.runningSince == null ? api2.resume(id) : api2.pause(id));
-        add("\u7ED3\u675F\u53EA\u8BB0\u65F6\u95F4", () => api2.finish(id, false));
-        add("\u7ED3\u675F\u5E76\u5B8C\u6210", () => api2.finish(id, true));
-      } else {
-        add("\u5F00\u59CB\u4EFB\u52A1", () => api2.start(ref, context));
-        if (active || task?.completed) controls.firstElementChild.disabled = true;
-      }
-    }
-    const unsubscribe = api2.subscribe((next) => {
-      state = next;
-      render2();
-    });
-    return () => {
-      if (disposed) return;
-      disposed = true;
-      unsubscribe();
-      for (const event of ["click", "dblclick", "pointerdown", "keydown"]) root.removeEventListener(event, stop);
-      controls.replaceChildren();
-    };
-  }
-
   // Providers/Fcr/bridge.ts
   init_time();
   function containsEvent(actual, desired) {
@@ -2459,20 +2384,8 @@
     localStorage.removeItem(key);
     location.reload();
   };
-  window.__preview = { controller, bridge, model, render, worker, api: timerApi, mountTaskCard, taskRef, setDelay: (ms) => {
+  window.__preview = { controller, bridge, model, render, worker, api: timerApi, taskRef, setDelay: (ms) => {
     syncDelay = ms;
   }, tasks: () => tasks, entries: () => entries };
   window.addEventListener("beforeunload", () => worker?.stop());
-  var disposeCard;
-  document.querySelector("#show-card").onclick = () => {
-    const panel = document.querySelector("#research-card");
-    if (disposeCard) {
-      disposeCard();
-      disposeCard = void 0;
-      panel.hidden = true;
-      return;
-    }
-    panel.hidden = false;
-    disposeCard = mountTaskCard(panel, timerApi, taskRef(tasks.find((t) => t.id === "t1")), { source: "components", path: "research.md" });
-  };
 })();

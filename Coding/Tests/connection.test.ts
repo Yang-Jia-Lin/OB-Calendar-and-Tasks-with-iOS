@@ -102,3 +102,22 @@ test("local timer start and repeated rendering reuse the FCR snapshot without ev
   p.actions().start(task); await new Promise(resolve => setImmediate(resolve)); await settled(p); for (let i = 0; i < 5; i++) p.model();
   assert.equal(p.error, ""); assert.equal(p.controller.state.active?.title, "Local"); assert.equal(scans, 0); assert.equal(writes, 0);
 });
+
+test("native card entry starts its configured task through the same host API without opening another view", async () => {
+  const h = connection("old"), p = pluginHarness(h); await h.bridge.connect();
+  h.getScoped().getCalendarSources = () => [{ id: "research", name: "科研", type: "caldav" }];
+  h.getScoped().getProviderCapabilities = () => ({ canCreate: true });
+  const task = { id: "task", path: "tasks.md", title: "Existing", kind: "local" as const, completed: false, calendarId: "research" };
+  p.app = { vault: { getAbstractFileByPath: (path: string) => ({ path, extension: "md" }) }, plugins: { getPlugin: () => null } };
+  p.tasks = { resolve: async () => ({ ...task }) };
+  p.settings.componentTaskBindings = { "research.md": { kind: "local", path: "tasks.md", id: "task" } };
+  p.controller = new TimerController({ background: true, calendar: h.bridge, persist: async () => {}, tasks: { complete: async () => {} } });
+  p.initializeApi(); p.openView = () => { throw new Error("must stay on Home"); };
+  const a = await p.startFromNote("research.md"), b = await p.startFromNote("research.md");
+  assert.ok(a.ok && b.ok); assert.equal(a.sessionId, b.sessionId); assert.equal(p.controller.state.active?.task.id, "task");
+});
+test("cancelling a native button task choice starts no timer and raises no error", async () => {
+  const p = pluginHarness(connection()); p.app = { vault: { getAbstractFileByPath: () => ({ extension: "md" }) } };
+  p.configureNoteTask = async () => null;
+  const result = await p.startFromNote("research.md"); assert.equal(result.code, "cancelled"); assert.equal(p.error, "");
+});
