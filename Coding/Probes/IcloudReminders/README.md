@@ -1,6 +1,6 @@
 # iCloud 提醒事项最小探针
 
-仅验证真正的 Apple 提醒事项；失败后保留本地待办，不实现日历事件代替待办。
+仅验证真正的 Apple 提醒事项，不用日历事件代替待办。2026-10-31 目标已更新为统一 iCloud 业务数据；现有本地待办保留作接入前兼容，不将其宣称为云同步。需求与实施顺序见[产品需求](../../../Notes/1-产品需求.md)。
 
 候选源码：`timlaing/pyicloud`，固定提交 `af5246511c729eee4d5a95671135ad75fdd77b22`。本机解压源码和独立 Python 3.13 环境在根目录 `Results/Probes/IcloudReminders`，依赖版本见 `requirements.lock.txt`。这是独立探针，不是产品安装包，不接入现有插件。
 
@@ -41,7 +41,7 @@ pwsh -NoProfile -File .\Coding\Probes\IcloudReminders\Run.ps1 -Browser -Resume
 .\Results\Probes\IcloudReminders\.venv\Scripts\python.exe -m unittest discover -s .\Coding\Probes\IcloudReminders -p test_*.py -v
 ```
 
-预检不会访问账户。详细测试计划以 Notes/04 为准，实际状态以 Notes/10 和脱敏运行结果为准。
+预检不会访问账户。验证标准、历史实测和剩余项统一见[开发日志](../../../Notes/开发日志.md)，脱敏运行结果保留在 Results。本轮日志合并没有执行上述命令或触发云端操作；后续开发和验证将新结果插入日志最前。
 
 ## 受控异常与真实外部修改
 

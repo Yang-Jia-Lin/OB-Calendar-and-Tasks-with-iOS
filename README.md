@@ -1,15 +1,29 @@
 # 日历与待办计时
 
-Obsidian 桌面插件 `calendar-task-timer`，当前版本 **0.2.11**。本地 Markdown 待办、专注计时、可编辑时间轴；日历复用已安装的 Full Calendar Remastered（FCR）公开 API。
+面向电脑主力记录的日历／待办工作台，结合 OB 科研执行入口与 iPad 原生应用。**目标业务数据统一使用 iCloud：日历保存安排和实际记录，提醒事项保存行动任务。**
+
+当前已交付的是 Obsidian 插件 `calendar-task-timer` **0.2.11**：Markdown 待办、计时和可编辑时间轴，日历通过 FCR 访问。独立桌面 APP、Components 按钮、双日期和提醒事项产品接入都尚未完成，不将目标设计写成已实现。
+
+## 2026-10-31 设计基线
+
+- 电脑为主，独立桌面 APP 必做；以待办和核心摘要为方向，不预设整月记录视图，具体展示待定。
+- 下一步先做 OB／Components 共用任务和计时入口。按钮、插件页和状态栏操作同一会话，不另建任务副本。
+- 安排日期与截止日期分开；无安排日期的任务进入“待安排”，不每天全部塞进日历。
+- 生活活动可直接补记，科研采用任务→计时→工时流程；结束计时与完成任务分开。
+- iPad 沿用原生应用，Android 暂缓。活动计时先在本设备恢复；本地草稿和恢复日志不属于额外云端主库。
+
+先读[需求与实施顺序](Notes/1-产品需求.md)，再读[架构与 Components 接入设计](Notes/2-架构设计.md)。以下安装／使用说明描述现有 0.2.11，未触发新功能实现或数据迁移。
 
 ## 安装与升级
 
-1. 构建后将 `Plugin/calendar-task-timer` 复制到笔记库的 `.obsidian/plugins/`，启用插件和 FCR。
+1. 构建或解压后，将 `Results/Release/V<版本>_calendar-task-timer` 内的三个文件复制到笔记库 `.obsidian/plugins/calendar-task-timer/`，启用插件和 FCR。版本前缀只用于产物命名，安装目录和插件 ID 保持 `calendar-task-timer`。
 2. 在本插件设置中“连接 FCR”，完成授权并选择默认分类。分类来自可写 CalDAV 日历。
 3. 已安装 0.2.x：先暂停或结束计时、禁用插件，只替换 `main.js`、`manifest.json`、`styles.css`，保留 `data.json`、`sessions` 和 `Migration`，再启用。
 4. 从“简洁待办计时”首次迁入：先结束并禁用旧插件，在新版尚无记录时点击“导入旧版”。保留旧文件与 UID，不导入授权令牌。
 
-`npm run release` 生成 `Results/Release/calendar-task-timer-<版本>.zip`，包内恰有三个标准插件文件。构建和发布命令不会自动安装到日常笔记库。
+`npm run build` 生成 `Results/Release/V<版本>_calendar-task-timer/`，只含三个标准插件文件，不生成 ZIP。版本取自 manifest（例如 `V0.2.11_calendar-task-timer`）；目录统一拼写为 `Results/Release`。
+
+插件更新并检查通过后，`npm run release` 自动将这三个文件覆盖到 `D:\笔记\.obsidian\plugins\calendar-task-timer/`，保留设置、会话和迁移数据；旧文件有变化才备份，不自动重载运行中的插件。只生成目录可用 `npm run release -- -NoInstall`；预览／稳定版可用 `-Channel preview`／`-Channel stable`，在文件夹名追加对应标注。换库可用 `-VaultPath`。
 
 ## 使用
 
@@ -36,7 +50,7 @@ npm run preview
 npm run test:ui
 ```
 
-预览地址 `http://127.0.0.1:4173`，也可打开 `Results/Preview/index.html`。示例可模拟断网／慢上传，不连接真实账户。浏览器检查默认使用 Chrome，可通过 `CTT_CHROME` 指定路径。
+预览地址 `http://127.0.0.1:4173`，也可打开 `Results/Release/Preview/index.html`。示例可模拟断网／慢上传，不连接真实账户。浏览器检查默认使用 Chrome，可通过 `CTT_CHROME` 指定路径。
 
 ```text
 Coding/
@@ -47,14 +61,20 @@ Coding/
   Preview/ Tests/     独立示例与回归测试
   Probes/             独立提醒事项验证工具，不进入插件包
 Notes/                当前架构、工程约定与验证记录
-Plugin/               最新三文件插件（生成、忽略提交）
-Results/              预览、测试、发布与本机探针环境（忽略提交）
+Results/
+  Release/
+    V<版本>_calendar-task-timer/  三个插件文件
+    Preview/                    可重建交互预览
+  Tests/ Visuals/     检查结果与必要界面证据
+  Probes/ Archive/    本机探针环境、会话与回退资料（忽略提交）
 ```
 
-文档：[架构与范围](Notes/Architecture.md)、[开发与仓库维护](Notes/Development.md)、[验证状态](Notes/Verification.md)。提醒事项另见[探针说明](Coding/Probes/IcloudReminders/README.md)、[验证标准](Notes/04-iCloud接口验证方案.md)和[实测记录](Notes/10-提醒事项接口实测记录.md)。
+文档：[开发约定](Notes/0-开发约定.md)、[产品需求](Notes/1-产品需求.md)、[架构设计](Notes/2-架构设计.md)、[开发日志](Notes/开发日志.md)。版本变化、验收标准和提醒事项实测已统一归入开发日志，按新到旧排列；后续每次开发或验证更新该日志。探针运行方法见[探针说明](Coding/Probes/IcloudReminders/README.md)。
+
+完成重大功能、重要可靠性修复或实质架构变更并通过相关检查后，自动提交并正常推送远程；文档、微小 UI、产物整理不自动提交，用户明确要求提交时执行。具体边界见开发约定和 [AGENTS.md](AGENTS.md)。
 
 ## 边界与来源
 
-当前待办仍存 OB，独立提醒事项探针成功不代表已接入插件；不做跨设备活动计时接力。FCR 查询来自缓存，不是独立服务端条件事务；真实 OB/iCloud 完整往返和实机性能仍待验收。升级前应暂停／结束；异常重启按最后可靠心跳恢复为暂停，可能少计最后约 15 秒。
+当前待办仍存 OB，属于目标 iCloud 任务接入前的兼容状态；独立探针成功不代表已集成。FCR 查询来自缓存，不是独立服务端条件事务；真实 OB/iCloud 完整往返和实机性能仍待验收。升级前应暂停／结束；异常重启按最后可靠心跳恢复为暂停，可能少计最后约 15 秒。
 
 计时部分改编自旧工程 MIT `Simple-task-timer`，版权保留在 [LICENSE.md](LICENSE.md) 和构建文件头。FCR 是独立依赖，当前源码未复制其 GPL 实现。旧 FCR 工程保留于此远程仓库的早期提交。
