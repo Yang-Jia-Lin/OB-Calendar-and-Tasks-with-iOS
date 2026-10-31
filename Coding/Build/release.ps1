@@ -44,7 +44,7 @@ $changed = @($expected | Where-Object {
     -not (Test-Path -LiteralPath $installed -PathType Leaf) -or (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath (Join-Path $plugin $_) -Algorithm SHA256).Hash
 })
 if ($changed.Count -and (Test-Path -LiteralPath $destination)) {
-    $backup = Join-Path $workspace ('Results\Archive\Before-Install-{0}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-ffff'))
+    $backup = Join-Path $workspace ('Agents\Backups\Before-Install-{0}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-ffff'))
     New-Item -ItemType Directory -Path $backup | Out-Null
     foreach ($name in $expected) {
         $installed = Join-Path $destination $name

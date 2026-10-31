@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-const output = path.resolve('../Results/Visuals'); await mkdir(output, { recursive: true });
+const output = path.resolve('../Agents/Tests/Visuals'); await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.CTT_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, timezoneId: 'Asia/Shanghai', locale: 'zh-CN' });
 const page = await context.newPage(), errors = [], passed = [];

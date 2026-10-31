@@ -145,7 +145,7 @@ test("same-object pending edits are rejected, preserving revision and UID", asyn
   assert.equal(h.c.state.operations.length, 1); assert.equal(h.c.state.operations[0].sync?.revision, 0);
 });
 test("a replacement journal writer waits for pending writes and rejects stale instances", async () => {
-  const root = path.resolve("../Results/Tests"); await mkdir(root, { recursive: true }); const dir = await mkdtemp(path.join(root, "writer-"));
+  const root = path.resolve("../Agents/Tests"); await mkdir(root, { recursive: true }); const dir = await mkdtemp(path.join(root, "writer-"));
   try {
     const file = path.join(dir, "session.json"), first = new JournalStore(file); await first.load(); await first.save(blankJournal());
     const second = new JournalStore(file); await second.load(); await assert.rejects(first.save(blankJournal()), /旧插件实例/); await second.save(blankJournal());

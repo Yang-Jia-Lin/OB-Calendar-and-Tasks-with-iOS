@@ -1,0 +1,6077 @@
+"""Tests for the Typer-based pyicloud CLI."""
+
+# pylint: disable=protected-access
+
+from __future__ import annotations
+
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager, nullcontext, suppress
+from datetime import datetime, timezone
+import importlib
+import json
+from pathlib import Path
+import tempfile
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import MagicMock, PropertyMock, call, patch
+from uuid import uuid4
+
+import click
+import pytest
+import typer
+from typer.testing import CliRunner, Result
+
+from pyicloud.const import FIND_MY_APP_KEY
+from pyicloud.diagnostics import PROBED_SERVICES
+from pyicloud.endpoints import WEBSERVICES
+from pyicloud.exceptions import (
+    PyiCloudAccountLockedException,
+    PyiCloudAPIResponseException,
+    PyiCloudConnectionException,
+    PyiCloudFailedLoginException,
+    PyiCloudServiceUnavailable,
+)
+from pyicloud.services.invites import (
+    Event,
+    EventNotFound,
+    EventPlace,
+    EventScope,
+    EventShare,
+    EventTime,
+    InvitesError,
+    ResolvedShare,
+    Rsvp,
+    RsvpStatus,
+)
+from pyicloud.services.notes.models import Attachment as NoteAttachment
+from pyicloud.services.notes.models import ChangeEvent as NoteChangeEvent
+from pyicloud.services.notes.models import (
+    Note,
+    NoteFolder,
+    NoteSummary,
+)
+from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
+from pyicloud.services.photos import (
+    PhotoSyncOptions,
+    PhotoSyncResult,
+    run_photo_sync,
+    watch_photo_sync,
+)
+from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
+from pyicloud.services.reminders.models import (
+    Alarm,
+    AlarmWithTrigger,
+    EarlyReminder,
+    Hashtag,
+    ListRemindersResult,
+    LocationTrigger,
+    Proximity,
+    RecurrenceFrequency,
+    RecurrenceRule,
+    Reminder,
+    ReminderChangeEvent,
+    RemindersList,
+    UrgentPresentationAlarms,
+    URLAttachment,
+)
+
+account_index_module = importlib.import_module("pyicloud.cli.account_index")
+cli_module = importlib.import_module("pyicloud.cli.app")
+invites_module = importlib.import_module("pyicloud.cli.commands.invites")
+context_module = importlib.import_module("pyicloud.cli.context")
+output_module = importlib.import_module("pyicloud.cli.output")
+app = cli_module.app
+
+TEST_BASE = Path(tempfile.gettempdir()) / "python-test-results"
+TEST_BASE.mkdir(parents=True, exist_ok=True)
+TEST_ROOT = Path(tempfile.mkdtemp(prefix="test_cmdline-", dir=TEST_BASE))
+
+
+class FakeDevice:
+    """Find My device fixture."""
+
+    # pylint: disable=invalid-name
+    # Attribute names mirror the Find My API wire field names verbatim.
+    def __init__(self) -> None:
+        self.id = "device-1"
+        self.name = "Example iPhone"
+        self.deviceDisplayName = "iPhone"
+        self.deviceClass = "iPhone"
+        self.deviceModel = "iPhone16,1"
+        self.batteryLevel = 0.87
+        self.batteryStatus = "Charging"
+        self.location = {"latitude": 49.0, "longitude": 6.0}
+        self.data = {
+            "id": self.id,
+            "name": self.name,
+            "deviceDisplayName": self.deviceDisplayName,
+            "deviceClass": self.deviceClass,
+            "deviceModel": self.deviceModel,
+            "batteryLevel": self.batteryLevel,
+            "batteryStatus": self.batteryStatus,
+            "location": self.location,
+        }
+        self.sound_subject: str | None = None
+        self.messages: list[dict[str, Any]] = []
+        self.lost_mode: dict[str, str] | None = None
+        self.erase_message: str | None = None
+
+    def play_sound(self, subject: str = "Find My iPhone Alert") -> None:
+        """Record the played sound subject."""
+        self.sound_subject = subject
+
+    def display_message(self, subject: str, message: str, sounds: bool) -> None:
+        """Record a displayed lock message."""
+        self.messages.append({"subject": subject, "message": message, "sounds": sounds})
+
+    def lost_device(self, number: str, text: str, newpasscode: str) -> None:
+        """Record lost-mode activation details."""
+        self.lost_mode = {"number": number, "text": text, "newpasscode": newpasscode}
+
+    def erase_device(self, message: str) -> None:
+        """Record the erase message."""
+        self.erase_message = message
+
+
+class FakeDevices(list[FakeDevice]):
+    """List of fake devices that records refresh() calls."""
+
+    def __init__(self, devices: list[FakeDevice]) -> None:
+        super().__init__(devices)
+        self.refresh_calls: list[bool] = []
+
+    def refresh(self, *, locate: bool = True) -> None:
+        """Record one periodic Find My refresh."""
+        self.refresh_calls.append(locate)
+
+
+class FakeDriveResponse:
+    """Download response fixture."""
+
+    def iter_content(  # pylint: disable=unused-argument
+        self,
+        chunk_size: int = 8192,
+    ) -> Iterator[bytes]:
+        """Yield the fake download body."""
+        yield b"hello"
+
+
+class FakeDriveNode:
+    """Drive node fixture."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        node_type: str = "folder",
+        size: int | None = None,
+        modified: datetime | None = None,
+        children: list[FakeDriveNode] | None = None,
+    ) -> None:
+        self.name = name
+        self.type = node_type
+        self.size = size
+        self.date_modified = modified
+        self._children = children or []
+        self.data = {"name": name, "type": node_type, "size": size}
+
+    def get_children(self) -> list[FakeDriveNode]:
+        """Return the node's children."""
+        return list(self._children)
+
+    def __getitem__(self, key: str) -> FakeDriveNode:
+        """Return a child node by name."""
+        for child in self._children:
+            if child.name == key:
+                return child
+        raise KeyError(key)
+
+    def open(  # pylint: disable=unused-argument
+        self,
+        **kwargs: Any,
+    ) -> FakeDriveResponse:
+        """Return a fake download response."""
+        return FakeDriveResponse()
+
+
+class FakeAlbumContainer(list["FakePhotoAlbum"]):
+    """Photo album container fixture."""
+
+    def find(self, name: str | None) -> FakePhotoAlbum | None:
+        """Find an album by name, or None when not found."""
+        if name is None:
+            return None
+        for album in self:
+            if album.name == name:
+                return album
+        return None
+
+
+class FakePhoto:
+    """Photo asset fixture."""
+
+    def __init__(
+        self,
+        photo_id: str,
+        filename: str,
+        *,
+        liked: bool | None = None,
+        like_count: int | None = None,
+    ) -> None:
+        self.id = photo_id
+        self.filename = filename
+        self.item_type = "image"
+        self.created = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        self.asset_date = self.created
+        self.added_date = self.created
+        self.size = len(f"{photo_id}:original".encode())
+        self.liked = liked
+        self.like_count = like_count
+        self.dimensions = (1920, 1080)
+        self.is_live_photo = False
+        self.resources = {
+            "original": SimpleNamespace(
+                filename=filename,
+                url=f"https://example.com/{photo_id}",
+                size=self.size,
+                checksum=f"checksum-{photo_id}",
+            )
+        }
+        self.versions = {
+            "original": {
+                "filename": filename,
+                "url": f"https://example.com/{photo_id}",
+                "size": self.size,
+                "checksum": f"checksum-{photo_id}",
+            }
+        }
+
+    def download(self, version: str = "original") -> bytes:
+        """Return fake asset bytes for the given version."""
+        return f"{self.id}:{version}".encode()
+
+    def delete(self) -> bool:
+        """Report a successful delete."""
+        return True
+
+
+class FakePhotoAlbum:
+    """Photo album fixture."""
+
+    def __init__(self, name: str, photos: list[FakePhoto]) -> None:
+        self.name = name
+        self.fullname = f"{name}"
+        self._photos = photos
+
+    @property
+    def photos(self) -> Iterator[FakePhoto]:
+        """Return an iterator over the album's photos."""
+        return iter(self._photos)
+
+    def __len__(self) -> int:
+        return len(self._photos)
+
+    def __getitem__(self, photo_id: str) -> FakePhoto:
+        for photo in self._photos:
+            if photo.id == photo_id:
+                return photo
+        raise KeyError(photo_id)
+
+
+class FakePhotoLibrary:
+    """Photo library fixture."""
+
+    def __init__(
+        self,
+        *,
+        key: str,
+        scope: str,
+        zone_name: str | None,
+        sync_cursor: str,
+        all_album: FakePhotoAlbum | None = None,
+        albums: FakeAlbumContainer | None = None,
+        changes: list[Any] | None = None,
+    ) -> None:
+        self.key = key
+        self.scope = scope
+        self.zone_id = {"zoneName": zone_name} if zone_name else None
+        self.current_sync_token = sync_cursor
+        self.indexing_state = "FINISHED"
+        self._sync_cursor = sync_cursor
+        self.all = all_album
+        self.albums = albums
+        self._changes = changes or []
+
+    def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
+        return self._sync_cursor
+
+    def recently_added(self) -> FakePhotoAlbum | None:
+        """Return the album of recently added photos."""
+        return self.all
+
+    def iter_changes(self, *, since: str | None = None) -> Iterator[Any]:
+        """Return an iterator over the recorded changes."""
+        _ = since
+        return iter(self._changes)
+
+
+class FakePhotosService:
+    """Photos service fixture."""
+
+    def __init__(self) -> None:
+        photo_album = FakePhotoAlbum("All Photos", [FakePhoto("photo-1", "img.jpg")])
+        shared_library_album = FakePhotoAlbum(
+            "Library", [FakePhoto("shared-photo-1", "shared.jpg")]
+        )
+        shared_favorites_album = FakePhotoAlbum(
+            "Favorites", [FakePhoto("shared-photo-1", "shared.jpg")]
+        )
+        shared_stream_album = FakePhotoAlbum(
+            "Vacation 2026",
+            [FakePhoto("stream-photo-1", "beach.jpg", liked=True, like_count=7)],
+        )
+        shared_stream_album2 = FakePhotoAlbum(
+            "Family Photos",
+            [FakePhoto("stream-photo-2", "family.jpg", liked=False, like_count=3)],
+        )
+        self.albums = FakeAlbumContainer([photo_album])
+        self.all = photo_album
+        self.shared_streams = FakeAlbumContainer([
+            shared_stream_album,
+            shared_stream_album2,
+        ])
+        root_changes = [
+            SimpleNamespace(
+                kind="updated",
+                record_name="photo-1",
+                record_type="CPLAsset",
+                deleted=False,
+                modified=datetime(2026, 3, 2, tzinfo=timezone.utc),
+            )
+        ]
+        shared_changes = [
+            SimpleNamespace(
+                kind="updated",
+                record_name="shared-photo-1",
+                record_type="CPLAsset",
+                deleted=False,
+                modified=datetime(2026, 3, 3, tzinfo=timezone.utc),
+            )
+        ]
+        self.libraries = {
+            "root": FakePhotoLibrary(
+                key="root",
+                scope="private",
+                zone_name="PrimarySync",
+                sync_cursor="photo-sync-root",
+                all_album=photo_album,
+                albums=self.albums,
+                changes=root_changes,
+            ),
+            "shared": FakePhotoLibrary(
+                key="shared",
+                scope="shared-stream",
+                zone_name=None,
+                sync_cursor="photo-sync-shared",
+            ),
+            "shared:SharedSync-TESTZONE": FakePhotoLibrary(
+                key="shared:SharedSync-TESTZONE",
+                scope="shared-library",
+                zone_name="SharedSync-TESTZONE",
+                sync_cursor="photo-sync-shared-library",
+                all_album=shared_library_album,
+                albums=FakeAlbumContainer([
+                    shared_library_album,
+                    shared_favorites_album,
+                ]),
+                changes=shared_changes,
+            ),
+        }
+        self._changes = root_changes
+
+    def iter_changes(self, *, since: str | None = None) -> Iterator[Any]:
+        """Return an iterator over the recorded changes."""
+        _ = since
+        return iter(self._changes)
+
+    def sync_cursor(self) -> str:
+        """Return the root library's sync cursor."""
+        return self.libraries["root"].sync_cursor()
+
+    def sync(self, options: PhotoSyncOptions) -> PhotoSyncResult:
+        """Run a photo sync against this fixture."""
+        return run_photo_sync(self, options)
+
+    def watch(
+        self,
+        options: PhotoSyncOptions,
+        *,
+        interval_seconds: int,
+        iterations: int | None = None,
+    ) -> Iterator[PhotoSyncResult]:
+        """Run a photo watch loop against this fixture."""
+        return watch_photo_sync(
+            self,
+            options,
+            interval_seconds=interval_seconds,
+            iterations=iterations,
+            sleep_fn=lambda _: None,
+        )
+
+
+class FakeHideMyEmail:
+    """Hide My Email fixture."""
+
+    def __init__(self) -> None:
+        self.aliases = [
+            {
+                "hme": "alpha@privaterelay.appleid.com",
+                "label": "Shopping",
+                "anonymousId": "alias-1",
+            }
+        ]
+
+    def __iter__(self) -> Iterator[dict[str, str]]:
+        return iter(self.aliases)
+
+    def generate(self) -> str:
+        """Return a generated alias address."""
+        return "generated@privaterelay.appleid.com"
+
+    def reserve(
+        self, email: str, label: str, note: str = "Generated"
+    ) -> dict[str, Any]:
+        """Return a newly reserved alias."""
+        return {"anonymousId": "alias-2", "hme": email, "label": label, "note": note}
+
+    def update_metadata(
+        self, anonymous_id: str, label: str, note: str | None
+    ) -> dict[str, Any]:
+        """Return updated alias metadata for the given id."""
+        payload: dict[str, Any] = {"anonymousId": anonymous_id, "label": label}
+        if note is not None:
+            payload["note"] = note
+        return payload
+
+    def deactivate(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a deactivated alias payload."""
+        return {"anonymousId": anonymous_id, "active": False}
+
+    def reactivate(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a reactivated alias payload."""
+        return {"anonymousId": anonymous_id, "active": True}
+
+    def delete(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a deleted alias payload."""
+        return {"anonymousId": anonymous_id, "deleted": True}
+
+
+class FakeNotes:
+    """Notes service fixture."""
+
+    def __init__(self) -> None:
+        attachment = NoteAttachment(
+            id="Attachment/PDF",
+            filename="agenda.pdf",
+            uti="com.adobe.pdf",
+            size=12,
+            download_url="https://example.com/agenda.pdf",
+            preview_url="https://example.com/agenda-preview.pdf",
+            thumbnail_url="https://example.com/agenda-thumb.png",
+        )
+        self.recent_requests: list[int] = []
+        self.iter_all_requests: list[str | None] = []
+        self.folder_requests: list[tuple[str, int | None]] = []
+        self.render_calls: list[dict[str, Any]] = []
+        self.export_calls: list[dict[str, Any]] = []
+        self.change_requests: list[str | None] = []
+        self.folder_rows = [
+            NoteFolder(
+                id="Folder/NOTES",
+                name="Notes",
+                has_subfolders=False,
+                count=1,
+            ),
+            NoteFolder(
+                id="Folder/WORK",
+                name="Work",
+                has_subfolders=True,
+                count=3,
+            ),
+        ]
+        self.recent_rows = [
+            NoteSummary(
+                id="Note/DELETED",
+                title="Deleted Note",
+                snippet="Old note",
+                modified_at=datetime(2026, 3, 5, tzinfo=timezone.utc),
+                folder_id="Folder/DELETED",
+                folder_name="Recently Deleted",
+                is_deleted=True,
+                is_locked=False,
+            ),
+            NoteSummary(
+                id="Note/DAILY",
+                title="Daily Plan",
+                snippet="Ship CLI",
+                modified_at=datetime(2026, 3, 4, tzinfo=timezone.utc),
+                folder_id="Folder/NOTES",
+                folder_name="Notes",
+                is_deleted=False,
+                is_locked=False,
+            ),
+            NoteSummary(
+                id="Note/MEETING",
+                title="Meeting Notes",
+                snippet="Discuss roadmap",
+                modified_at=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+            ),
+        ]
+        self.all_rows = [
+            self.recent_rows[2],
+            NoteSummary(
+                id="Note/FOLLOWUP",
+                title="Meeting Follow-up",
+                snippet="Send recap",
+                modified_at=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+            ),
+            self.recent_rows[1],
+            # Duplicate entry to verify deduplication in search_notes_by_title.
+            self.recent_rows[2],
+        ]
+        self.notes = {
+            "Note/DAILY": Note(
+                id="Note/DAILY",
+                title="Daily Plan",
+                snippet="Ship CLI",
+                modified_at=datetime(2026, 3, 4, tzinfo=timezone.utc),
+                folder_id="Folder/NOTES",
+                folder_name="Notes",
+                is_deleted=False,
+                is_locked=False,
+                text="Ship CLI",
+                html="<p>Ship CLI</p>",
+                attachments=[attachment],
+            ),
+            "Note/MEETING": Note(
+                id="Note/MEETING",
+                title="Meeting Notes",
+                snippet="Discuss roadmap",
+                modified_at=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+                text="Discuss roadmap",
+                html="<p>Discuss roadmap</p>",
+                attachments=[attachment],
+            ),
+            "Note/FOLLOWUP": Note(
+                id="Note/FOLLOWUP",
+                title="Meeting Follow-up",
+                snippet="Send recap",
+                modified_at=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+                text="Send recap",
+                html="<p>Send recap</p>",
+                attachments=None,
+            ),
+        }
+        self.change_rows = [
+            NoteChangeEvent(type="updated", note=self.recent_rows[1]),
+            NoteChangeEvent(type="deleted", note=self.recent_rows[0]),
+        ]
+        self.cursor = "notes-cursor-1"
+
+    @staticmethod
+    def _matches_id(note_id: str, query: str) -> bool:
+        return query in (note_id, note_id.split("/", 1)[-1])
+
+    def recents(self, *, limit: int = 50) -> list[NoteSummary]:
+        """Return the recent note rows up to the given limit."""
+        self.recent_requests.append(limit)
+        return list(self.recent_rows[:limit])
+
+    def folders(self) -> list[NoteFolder]:
+        """Return the available note folders."""
+        return list(self.folder_rows)
+
+    def in_folder(self, folder_id: str, limit: int | None = None) -> list[NoteSummary]:
+        """Return note rows belonging to the given folder."""
+        self.folder_requests.append((folder_id, limit))
+        rows = [row for row in self.all_rows if row.folder_id == folder_id]
+        return list(rows[:limit] if limit is not None else rows)
+
+    def iter_all(self, *, since: str | None = None) -> Iterator[NoteSummary]:
+        """Return an iterator over all note rows."""
+        self.iter_all_requests.append(since)
+        return iter(self.all_rows)
+
+    def get(self, note_id: str, *, with_attachments: bool = False) -> Note:
+        """Return the note with the given id, or raise when missing."""
+        if self._matches_id("Note/LOCKED", note_id):
+            raise NoteLockedError(f"Note is locked: {note_id}")
+        for candidate_id, note in self.notes.items():
+            if self._matches_id(candidate_id, note_id):
+                attachments = note.attachments if with_attachments else None
+                return note.model_copy(update={"attachments": attachments})
+        raise NoteNotFound(f"Note not found: {note_id}")
+
+    def render_note(self, note_id: str, **kwargs: Any) -> str:
+        """Return rendered HTML for the given note."""
+        note = self.get(note_id, with_attachments=False)
+        self.render_calls.append({"note_id": note.id, **kwargs})
+        return note.html or f"<p>{note.id}</p>"
+
+    def export_note(self, note_id: str, output_dir: str, **kwargs: Any) -> str:
+        """Return the export path for the given note."""
+        note = self.get(note_id, with_attachments=False)
+        path = Path(output_dir) / f"{note.id.split('/', 1)[-1].lower()}.html"
+        self.export_calls.append({
+            "note_id": note.id,
+            "output_dir": output_dir,
+            **kwargs,
+        })
+        return str(path)
+
+    def iter_changes(self, *, since: str | None = None) -> Iterator[NoteChangeEvent]:
+        """Return an iterator over the recorded note changes."""
+        self.change_requests.append(since)
+        return iter(self.change_rows)
+
+    def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
+        return self.cursor
+
+
+class FakeInvites:
+    """Invites service fixture."""
+
+    def __init__(self) -> None:
+        self._events = [
+            Event(
+                event_id="AAAA1111-0000-0000-0000-000000000001",
+                scope=EventScope.PRIVATE,
+                title="Standup",
+                time=EventTime(start=datetime(2026, 5, 1, 9, 0, tzinfo=timezone.utc)),
+                place=EventPlace(title="Room 2", city="Dublin"),
+                is_cancelled=False,
+                is_published=True,
+            ),
+            Event(
+                event_id="AAAA2222-0000-0000-0000-000000000002",
+                scope=EventScope.SHARED,
+                title="Birthday",
+                host_display_name="Sam Appleseed",
+                time=EventTime(
+                    start=datetime(2026, 6, 2, tzinfo=timezone.utc), is_all_day=True
+                ),
+                place=EventPlace(title="The Park", city="Cork"),
+                share=EventShare(short_guid="008FIXTURE", public_permission="READ"),
+                is_cancelled=False,
+                is_published=True,
+            ),
+        ]
+
+    def events(self) -> list[Event]:
+        """Return both fixture events."""
+        return list(self._events)
+
+    def event(self, event_id: str) -> Event:
+        """Return one fixture event by exact id."""
+        for event in self._events:
+            if event.event_id == event_id:
+                return event
+        raise EventNotFound(f"Event not found: {event_id!r}")
+
+    def rsvps(self, event: Event) -> list[Rsvp]:
+        """Return one response for any event."""
+        assert event is not None
+        return [
+            Rsvp(
+                record_name="RSVP/1",
+                participant_id="P1",
+                name="Dana Appleseed",
+                status=RsvpStatus.GOING,
+                message="See you there",
+                num_additional_adults=1,
+                num_additional_kids=0,
+            )
+        ]
+
+    def resolve(self, short_guid: str) -> ResolvedShare:
+        """Return a preview of a share."""
+        return ResolvedShare(
+            short_guid=short_guid,
+            event_id="AAAA2222-0000-0000-0000-000000000002",
+            owner_given_name="Sam",
+            owner_family_name="Appleseed",
+            participant_status="INVITED",
+            participant_type="USER",
+            participant_permission="READ_WRITE",
+            share=EventShare(short_guid=short_guid, public_permission="READ"),
+        )
+
+
+class FakeReminders:
+    """Reminders service fixture."""
+
+    def __init__(self) -> None:
+        self.list_rows = {
+            "List/INBOX": RemindersList(
+                id="List/INBOX",
+                title="Inbox",
+                color='{"daHexString":"#007AFF","ckSymbolicColorName":"blue"}',
+                count=0,
+            ),
+            "List/WORK": RemindersList(
+                id="List/WORK",
+                title="Work",
+                color='{"daHexString":"#34C759","ckSymbolicColorName":"green"}',
+                count=0,
+            ),
+        }
+        self.reminder_rows = {
+            "Reminder/A": Reminder(
+                id="Reminder/A",
+                list_id="List/INBOX",
+                title="Buy milk",
+                desc="2 percent",
+                completed=False,
+                due_date=datetime(2026, 3, 31, 9, 0, tzinfo=timezone.utc),
+                priority=1,
+                flagged=True,
+                all_day=False,
+                time_zone="Europe/Luxembourg",
+                alarm_ids=["Alarm/A"],
+                hashtag_ids=["Hashtag/ERRANDS"],
+                attachment_ids=["Attachment/LINK"],
+                recurrence_rule_ids=["Recurrence/WEEKLY"],
+                parent_reminder_id="Reminder/PARENT",
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 4, tzinfo=timezone.utc),
+            ),
+            "Reminder/B": Reminder(
+                id="Reminder/B",
+                list_id="List/INBOX",
+                title="Pay rent",
+                desc="",
+                completed=True,
+                completed_date=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                priority=0,
+                flagged=False,
+                all_day=False,
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 2, tzinfo=timezone.utc),
+            ),
+            "Reminder/C": Reminder(
+                id="Reminder/C",
+                list_id="List/WORK",
+                title="Prepare deck",
+                desc="Slides for review",
+                completed=False,
+                priority=5,
+                flagged=False,
+                all_day=False,
+                created=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 4, tzinfo=timezone.utc),
+            ),
+        }
+        self.alarm_rows = {
+            "Alarm/A": Alarm(
+                id="Alarm/A",
+                alarm_uid="alarm-a",
+                reminder_id="Reminder/A",
+                trigger_id="Trigger/A",
+            )
+        }
+        self.trigger_rows = {
+            "Trigger/A": LocationTrigger(
+                id="Trigger/A",
+                alarm_id="Alarm/A",
+                title="Office",
+                address="1 Infinite Loop",
+                latitude=37.3318,
+                longitude=-122.0312,
+                radius=150.0,
+                proximity=Proximity.ARRIVING,
+                location_uid="office",
+            )
+        }
+        self.hashtag_rows = {
+            "Hashtag/ERRANDS": Hashtag(
+                id="Hashtag/ERRANDS",
+                name="errands",
+                reminder_id="Reminder/A",
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+            )
+        }
+        self.attachment_rows = {
+            "Attachment/LINK": URLAttachment(
+                id="Attachment/LINK",
+                reminder_id="Reminder/A",
+                url="https://example.com/checklist",
+                uti="public.url",
+            )
+        }
+        self.recurrence_rows = {
+            "Recurrence/WEEKLY": RecurrenceRule(
+                id="Recurrence/WEEKLY",
+                reminder_id="Reminder/A",
+                frequency=RecurrenceFrequency.WEEKLY,
+                interval=1,
+                occurrence_count=0,
+                first_day_of_week=1,
+            )
+        }
+        self.snapshot_requests: list[dict[str, Any]] = []
+        self.change_requests: list[str | None] = []
+        self.cursor = "reminders-cursor-1"
+
+    @staticmethod
+    def _matches_id(record_id: str, query: str) -> bool:
+        return query in (record_id, record_id.split("/", 1)[-1])
+
+    def _find_reminder(self, reminder_id: str) -> Reminder:
+        for candidate_id, reminder in self.reminder_rows.items():
+            if self._matches_id(candidate_id, reminder_id):
+                return reminder
+        raise LookupError(f"Reminder not found: {reminder_id}")
+
+    def lists(self) -> list[RemindersList]:
+        """Return the reminder lists with their counts refreshed."""
+        for row in self.list_rows.values():
+            row.count = sum(
+                1
+                for reminder in self.reminder_rows.values()
+                if reminder.list_id == row.id and not reminder.deleted
+            )
+        return list(self.list_rows.values())
+
+    def reminders(self, list_id: str | None = None) -> list[Reminder]:
+        """Return non-deleted reminders, optionally filtered by list."""
+        rows = [
+            reminder
+            for reminder in self.reminder_rows.values()
+            if not reminder.deleted and (list_id is None or reminder.list_id == list_id)
+        ]
+        return list(rows)
+
+    def list_reminders(
+        self,
+        list_id: str,
+        include_completed: bool = False,
+        results_limit: int = 200,
+    ) -> ListRemindersResult:
+        """Return a snapshot of reminders for the given list."""
+        normalized = list_id if list_id.startswith("List/") else f"List/{list_id}"
+        self.snapshot_requests.append({
+            "list_id": normalized,
+            "include_completed": include_completed,
+            "results_limit": results_limit,
+        })
+        reminders = [
+            reminder
+            for reminder in self.reminder_rows.values()
+            if reminder.list_id == normalized
+            and not reminder.deleted
+            and (include_completed or not reminder.completed)
+        ][:results_limit]
+        reminder_ids = {reminder.id for reminder in reminders}
+        return ListRemindersResult(
+            reminders=reminders,
+            alarms={
+                alarm_id: alarm
+                for alarm_id, alarm in self.alarm_rows.items()
+                if alarm.reminder_id in reminder_ids
+            },
+            triggers={
+                trigger_id: trigger
+                for trigger_id, trigger in self.trigger_rows.items()
+                if any(
+                    alarm.trigger_id == trigger_id
+                    for alarm in self.alarm_rows.values()
+                    if alarm.reminder_id in reminder_ids
+                )
+            },
+            attachments={
+                attachment_id: attachment
+                for attachment_id, attachment in self.attachment_rows.items()
+                if attachment.reminder_id in reminder_ids
+            },
+            hashtags={
+                hashtag_id: hashtag
+                for hashtag_id, hashtag in self.hashtag_rows.items()
+                if hashtag.reminder_id in reminder_ids
+            },
+            recurrence_rules={
+                rule_id: rule
+                for rule_id, rule in self.recurrence_rows.items()
+                if rule.reminder_id in reminder_ids
+            },
+        )
+
+    def get(self, reminder_id: str) -> Reminder:
+        """Return the reminder with the given id, or raise when missing."""
+        return self._find_reminder(reminder_id)
+
+    def create(
+        self,
+        list_id: str,
+        title: str,
+        desc: str = "",
+        completed: bool = False,
+        due_date: datetime | None = None,
+        priority: int = 0,
+        flagged: bool = False,
+        all_day: bool = False,
+        time_zone: str | None = None,
+        parent_reminder_id: str | None = None,
+    ) -> Reminder:
+        """Create and store a new reminder, returning it."""
+        next_id = f"Reminder/CREATED-{len(self.reminder_rows) + 1}"
+        reminder = Reminder(
+            id=next_id,
+            list_id=list_id,
+            title=title,
+            desc=desc,
+            completed=completed,
+            due_date=due_date,
+            priority=priority,
+            flagged=flagged,
+            all_day=all_day,
+            time_zone=time_zone,
+            parent_reminder_id=parent_reminder_id,
+            created=datetime(2026, 3, 30, tzinfo=timezone.utc),
+            modified=datetime(2026, 3, 30, tzinfo=timezone.utc),
+        )
+        self.reminder_rows[reminder.id] = reminder
+        return reminder
+
+    def update(self, reminder: Reminder) -> None:
+        """Store the updated reminder."""
+        self.reminder_rows[reminder.id] = reminder
+
+    def delete(self, reminder: Reminder) -> None:
+        """Mark the given reminder as deleted."""
+        reminder.deleted = True
+        self.reminder_rows[reminder.id] = reminder
+
+    def add_location_trigger(
+        self,
+        reminder: Reminder,
+        title: str = "",
+        address: str = "",
+        latitude: float = 0.0,
+        longitude: float = 0.0,
+        radius: float = 100.0,
+        proximity: Proximity = Proximity.ARRIVING,
+    ) -> tuple[Alarm, LocationTrigger]:
+        """Add and return a location trigger alarm."""
+        index = len(self.alarm_rows) + 1
+        alarm = Alarm(
+            id=f"Alarm/{index}",
+            alarm_uid=f"alarm-{index}",
+            reminder_id=reminder.id,
+            trigger_id=f"Trigger/{index}",
+        )
+        trigger = LocationTrigger(
+            id=f"Trigger/{index}",
+            alarm_id=alarm.id,
+            title=title,
+            address=address,
+            latitude=latitude,
+            longitude=longitude,
+            radius=radius,
+            proximity=proximity,
+            location_uid=f"location-{index}",
+        )
+        self.alarm_rows[alarm.id] = alarm
+        self.trigger_rows[trigger.id] = trigger
+        reminder.alarm_ids.append(alarm.id)
+        return alarm, trigger
+
+    def create_hashtag(self, reminder: Reminder, name: str) -> Hashtag:
+        """Create and attach a hashtag, returning it."""
+        hashtag = Hashtag(
+            id=f"Hashtag/{name.upper()}",
+            name=name,
+            reminder_id=reminder.id,
+            created=datetime(2026, 3, 30, tzinfo=timezone.utc),
+        )
+        self.hashtag_rows[hashtag.id] = hashtag
+        reminder.hashtag_ids.append(hashtag.id)
+        return hashtag
+
+    def update_hashtag(self, hashtag: Hashtag, name: str) -> None:
+        """Rename the given hashtag."""
+        hashtag.name = name
+
+    def delete_hashtag(self, reminder: Reminder, hashtag: Hashtag) -> None:
+        """Remove the hashtag from the reminder."""
+        reminder.hashtag_ids = [
+            row_id for row_id in reminder.hashtag_ids if row_id != hashtag.id
+        ]
+        self.hashtag_rows.pop(hashtag.id, None)
+
+    def create_url_attachment(
+        self, reminder: Reminder, url: str, uti: str = "public.url"
+    ) -> URLAttachment:
+        """Create and attach a URL attachment, returning it."""
+        attachment = URLAttachment(
+            id=f"Attachment/{len(self.attachment_rows) + 1}",
+            reminder_id=reminder.id,
+            url=url,
+            uti=uti,
+        )
+        self.attachment_rows[attachment.id] = attachment
+        reminder.attachment_ids.append(attachment.id)
+        return attachment
+
+    def update_attachment(  # pylint: disable=unused-argument
+        self,
+        attachment: URLAttachment,
+        *,
+        url: str | None = None,
+        uti: str | None = None,
+        filename: str | None = None,
+        file_size: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> None:
+        """Update the attachment's url and uti if provided."""
+        if url is not None:
+            attachment.url = url
+        if uti is not None:
+            attachment.uti = uti
+
+    def delete_attachment(self, reminder: Reminder, attachment: URLAttachment) -> None:
+        """Remove the attachment from the reminder."""
+        reminder.attachment_ids = [
+            row_id for row_id in reminder.attachment_ids if row_id != attachment.id
+        ]
+        self.attachment_rows.pop(attachment.id, None)
+
+    def create_recurrence_rule(
+        self,
+        reminder: Reminder,
+        *,
+        frequency: RecurrenceFrequency = RecurrenceFrequency.DAILY,
+        interval: int = 1,
+        occurrence_count: int = 0,
+        first_day_of_week: int = 0,
+    ) -> RecurrenceRule:
+        """Create and attach a recurrence rule, returning it."""
+        rule = RecurrenceRule(
+            id=f"Recurrence/{len(self.recurrence_rows) + 1}",
+            reminder_id=reminder.id,
+            frequency=frequency,
+            interval=interval,
+            occurrence_count=occurrence_count,
+            first_day_of_week=first_day_of_week,
+        )
+        self.recurrence_rows[rule.id] = rule
+        reminder.recurrence_rule_ids.append(rule.id)
+        return rule
+
+    def update_recurrence_rule(
+        self,
+        recurrence_rule: RecurrenceRule,
+        *,
+        frequency: RecurrenceFrequency | None = None,
+        interval: int | None = None,
+        occurrence_count: int | None = None,
+        first_day_of_week: int | None = None,
+    ) -> None:
+        """Update the recurrence rule's fields if provided."""
+        if frequency is not None:
+            recurrence_rule.frequency = frequency
+        if interval is not None:
+            recurrence_rule.interval = interval
+        if occurrence_count is not None:
+            recurrence_rule.occurrence_count = occurrence_count
+        if first_day_of_week is not None:
+            recurrence_rule.first_day_of_week = first_day_of_week
+
+    def delete_recurrence_rule(
+        self, reminder: Reminder, recurrence_rule: RecurrenceRule
+    ) -> None:
+        """Remove the recurrence rule from the reminder."""
+        reminder.recurrence_rule_ids = [
+            row_id
+            for row_id in reminder.recurrence_rule_ids
+            if row_id != recurrence_rule.id
+        ]
+        self.recurrence_rows.pop(recurrence_rule.id, None)
+
+    def set_early_reminders(
+        self,
+        reminder: Reminder,
+        alerts: list[EarlyReminder],
+    ) -> None:
+        """Replace the reminder's early reminders."""
+        reminder.early_reminders = tuple(alerts)
+        reminder.early_reminder_account_id = "ACCOUNT-CLI"
+
+    def set_urgent(
+        self,
+        reminder: Reminder,
+        enabled: bool,
+        *,
+        person_id: str | None = None,
+    ) -> None:
+        """Set the reminder's Urgent state."""
+        reminder.urgent = UrgentPresentationAlarms(
+            enabled=enabled,
+            person_id=person_id or "PERSON-CLI",
+            checksum="deadbeef",
+        )
+
+    def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
+        """Return alarms with triggers for the given reminder."""
+        rows = []
+        for alarm_id in reminder.alarm_ids:
+            alarm = self.alarm_rows[alarm_id]
+            rows.append(
+                AlarmWithTrigger(
+                    alarm=alarm,
+                    trigger=self.trigger_rows.get(alarm.trigger_id),
+                )
+            )
+        return rows
+
+    def tags_for(self, reminder: Reminder) -> list[Hashtag]:
+        """Return the hashtags attached to the given reminder."""
+        return [
+            self.hashtag_rows[row_id]
+            for row_id in reminder.hashtag_ids
+            if row_id in self.hashtag_rows
+        ]
+
+    def attachments_for(self, reminder: Reminder) -> list[URLAttachment]:
+        """Return the attachments attached to the given reminder."""
+        return [
+            self.attachment_rows[row_id]
+            for row_id in reminder.attachment_ids
+            if row_id in self.attachment_rows
+        ]
+
+    def recurrence_rules_for(self, reminder: Reminder) -> list[RecurrenceRule]:
+        """Return the recurrence rules for the given reminder."""
+        return [
+            self.recurrence_rows[row_id]
+            for row_id in reminder.recurrence_rule_ids
+            if row_id in self.recurrence_rows
+        ]
+
+    def iter_changes(
+        self, *, since: str | None = None
+    ) -> Iterator[ReminderChangeEvent]:
+        """Return an iterator over the recorded reminder changes."""
+        self.change_requests.append(since)
+        return iter([
+            ReminderChangeEvent(
+                type="updated",
+                reminder_id="Reminder/A",
+                reminder=self.reminder_rows["Reminder/A"],
+            ),
+            ReminderChangeEvent(
+                type="deleted",
+                reminder_id="Reminder/Z",
+                reminder=None,
+            ),
+        ])
+
+    def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
+        return self.cursor
+
+
+class FakeAPI:
+    """Authenticated API fixture."""
+
+    @property
+    def webservices(self) -> Any:
+        """Return the webservices map."""
+        return self._webservices
+
+    @webservices.setter
+    def webservices(self, value: Any) -> None:
+        """Set the webservices map."""
+        self._webservices = value
+
+    def __init__(
+        self,
+        *,
+        username: str = "user@example.com",
+        session_dir: Path | None = None,
+        china_mainland: bool = False,
+    ) -> None:
+        self.requires_2fa = False
+        self.requires_2sa = False
+        self.is_trusted_session = True
+        self.is_china_mainland = china_mainland
+        self.fido2_devices: list[dict[str, Any]] = []
+        self.trusted_devices: list[dict[str, Any]] = []
+        self.two_factor_delivery_method = "unknown"
+        self.two_factor_delivery_notice: str | None = None
+        self.request_2fa_code = MagicMock(return_value=False)
+        self.use_existing_trusted_device_code = MagicMock(
+            side_effect=lambda: setattr(
+                self, "two_factor_delivery_method", "trusted_device"
+            )
+        )
+        self.validate_2fa_code = MagicMock(return_value=True)
+        self.confirm_security_key = MagicMock(return_value=True)
+        self.send_verification_code = MagicMock(return_value=True)
+        self.validate_verification_code = MagicMock(return_value=True)
+        self.trust_session = MagicMock(return_value=True)
+        self.account_name = username
+        session_dir = session_dir or _unique_session_dir("fake-api")
+        session_stub = "".join(
+            character for character in username if character.isalnum()
+        )
+        self.session = SimpleNamespace(
+            session_path=str(session_dir / f"{session_stub}.session"),
+            cookiejar_path=str(session_dir / f"{session_stub}.cookiejar"),
+        )
+        self.get_auth_status = MagicMock(
+            return_value={
+                "authenticated": True,
+                "trusted_session": True,
+                "requires_2fa": False,
+                "requires_2sa": False,
+            }
+        )
+        self.data: dict[str, Any] = {}
+        self.params: dict[str, Any] = {}
+        self._webservices = None
+        self.logout = MagicMock(side_effect=self._logout)
+        self.devices = FakeDevices([FakeDevice()])
+        self.account = SimpleNamespace(
+            devices=[
+                {
+                    "name": "Example iPhone",
+                    "modelDisplayName": "iPhone 16 Pro",
+                    "deviceClass": "iPhone",
+                    "id": "acc-device-1",
+                }
+            ],
+            family=[
+                SimpleNamespace(
+                    full_name="Jane Doe",
+                    apple_id="jane@example.com",
+                    dsid="123",
+                    age_classification="adult",
+                    has_parental_privileges=True,
+                )
+            ],
+            storage=SimpleNamespace(
+                usage=SimpleNamespace(
+                    used_storage_in_bytes=100,
+                    available_storage_in_bytes=900,
+                    total_storage_in_bytes=1000,
+                    used_storage_in_percent=10.0,
+                ),
+                usages_by_media={
+                    "photos": SimpleNamespace(
+                        label="Photos", color="FFFFFF", usage_in_bytes=80
+                    )
+                },
+            ),
+            summary_plan={"summary": {"limit": 50, "limitUnits": "GIB"}},
+        )
+        self.calendar = SimpleNamespace(
+            get_calendars=lambda: [
+                {
+                    "guid": "cal-1",
+                    "title": "Home",
+                    "color": "#fff",
+                    "shareType": "owner",
+                }
+            ],
+            get_events=lambda **kwargs: [
+                {
+                    "guid": "event-1",
+                    "pGuid": "cal-1",
+                    "title": "Dentist",
+                    "startDate": "2026-03-01T09:00:00Z",
+                    "endDate": "2026-03-01T10:00:00Z",
+                }
+            ],
+        )
+        self.contacts = SimpleNamespace(
+            all=[
+                {
+                    "firstName": "John",
+                    "lastName": "Appleseed",
+                    "phones": [{"field": "+1 555-0100"}],
+                    "emails": [{"field": "john@example.com"}],
+                }
+            ],
+            me=SimpleNamespace(
+                first_name="John",
+                last_name="Appleseed",
+                photo={"url": "https://example.com/photo.jpg"},
+                raw_data={"contacts": [{"firstName": "John"}]},
+            ),
+        )
+        drive_file = FakeDriveNode(
+            "report.txt",
+            node_type="file",
+            size=42,
+            modified=datetime(2026, 3, 1, tzinfo=timezone.utc),
+        )
+        self.drive = SimpleNamespace(
+            root=FakeDriveNode("root", children=[drive_file]),
+            trash=FakeDriveNode("trash"),
+        )
+        self.photos = FakePhotosService()
+        self.hidemyemail = FakeHideMyEmail()
+        self.notes = FakeNotes()
+        self.reminders = FakeReminders()
+        self.invites = FakeInvites()
+
+    def _logout(
+        self,
+        *,
+        keep_trusted: bool = False,
+        all_sessions: bool = False,
+        clear_local_session: bool = True,
+    ) -> dict[str, Any]:
+        if clear_local_session:
+            for path in (self.session.session_path, self.session.cookiejar_path):
+                with suppress(FileNotFoundError):
+                    Path(path).unlink()
+            self.get_auth_status.return_value = {
+                "authenticated": False,
+                "trusted_session": False,
+                "requires_2fa": False,
+                "requires_2sa": False,
+            }
+        return {
+            "payload": {
+                "trustBrowser": keep_trusted,
+                "allBrowsers": all_sessions,
+            },
+            "remote_logout_confirmed": True,
+            "local_session_cleared": clear_local_session,
+        }
+
+
+class UnavailableInvitesAPI(FakeAPI):
+    """An account where the Invites service cannot be constructed.
+
+    base.py raises PyiCloudServiceUnavailable from the property itself, not
+    from a method on the service, so the failure has to be provoked there.
+    """
+
+    @property
+    def invites(self) -> FakeInvites:
+        """Fail the way base.py does when the webservice is missing."""
+        raise PyiCloudServiceUnavailable("Invites service not available")
+
+    @invites.setter
+    def invites(self, value: FakeInvites) -> None:
+        """Absorb the assignment FakeAPI makes in its own constructor."""
+
+
+class FailingInvites(FakeInvites):
+    """Invites service whose listing fails the way Apple can."""
+
+    def events(self) -> list[Event]:
+        """Raise a service-level error."""
+        raise InvitesError("boom")
+
+
+class InvitesErrorAPI(FakeAPI):
+    """An account whose invites listing raises an InvitesError."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.invites = FailingInvites()
+
+
+class VanishingInvites(FakeInvites):
+    """Invites service that lists an event its lookup cannot fetch."""
+
+    def event(self, event_id: str) -> Event:
+        """Lose the event between the listing and the lookup."""
+        raise EventNotFound(event_id)
+
+
+class VanishingEventAPI(FakeAPI):
+    """An account whose event lookup rejects every id."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.invites = VanishingInvites()
+
+
+def _runner() -> CliRunner:
+    return CliRunner()
+
+
+def _plain_output(result: Any) -> str:
+    return click.unstyle(result.output)
+
+
+def _unique_session_dir(label: str = "session") -> Path:
+    path = TEST_ROOT / f"{label}-{uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _remember_local_account(
+    session_dir: Path,
+    username: str,
+    *,
+    has_session_file: bool = False,
+    has_cookiejar_file: bool = False,
+    china_mainland: bool | None = None,
+    keyring_passwords: set[str] | None = None,
+) -> FakeAPI:
+    fake_api = FakeAPI(
+        username=username,
+        session_dir=session_dir,
+        china_mainland=bool(china_mainland),
+    )
+    if has_session_file:
+        with open(fake_api.session.session_path, "w", encoding="utf-8"):
+            pass
+    if has_cookiejar_file:
+        with open(fake_api.session.cookiejar_path, "w", encoding="utf-8"):
+            pass
+    account_index_module.remember_account(
+        session_dir,
+        username=username,
+        session_path=fake_api.session.session_path,
+        cookiejar_path=fake_api.session.cookiejar_path,
+        china_mainland=china_mainland,
+        keyring_has=lambda candidate: candidate in (keyring_passwords or set()),
+    )
+    return fake_api
+
+
+def _invoke(
+    fake_api: FakeAPI,
+    *args: str,
+    username: str | None = "user@example.com",
+    password: str | None = None,
+    interactive: bool | None = None,
+    session_dir: Path | None = None,
+    china_mainland: bool | None = None,
+    accept_terms: bool | None = None,
+    with_family: bool | None = None,
+    refresh_interval: float | None = None,
+    output_format: str | None = None,
+    log_level: str | None = None,
+    http_proxy: str | None = None,
+    https_proxy: str | None = None,
+    no_verify_ssl: bool = False,
+    keyring_passwords: set[str] | None = None,
+) -> Result:
+    runner = _runner()
+    session_dir = session_dir or _unique_session_dir("invoke")
+    cli_args = list(args)
+    command_path = tuple(args[:3])
+    supports_auth_login = command_path[:2] == ("auth", "login")
+    supports_devices = args[:1] == ("devices",)
+    supports_keyring_delete = command_path[:3] == ("auth", "keyring", "delete")
+
+    if username is not None:
+        cli_args.extend(["--username", username])
+    if session_dir is not None:
+        cli_args.extend(["--session-dir", str(session_dir)])
+    if supports_auth_login and password is None:
+        password = "secret"
+    if supports_auth_login and interactive is None:
+        interactive = False
+    if supports_auth_login and password is not None:
+        cli_args.extend(["--password", password])
+    if supports_auth_login and interactive is not None:
+        cli_args.append("--interactive" if interactive else "--non-interactive")
+    if supports_auth_login and china_mainland:
+        cli_args.append("--china-mainland")
+    if supports_auth_login and accept_terms:
+        cli_args.append("--accept-terms")
+    if not supports_keyring_delete and http_proxy is not None:
+        cli_args.extend(["--http-proxy", http_proxy])
+    if not supports_keyring_delete and https_proxy is not None:
+        cli_args.extend(["--https-proxy", https_proxy])
+    if not supports_keyring_delete and no_verify_ssl:
+        cli_args.append("--no-verify-ssl")
+    if supports_devices and with_family:
+        cli_args.append("--with-family")
+    if supports_devices and refresh_interval is not None:
+        cli_args.extend(["--refresh-interval", str(refresh_interval)])
+    if output_format is not None:
+        cli_args.extend(["--format", output_format])
+    if log_level is not None:
+        cli_args.extend(["--log-level", log_level])
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate in (keyring_passwords or set()),
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=lambda candidate: (
+                "stored-secret" if candidate in (keyring_passwords or set()) else None
+            ),
+        ),
+        # ``environment()`` reads installed package metadata, which touches the
+        # file system outside the test sandbox; the version itself is not what
+        # any CLI test asserts.
+        patch("pyicloud.diagnostics.installed_version", return_value="0.0.0"),
+    ):
+        return runner.invoke(app, cli_args)
+
+
+def _invoke_with_cli_args(
+    fake_api: FakeAPI,
+    cli_args: list[str],
+    *,
+    keyring_passwords: set[str] | None = None,
+) -> Result:
+    runner = _runner()
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate in (keyring_passwords or set()),
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=lambda candidate: (
+                "stored-secret" if candidate in (keyring_passwords or set()) else None
+            ),
+        ),
+    ):
+        return runner.invoke(app, cli_args)
+
+
+def test_root_help() -> None:
+    """The root command should expose only help/completion utilities and subcommands."""
+
+    result = _runner().invoke(app, ["--help"])
+    text = _plain_output(result)
+    assert result.exit_code == 0
+    assert "--username" not in text
+    assert "--password" not in text
+    assert "--format" not in text
+    assert "--session-dir" not in text
+    assert "--http-proxy" not in text
+    for command in (
+        "account",
+        "auth",
+        "devices",
+        "calendar",
+        "contacts",
+        "drive",
+        "photos",
+        "hidemyemail",
+        "notes",
+        "reminders",
+    ):
+        assert command in text
+
+
+def test_root_version_prints_installed_package_version() -> None:
+    """The root --version flag should print the installed pyicloud version."""
+
+    with patch.object(cli_module, "installed_version", return_value="9.9.9"):
+        result = _runner().invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "9.9.9"
+
+
+def test_group_help() -> None:
+    """Each command group should expose help."""
+
+    for command in (
+        "account",
+        "auth",
+        "devices",
+        "calendar",
+        "contacts",
+        "drive",
+        "photos",
+        "hidemyemail",
+        "notes",
+        "reminders",
+    ):
+        result = _runner().invoke(app, [command, "--help"])
+        assert result.exit_code == 0
+
+
+def test_bare_group_invocation_shows_help() -> None:
+    """Bare group invocation should show help instead of a missing-command error."""
+
+    for command in (
+        "account",
+        "auth",
+        "devices",
+        "calendar",
+        "contacts",
+        "drive",
+        "photos",
+        "hidemyemail",
+        "notes",
+        "reminders",
+    ):
+        result = _runner().invoke(app, [command])
+        text = _plain_output(result)
+        assert result.exit_code == 0
+        assert "Usage:" in text
+        assert "Missing command" not in text
+
+
+def test_notes_and_reminders_leaf_help() -> None:
+    """New service groups and reminder subgroups should expose leaf help."""
+
+    for cli_args in (
+        ["notes", "search", "--help"],
+        ["reminders", "create", "--help"],
+        ["reminders", "alarm", "--help"],
+        ["reminders", "alarm", "add-location", "--help"],
+        ["reminders", "hashtag", "--help"],
+        ["reminders", "attachment", "--help"],
+        ["reminders", "recurrence", "--help"],
+    ):
+        result = _runner().invoke(app, cli_args)
+        assert result.exit_code == 0
+
+
+def test_notes_list_help_uses_folder_id_label() -> None:
+    """Notes list help should label folder option with folder-specific help text."""
+
+    result = _runner().invoke(app, ["notes", "list", "--help"])
+    text = _plain_output(result)
+
+    assert result.exit_code == 0
+    assert "--folder-id" in text
+    assert "Folder id." in text
+
+
+def test_leaf_help_includes_execution_context_options() -> None:
+    """Leaf command help should show the command-local options it supports."""
+
+    result = _runner().invoke(app, ["account", "summary", "--help"])
+    text = _plain_output(result)
+
+    assert result.exit_code == 0
+    assert "--username" in text
+    assert "--format" in text
+    assert "--session-dir" in text
+    assert "--password" not in text
+    assert "--with-family" not in text
+
+
+def test_auth_login_help_scopes_authentication_options() -> None:
+    """Auth login help should expose auth-only options on the leaf command."""
+
+    result = _runner().invoke(app, ["auth", "login", "--help"])
+    text = _plain_output(result)
+
+    assert result.exit_code == 0
+    assert "--username" in text
+    assert "--password" in text
+    assert "--china-mainland" in text
+    assert "--interactive" in text
+    assert "--accept-terms" in text
+    assert "--with-family" not in text
+
+
+def test_devices_help_scopes_device_options() -> None:
+    """Devices help should expose device-specific options on device commands only."""
+
+    result = _runner().invoke(app, ["devices", "list", "--help"])
+    text = _plain_output(result)
+
+    assert result.exit_code == 0
+    assert "--with-family" in text
+    assert "--refresh-interval" in text
+
+
+def test_devices_refresh_interval_reaches_service_with_locating_monitor() -> None:
+    """Devices commands should pass --refresh-interval and enable locating refreshes."""
+
+    session_dir = _unique_session_dir("devices-refresh-interval")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "user@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=lambda candidate: (
+                "stored-secret" if candidate == "user@example.com" else None
+            ),
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "90",
+                "--iterations",
+                "1",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert constructor_calls
+    for kwargs in constructor_calls:
+        assert kwargs["locate"] is True
+        assert kwargs["refresh_interval"] == 90.0
+
+
+def test_devices_list_watch_mode_repeats_until_iterations() -> None:
+    """devices list --refresh-interval should watch until --iterations runs."""
+
+    session_dir = _unique_session_dir("devices-watch")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    with patch("pyicloud.cli.commands.devices.time.sleep") as sleep:
+        result = _invoke_with_cli_args(
+            fake_api,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "60",
+                "--iterations",
+                "2",
+            ],
+        )
+
+    assert result.exit_code == 0
+    sleep.assert_called_once_with(60.0)
+    assert fake_api.devices.refresh_calls == [True, True]
+    output = _plain_output(result)
+    assert "Waiting 60s before device listing run 2 of 2" in output
+    assert output.count("Devices") == 2
+
+
+def test_devices_list_watch_mode_emits_bounded_json_runs() -> None:
+    """Bounded JSON watch should emit one listing payload per run."""
+
+    session_dir = _unique_session_dir("devices-watch-json")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    with patch("pyicloud.cli.commands.devices.time.sleep") as sleep:
+        result = _invoke_with_cli_args(
+            fake_api,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "60",
+                "--iterations",
+                "2",
+                "--format",
+                "json",
+            ],
+        )
+
+    assert result.exit_code == 0
+    sleep.assert_called_once_with(60.0)
+    payload = json.loads(result.stdout)
+    assert len(payload) == 2
+    assert payload[0][0]["id"] == "device-1"
+
+
+def test_devices_list_watch_json_stream_disables_markup() -> None:
+    """Unbounded JSON watch should stream device names without markup."""
+
+    session_dir = _unique_session_dir("devices-watch-json-stream")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    fake_api.devices[0].name = "[bold]Example[/bold] iPhone"
+    with patch(
+        "pyicloud.cli.commands.devices.time.sleep",
+        side_effect=KeyboardInterrupt,
+    ):
+        result = _invoke_with_cli_args(
+            fake_api,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "60",
+                "--format",
+                "json",
+            ],
+        )
+
+    assert result.exit_code == 130
+    payload = json.loads(result.stdout)
+    assert payload[0]["name"] == "[bold]Example[/bold] iPhone"
+
+
+def test_devices_list_watch_mode_exits_cleanly_on_interrupt() -> None:
+    """Watch mode should exit 130 when interrupted between runs."""
+
+    session_dir = _unique_session_dir("devices-watch-interrupt")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    with patch(
+        "pyicloud.cli.commands.devices.time.sleep",
+        side_effect=KeyboardInterrupt,
+    ):
+        result = _invoke_with_cli_args(
+            fake_api,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "60",
+                "--iterations",
+                "3",
+            ],
+        )
+
+    assert result.exit_code == 130
+    assert "Waiting 60s before device listing run 2 of 3" in _plain_output(result)
+
+
+def test_devices_list_iterations_requires_refresh_interval() -> None:
+    """--iterations should be rejected without --refresh-interval."""
+
+    result = _runner().invoke(app, ["devices", "list", "--iterations", "2"])
+
+    assert result.exit_code == 2
+    assert "The --iterations option requires --refresh-interval." in _plain_output(
+        result
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("0", "must be a positive finite number of seconds"),
+        ("-5", "must be a positive finite number of seconds"),
+        ("nan", "must be a positive finite number of seconds"),
+        ("inf", "must be a positive finite number of seconds"),
+        ("1e13", "is too large"),
+        ("0.5", "must be at least 1s"),
+    ],
+)
+def test_devices_refresh_interval_rejects_invalid_values(
+    value: str, message: str
+) -> None:
+    """--refresh-interval should reject unusable values at parse time."""
+
+    with patch.object(context_module, "PyiCloudService") as build_api:
+        result = _runner().invoke(
+            app, ["devices", "list", f"--refresh-interval={value}"]
+        )
+
+    assert result.exit_code == 2
+    # The rich error panel wraps long messages; unwrap box borders before matching.
+    error_text = " ".join(_plain_output(result).replace("│", " ").split())
+    assert message in error_text
+    build_api.assert_not_called()
+
+
+_FAKE_ONE_FACTOR_DIR = str(Path(tempfile.gettempdir()) / "pyicloud-one-factor-fake")
+
+
+def _one_factor_cli_args(session_dir: Path, *extra: str) -> list[str]:
+    """Return CLI args for a one-factor devices list invocation."""
+
+    return [
+        "devices",
+        "list",
+        "--username",
+        "user@example.com",
+        "--session-dir",
+        str(session_dir),
+        "--one-factor",
+        *extra,
+    ]
+
+
+@contextmanager
+def _patched_one_factor_login(
+    fake_api: FakeAPI,
+    captured: dict[str, Any],
+    scratch_kwargs: dict[str, Any],
+) -> Generator[None, None, None]:
+    """Patch everything a one-factor CLI login touches.
+
+    The real TemporaryDirectory creates a directory, which the filesystem
+    guard forbids, so it is replaced by a stub that records the production
+    kwargs (notably the prefix) before handing back a fixed path.
+    """
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        captured.update(kwargs)
+        return fake_api
+
+    def fake_temporary_directory(**kwargs: Any) -> Any:
+        scratch_kwargs.update(kwargs)
+        return nullcontext(_FAKE_ONE_FACTOR_DIR)
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="secret",
+        ),
+        patch.object(context_module, "TemporaryDirectory", fake_temporary_directory),
+    ):
+        yield
+
+
+def _one_factor_fake_api(session_dir: Path) -> FakeAPI:
+    """Return a FakeAPI Apple would grant password-only Find My access to."""
+
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    fake_api.is_trusted_session = False
+    fake_api.data = {"apps": {"find": {"canLaunchWithOneFactor": True}}}
+    return fake_api
+
+
+def test_devices_one_factor_uses_a_paused_password_only_login() -> None:
+    """--one-factor signs in with the password and skips the 2FA challenge."""
+
+    session_dir = _unique_session_dir("one-factor-paused")
+    fake_api = _one_factor_fake_api(session_dir)
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with _patched_one_factor_login(fake_api, captured, scratch_kwargs):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code == 0
+    assert captured["pause_2fa"] is True
+    assert captured["locate"] is True
+
+
+def test_devices_one_factor_never_writes_over_the_stored_session() -> None:
+    """The paused login is isolated: it must not touch the real cookie jar.
+
+    Persisting it there would replace a working trusted session with one only
+    Find My accepts, so the cookies go to a throwaway directory instead.
+    """
+
+    session_dir = _unique_session_dir("one-factor-isolated")
+    fake_api = _one_factor_fake_api(session_dir)
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with _patched_one_factor_login(fake_api, captured, scratch_kwargs):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code == 0
+    cookie_dir = captured["cookie_directory"]
+    assert cookie_dir == _FAKE_ONE_FACTOR_DIR
+    assert cookie_dir != str(session_dir)
+    # Assert the production prefix through the stub's captured kwargs: the
+    # stub's own return path says nothing about what the real code passed.
+    assert "one-factor" in scratch_kwargs["prefix"]
+
+
+def test_devices_one_factor_refuses_an_account_apple_will_not_grant() -> None:
+    """An account without the grant is told so, before any Find My request."""
+
+    session_dir = _unique_session_dir("one-factor-ineligible")
+    # Apple advertises Find My but withholds the one-factor grant.
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    fake_api.data = {"apps": {"find": {}}}
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with _patched_one_factor_login(fake_api, captured, scratch_kwargs):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert "password-only" in str(result.exception)
+    assert "icloud auth login" in str(result.exception)
+
+
+def test_devices_one_factor_matches_the_apps_key_not_webservices() -> None:
+    """`findme` is the webservices key; the apps map only knows `find`.
+
+    A lookup under the wrong key must read as "not eligible" rather than
+    silently falling through to a full 2FA login.
+    """
+
+    assert FIND_MY_APP_KEY == "find"
+
+    session_dir = _unique_session_dir("one-factor-findme")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    fake_api.data = {"apps": {"findme": {"canLaunchWithOneFactor": True}}}
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with _patched_one_factor_login(fake_api, captured, scratch_kwargs):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert "password-only" in str(result.exception)
+
+
+def test_devices_without_one_factor_uses_the_stored_session() -> None:
+    """The default path is unchanged and does not log in again."""
+
+    session_dir = _unique_session_dir("one-factor-default-path")
+    _remember_local_account(session_dir, "user@example.com", has_session_file=True)
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    captured: dict[str, Any] = {}
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        captured.update(kwargs)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "pause_2fa" not in captured
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (
+            PyiCloudAccountLockedException(-20209, MagicMock()),
+            "Unlock it before trying again.",
+        ),
+        (PyiCloudConnectionException("No route to host"), "Could not reach iCloud"),
+        (PyiCloudFailedLoginException("Denied"), "Bad username or password"),
+    ],
+)
+def test_devices_one_factor_maps_login_failures_to_aborts(
+    error: Exception, message: str
+) -> None:
+    """Constructor failures surface as user-facing aborts, not tracebacks."""
+
+    session_dir = _unique_session_dir("one-factor-login-failure")
+    fake_api = _one_factor_fake_api(session_dir)
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with (
+        _patched_one_factor_login(fake_api, captured, scratch_kwargs),
+        patch.object(context_module, "PyiCloudService", side_effect=error),
+    ):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert message in str(result.exception)
+
+
+def test_get_one_factor_api_without_a_password_aborts() -> None:
+    """No keyring password and no prompt available means a clear abort."""
+
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            interactive=False,
+            session_dir=str(_unique_session_dir("one-factor-no-password")),
+        )
+    )
+
+    with (
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+        pytest.raises(
+            context_module.CLIAbort, match="No password supplied and no stored"
+        ),
+    ):
+        state.get_one_factor_api()
+
+
+def test_get_one_factor_api_reuses_the_cached_session() -> None:
+    """The session already built for this process is returned, not rebuilt."""
+
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            session_dir=str(_unique_session_dir("one-factor-cached")),
+        )
+    )
+    cached: Any = MagicMock()
+    state._api = cached
+
+    assert state.get_one_factor_api() is cached
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({"apps": {"find": {"canLaunchWithOneFactor": True}}}, True),
+        # Apple advertises Find My but withholds the grant.
+        ({"apps": {"find": {}}}, False),
+        ({"apps": {"find": {"canLaunchWithOneFactor": False}}}, False),
+        # The same service keyed as in the webservices map matches nothing.
+        ({"apps": {"findme": {"canLaunchWithOneFactor": True}}}, False),
+        # No apps map at all (or a malformed one) is not eligible.
+        ({}, False),
+        ({"apps": []}, False),
+        ({"apps": {"find": "not-a-mapping"}}, False),
+    ],
+)
+def test_grants_one_factor_reads_the_find_app_entry(
+    data: dict[str, Any], expected: bool
+) -> None:
+    """Eligibility is read from apps[find].canLaunchWithOneFactor only."""
+
+    fake_api: Any = SimpleNamespace(data=data)
+
+    assert context_module.CLIState._grants_one_factor(fake_api) is expected
+
+
+def test_devices_erase_has_no_one_factor_escape_hatch() -> None:
+    """A remote wipe is irreversible, so it always costs a full session."""
+
+    result = _runner().invoke(app, ["devices", "erase", "--help"])
+
+    assert result.exit_code == 0
+    assert "--one-factor" not in _plain_output(result)
+
+
+def test_devices_erase_never_takes_the_one_factor_path() -> None:
+    """Hiding the flag is not enough: erase must not reach that code at all."""
+
+    session_dir = _unique_session_dir("erase-full-session")
+    fake_api = _remember_local_account(
+        session_dir, "user@example.com", has_session_file=True
+    )
+    one_factor = MagicMock()
+
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+        patch.object(context_module.CLIState, "get_one_factor_api", one_factor),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "devices",
+                "erase",
+                "Example iPhone",
+                "--force",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+
+    # The erase has to actually run, or "it did not take the one-factor path"
+    # is satisfied by aborting before reaching any path at all.
+    assert result.exit_code == 0
+    assert fake_api.devices[0].erase_message is not None
+    one_factor.assert_not_called()
+
+
+def test_auth_login_has_no_one_factor_flag() -> None:
+    """A paused session cannot be persisted, so login must not offer it."""
+
+    result = _runner().invoke(app, ["auth", "login", "--help"])
+
+    assert result.exit_code == 0
+    assert "--one-factor" not in _plain_output(result)
+
+
+@pytest.mark.parametrize(
+    "cli_args",
+    [
+        ["devices", "list"],
+        ["devices", "show"],
+        ["devices", "sound"],
+        ["devices", "message"],
+        ["devices", "lost-mode"],
+        ["devices", "export"],
+    ],
+)
+def test_devices_commands_offer_one_factor(cli_args: list[str]) -> None:
+    """Every Find My command except erase offers --one-factor."""
+
+    result = _runner().invoke(app, [*cli_args, "--help"])
+
+    assert result.exit_code == 0
+    assert "--one-factor" in _plain_output(result)
+
+
+def test_account_summary_command() -> None:
+    """Account summary should render the storage overview."""
+
+    result = _invoke(FakeAPI(), "account", "summary")
+    assert result.exit_code == 0
+    assert "Account: user@example.com" in result.stdout
+    assert "Storage: 10.0% used" in result.stdout
+
+
+def test_format_option_outputs_json() -> None:
+    """Leaf --format should support machine-readable JSON."""
+
+    result = _invoke(FakeAPI(), "account", "summary", output_format="json")
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["account_name"] == "user@example.com"
+    assert payload["devices_count"] == 1
+
+
+def test_command_local_format_option_outputs_json() -> None:
+    """Leaf commands should accept --format after the final subcommand."""
+
+    session_dir = _unique_session_dir("leaf-format")
+    result = _invoke_with_cli_args(
+        FakeAPI(session_dir=session_dir),
+        [
+            "account",
+            "summary",
+            "--username",
+            "user@example.com",
+            "--session-dir",
+            str(session_dir),
+            "--format",
+            "json",
+        ],
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["account_name"] == "user@example.com"
+
+
+def test_old_root_execution_options_fail_cleanly() -> None:
+    """Root execution options should no longer be accepted."""
+
+    for cli_args in (
+        ["--username", "user@example.com", "auth", "login"],
+        ["--password", "secret", "auth", "login"],
+        ["--session-dir", "/tmp/pyicloud", "account", "summary"],
+        ["--format", "json", "account", "summary"],
+        ["--delete-from-keyring"],
+    ):
+        result = _runner().invoke(app, cli_args)
+        assert result.exit_code != 0
+        assert "No such option" in _plain_output(result)
+
+
+def test_auth_login_accepts_command_local_username() -> None:
+    """Auth login should accept --username after the final subcommand."""
+
+    session_dir = _unique_session_dir("leaf-username")
+    fake_api = FakeAPI(username="leaf@example.com", session_dir=session_dir)
+
+    def fake_service(*, apple_id: str, **_kwargs: Any) -> FakeAPI:
+        assert apple_id == "leaf@example.com"
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "leaf@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "leaf@example.com" in result.stdout
+
+
+def test_leaf_session_dir_option_is_used_for_service_commands() -> None:
+    """Leaf --session-dir should be honored by service commands."""
+
+    session_dir = _unique_session_dir("leaf-session-dir")
+    fake_api = FakeAPI(session_dir=session_dir)
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        assert kwargs["cookie_directory"] == str(session_dir)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "account",
+                "summary",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--format",
+                "text",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Account: user@example.com" in result.stdout
+
+
+def test_china_mainland_is_login_only() -> None:
+    """China mainland selection should only be accepted on auth login."""
+
+    status_result = _runner().invoke(app, ["auth", "status", "--china-mainland"])
+    service_result = _runner().invoke(app, ["account", "summary", "--china-mainland"])
+    status_text = _plain_output(status_result)
+    service_text = _plain_output(service_result)
+
+    assert status_result.exit_code != 0
+    assert "No such option" in status_text
+    assert "--china-mainland" in status_text
+    assert service_result.exit_code != 0
+    assert "No such option" in service_text
+    assert "--china-mainland" in service_text
+
+
+def test_auth_login_persists_china_mainland_metadata() -> None:
+    """Auth login should persist China mainland metadata for later commands."""
+
+    session_dir = _unique_session_dir("china-mainland")
+
+    def fake_service(*, apple_id: str, china_mainland: Any, **_kwargs: Any) -> FakeAPI:
+        if apple_id == "cn@example.com":
+            assert china_mainland is True
+            return FakeAPI(
+                username="cn@example.com",
+                session_dir=session_dir,
+                china_mainland=True,
+            )
+        raise AssertionError("Unexpected account")
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        login_result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "cn@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--china-mainland",
+                "--non-interactive",
+            ],
+        )
+
+    assert login_result.exit_code == 0
+    assert (
+        account_index_module.load_accounts(session_dir)["cn@example.com"][
+            "china_mainland"
+        ]
+        is True
+    )
+
+
+def test_persisted_china_mainland_metadata_is_used_for_service_commands() -> None:
+    """Stored China mainland metadata should be reused by later service probes."""
+
+    session_dir = _unique_session_dir("china-mainland-probe")
+    _remember_local_account(
+        session_dir,
+        "cn@example.com",
+        has_session_file=True,
+        china_mainland=True,
+    )
+
+    def fake_service(*, apple_id: str, china_mainland: Any, **_kwargs: Any) -> FakeAPI:
+        assert apple_id == "cn@example.com"
+        assert china_mainland is True
+        return FakeAPI(
+            username="cn@example.com",
+            session_dir=session_dir,
+            china_mainland=True,
+        )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "account",
+                "summary",
+                "--username",
+                "cn@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Account: cn@example.com" in result.stdout
+
+
+def test_default_log_level_is_warning() -> None:
+    """Authenticated commands should default pyicloud logs to warning."""
+
+    with patch.object(context_module.logging, "basicConfig") as basic_config:
+        result = _invoke(FakeAPI(), "account", "summary")
+    assert result.exit_code == 0
+    basic_config.assert_called_once_with(level=context_module.logging.WARNING)
+
+
+def test_no_local_accounts_require_username() -> None:
+    """Authenticated service commands should require a logged-in session."""
+
+    session_dir = _unique_session_dir("no-local-accounts")
+    with patch.object(
+        context_module, "configurable_ssl_verification", return_value=nullcontext()
+    ):
+        result = _runner().invoke(
+            app, ["account", "summary", "--session-dir", str(session_dir)]
+        )
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert (
+        result.exception.args[0]
+        == "You are not logged into any iCloud accounts. To log in, run: "
+        "icloud auth login --username <apple-id>"
+    )
+
+
+def test_auth_keyring_delete() -> None:
+    """The keyring delete subcommand should delete stored credentials."""
+
+    session_dir = _unique_session_dir("delete-keyring")
+    _remember_local_account(
+        session_dir,
+        "user@example.com",
+        keyring_passwords={"user@example.com"},
+    )
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: not delete_password.called,
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "keyring",
+                "delete",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+    assert result.exit_code == 0
+    delete_password.assert_called_once_with("user@example.com")
+    assert "Deleted stored password from keyring." in result.stdout
+    assert account_index_module.load_accounts(session_dir) == {}
+
+
+def test_auth_keyring_delete_requires_explicit_username() -> None:
+    """Deleting stored credentials should require an explicit username."""
+
+    result = _runner().invoke(
+        app,
+        ["auth", "keyring", "delete"],
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert (
+        result.exception.args[0]
+        == "The --username option is required for auth keyring delete."
+    )
+
+
+def test_auth_status_probe_is_non_interactive() -> None:
+    """Auth status should probe persisted sessions without prompting for login."""
+
+    session_dir = _unique_session_dir("auth-status")
+    fake_api = _remember_local_account(
+        session_dir,
+        "user@example.com",
+        has_session_file=True,
+    )
+    fake_api.get_auth_status.return_value = {
+        "authenticated": False,
+        "trusted_session": False,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(context_module.utils, "get_password", side_effect=AssertionError),
+        patch.object(context_module.typer, "prompt", side_effect=AssertionError),
+    ):
+        result = _runner().invoke(
+            app,
+            ["auth", "status", "--session-dir", str(session_dir)],
+        )
+    assert result.exit_code == 0
+    assert "You are not logged into any iCloud accounts." in result.stdout
+
+
+def test_auth_status_without_username_ignores_keyring_only_accounts() -> None:
+    """Implicit auth status should report active sessions, not stored credentials."""
+
+    session_dir = _unique_session_dir("status-keyring-only")
+    _remember_local_account(
+        session_dir,
+        "user@example.com",
+        keyring_passwords={"user@example.com"},
+    )
+
+    result = _invoke(
+        FakeAPI(username="user@example.com", session_dir=session_dir),
+        "auth",
+        "status",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"user@example.com"},
+    )
+
+    assert result.exit_code == 0
+    assert "You are not logged into any iCloud accounts." in result.stdout
+    assert "user@example.com" not in result.stdout
+
+
+def test_auth_status_explicit_username_marks_missing_storage_inline() -> None:
+    """Text auth status should inline missing storage markers instead of extra
+    boolean rows.
+    """
+
+    session_dir = _unique_session_dir("status-missing-storage")
+    fake_api = _remember_local_account(
+        session_dir,
+        "user@example.com",
+        keyring_passwords={"user@example.com"},
+    )
+    fake_api.get_auth_status.return_value = {
+        "authenticated": False,
+        "trusted_session": False,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+
+    result = _invoke(
+        fake_api,
+        "auth",
+        "status",
+        username="user@example.com",
+        session_dir=session_dir,
+        keyring_passwords={"user@example.com"},
+    )
+
+    assert result.exit_code == 0
+    assert "Password in Keyring" in result.stdout
+    assert "Stored Password" not in result.stdout
+    assert "Session File" in result.stdout
+    assert "Cookie Jar" in result.stdout
+    assert result.stdout.count("(missing)") == 2
+    assert "Session File Exists" not in result.stdout
+    assert "Cookie Jar Exists" not in result.stdout
+
+
+def test_auth_login_and_status_commands() -> None:
+    """Auth status and login should expose stable text and JSON payloads."""
+
+    fake_api = FakeAPI()
+    status_result = _invoke(fake_api, "auth", "status", output_format="json")
+    login_result = _invoke(fake_api, "auth", "login", output_format="json")
+
+    status_payload = json.loads(status_result.stdout)
+    login_payload = json.loads(login_result.stdout)
+
+    assert status_result.exit_code == 0
+    assert status_payload["authenticated"] is True
+    assert status_payload["trusted_session"] is True
+    assert status_payload["account_name"] == "user@example.com"
+    assert login_result.exit_code == 0
+    assert login_payload["authenticated"] is True
+    assert login_payload["session_path"] == fake_api.session.session_path
+
+
+def test_single_known_account_supports_implicit_local_context() -> None:
+    """Implicit local context should work only while an active session exists."""
+
+    session_dir = _unique_session_dir("implicit-context")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    status_result = _invoke(
+        FakeAPI(username="solo@example.com", session_dir=session_dir),
+        "auth",
+        "status",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    account_result = _invoke(
+        FakeAPI(username="solo@example.com", session_dir=session_dir),
+        "account",
+        "summary",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    devices_result = _invoke(
+        FakeAPI(username="solo@example.com", session_dir=session_dir),
+        "devices",
+        "list",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    logout_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    logout_result = _invoke(
+        logout_api,
+        "auth",
+        "logout",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    post_logout_account_result = _invoke(
+        logout_api,
+        "account",
+        "summary",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    post_logout_explicit_result = _invoke(
+        logout_api,
+        "account",
+        "summary",
+        username="solo@example.com",
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    login_result = _invoke(
+        FakeAPI(username="solo@example.com", session_dir=session_dir),
+        "auth",
+        "login",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    assert status_result.exit_code == 0
+    assert "solo@example.com" in status_result.stdout
+    assert account_result.exit_code == 0
+    assert devices_result.exit_code == 0
+    assert logout_result.exit_code == 0
+    assert post_logout_account_result.exit_code != 0
+    assert post_logout_account_result.exception is not None
+    assert (
+        post_logout_account_result.exception.args[0]
+        == "You are not logged into any iCloud accounts. To log in, run: "
+        "icloud auth login --username <apple-id>"
+    )
+    assert post_logout_explicit_result.exit_code != 0
+    assert post_logout_explicit_result.exception is not None
+    assert (
+        post_logout_explicit_result.exception.args[0]
+        == "You are not logged into iCloud for solo@example.com. Run: "
+        "icloud auth login --username solo@example.com"
+    )
+    assert login_result.exit_code == 0
+    assert [
+        entry["username"]
+        for entry in account_index_module.prune_accounts(
+            session_dir, lambda candidate: candidate == "solo@example.com"
+        )
+    ] == ["solo@example.com"]
+
+
+def test_get_api_uses_keyring_password_for_session_backed_service_commands() -> None:
+    """Service commands should preload the stored password for service reauth."""
+
+    session_dir = _unique_session_dir("service-reauth-password")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    probe_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    service_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return probe_api if len(constructor_calls) == 1 else service_api
+
+    state = context_module.CLIState(
+        username=None,
+        password=None,
+        china_mainland=None,
+        interactive=False,
+        accept_terms=False,
+        with_family=False,
+        refresh_interval=None,
+        session_dir=str(session_dir),
+        http_proxy=None,
+        https_proxy=None,
+        no_verify_ssl=False,
+        log_level=context_module.LogLevel.WARNING,
+        output_format=output_module.OutputFormat.TEXT,
+    )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "solo@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+    ):
+        api = state.get_api()
+
+    assert api is service_api
+    assert len(constructor_calls) == 2
+    assert constructor_calls[0]["apple_id"] == "solo@example.com"
+    assert constructor_calls[0]["password"] is None
+    assert constructor_calls[0]["authenticate"] is False
+    assert constructor_calls[0]["locate"] is True
+    assert constructor_calls[1]["apple_id"] == "solo@example.com"
+    assert constructor_calls[1]["password"] == "stored-secret"
+    assert constructor_calls[1]["authenticate"] is False
+    assert constructor_calls[1]["locate"] is True
+    probe_api.get_auth_status.assert_called_once_with()
+    service_api.get_auth_status.assert_called_once_with()
+
+
+def test_get_api_hydrates_session_backed_service_commands_from_probe_state() -> None:
+    """Service commands should reuse validated probe state for webservice access."""
+
+    session_dir = _unique_session_dir("service-reauth-hydration")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    probe_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    probe_api.data = {
+        "dsInfo": {"dsid": "1234567890", "hsaVersion": 2},
+        "hsaTrustedBrowser": True,
+        "webservices": {"findme": {"url": "https://example.invalid/findme"}},
+    }
+    service_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    service_api.data = {}
+    service_api.params = {}
+    service_api._webservices = None
+    service_api.get_auth_status.side_effect = AssertionError(
+        "service API should be hydrated from the probe state"
+    )
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return probe_api if len(constructor_calls) == 1 else service_api
+
+    state = context_module.CLIState(
+        username=None,
+        password=None,
+        china_mainland=None,
+        interactive=False,
+        accept_terms=False,
+        with_family=False,
+        refresh_interval=None,
+        session_dir=str(session_dir),
+        http_proxy=None,
+        https_proxy=None,
+        no_verify_ssl=False,
+        log_level=context_module.LogLevel.WARNING,
+        output_format=output_module.OutputFormat.TEXT,
+    )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "solo@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+    ):
+        api = state.get_api()
+
+    assert api is service_api
+    assert len(constructor_calls) == 2
+    assert service_api.data == probe_api.data
+    assert service_api.params["dsid"] == "1234567890"
+    assert service_api._webservices == probe_api.data["webservices"]
+    probe_api.get_auth_status.assert_called_once_with()
+    service_api.get_auth_status.assert_not_called()
+
+
+def test_get_readonly_api_builds_a_cached_probe_mode_session_api() -> None:
+    """``doctor --probe`` should get a passive api that shares the session."""
+
+    session_dir = _unique_session_dir("readonly-api")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    probe_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    probe_api.data = {
+        "dsInfo": {"dsid": "1234567890", "hsaVersion": 2},
+        "webservices": {"findme": {"url": "https://example.invalid/findme"}},
+    }
+    service_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    service_api.data = dict(probe_api.data)
+    service_api._webservices = probe_api.data["webservices"]
+    readonly_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    readonly_api.data = {}
+    readonly_api.params = {}
+    readonly_api._webservices = None
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return (probe_api, service_api, readonly_api)[len(constructor_calls) - 1]
+
+    state = context_module.CLIState(
+        username=None,
+        password=None,
+        china_mainland=None,
+        interactive=False,
+        accept_terms=False,
+        with_family=False,
+        refresh_interval=None,
+        session_dir=str(session_dir),
+        http_proxy=None,
+        https_proxy=None,
+        no_verify_ssl=False,
+        log_level=context_module.LogLevel.WARNING,
+        output_format=output_module.OutputFormat.TEXT,
+    )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "solo@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+    ):
+        readonly = state.get_readonly_api()
+        again = state.get_readonly_api()
+
+    assert readonly is readonly_api
+    assert again is readonly_api
+    assert len(constructor_calls) == 3
+    assert constructor_calls[2]["locate"] is False
+    assert constructor_calls[2]["refresh_interval"] is None
+    assert readonly_api.data == probe_api.data
+    assert readonly_api._webservices == probe_api.data["webservices"]
+
+
+def test_multiple_local_accounts_require_explicit_username_for_auth_login() -> None:
+    """Auth login should list local accounts when bootstrap discovery is ambiguous."""
+
+    session_dir = _unique_session_dir("multiple-contexts")
+    _remember_local_account(
+        session_dir,
+        "alpha@example.com",
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+    _remember_local_account(
+        session_dir,
+        "beta@example.com",
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: (
+                candidate in {"alpha@example.com", "beta@example.com"}
+            ),
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert "Multiple local accounts were found" in result.exception.args[0]
+    assert "alpha@example.com" in result.exception.args[0]
+    assert "beta@example.com" in result.exception.args[0]
+
+
+def test_multiple_active_sessions_require_explicit_username() -> None:
+    """Service commands should not guess when multiple active sessions exist."""
+
+    session_dir = _unique_session_dir("multiple-active-sessions")
+    alpha_api = _remember_local_account(
+        session_dir,
+        "alpha@example.com",
+        has_session_file=True,
+    )
+    beta_api = _remember_local_account(
+        session_dir,
+        "beta@example.com",
+        has_session_file=True,
+    )
+    apis = {
+        "alpha@example.com": alpha_api,
+        "beta@example.com": beta_api,
+    }
+
+    def fake_service(*, apple_id: str, **_kwargs: Any) -> FakeAPI:
+        return apis[apple_id]
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "account",
+                "summary",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert "Multiple logged-in iCloud accounts were found" in result.exception.args[0]
+    assert "alpha@example.com" in result.exception.args[0]
+    assert "beta@example.com" in result.exception.args[0]
+
+
+def test_explicit_username_overrides_ambiguous_local_context() -> None:
+    """Explicit usernames should continue to work when multiple local accounts exist."""
+
+    session_dir = _unique_session_dir("explicit-override")
+    _remember_local_account(
+        session_dir,
+        "alpha@example.com",
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+    _remember_local_account(
+        session_dir,
+        "beta@example.com",
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+
+    result = _invoke(
+        FakeAPI(username="beta@example.com", session_dir=session_dir),
+        "account",
+        "summary",
+        username="beta@example.com",
+        session_dir=session_dir,
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+
+    assert result.exit_code == 0
+    assert "beta@example.com" in result.stdout
+
+
+def test_authenticated_commands_update_account_index() -> None:
+    """Successful authenticated commands should index the resolved account."""
+
+    session_dir = _unique_session_dir("index-update")
+    fake_api = FakeAPI(username="indexed@example.com", session_dir=session_dir)
+
+    result = _invoke(
+        fake_api,
+        "account",
+        "summary",
+        username="indexed@example.com",
+        session_dir=session_dir,
+    )
+
+    indexed_accounts = account_index_module.load_accounts(session_dir)
+
+    assert result.exit_code == 0
+    assert "indexed@example.com" in indexed_accounts
+    assert indexed_accounts["indexed@example.com"]["session_path"] == (
+        fake_api.session.session_path
+    )
+
+
+def test_account_index_prunes_stale_entries_but_keeps_keyring_backed_accounts() -> None:
+    """Local account discovery should prune stale entries and retain keyring-backed
+    ones.
+    """
+
+    session_dir = _unique_session_dir("index-prune")
+    stale_api = _remember_local_account(
+        session_dir,
+        "stale@example.com",
+        has_session_file=True,
+    )
+    Path(stale_api.session.session_path).unlink()
+    kept_api = _remember_local_account(
+        session_dir,
+        "kept@example.com",
+        keyring_passwords={"kept@example.com"},
+    )
+
+    discovered = account_index_module.prune_accounts(
+        session_dir,
+        lambda candidate: candidate == "kept@example.com",
+    )
+
+    assert [entry["username"] for entry in discovered] == ["kept@example.com"]
+    assert list(account_index_module.load_accounts(session_dir)) == ["kept@example.com"]
+    assert kept_api.session.session_path.endswith("keptexamplecom.session")
+
+
+def test_account_index_remember_without_pruning_keeps_neighbors() -> None:
+    """Keyring-free logins must upsert without dropping neighbor accounts."""
+
+    session_dir = _unique_session_dir("index-no-prune")
+    _remember_local_account(
+        session_dir,
+        "kept@example.com",
+        keyring_passwords={"kept@example.com"},
+    )
+    new_api = FakeAPI(username="new@example.com", session_dir=session_dir)
+    keyring_calls: list[str] = []
+
+    def _forbidden_keyring(candidate: str) -> bool:
+        keyring_calls.append(candidate)
+        return False
+
+    account_index_module.remember_account(
+        session_dir,
+        username=new_api.account_name,
+        session_path=new_api.session.session_path,
+        cookiejar_path=new_api.session.cookiejar_path,
+        china_mainland=False,
+        keyring_has=_forbidden_keyring,
+        prune=False,
+    )
+
+    assert not keyring_calls
+    assert list(account_index_module.load_accounts(session_dir)) == [
+        "kept@example.com",
+        "new@example.com",
+    ]
+
+
+def test_account_index_save_is_atomic() -> None:
+    """Account index writes should use an atomic replace into accounts.json."""
+
+    session_dir = _unique_session_dir("index-atomic")
+    accounts = {
+        "user@example.com": {
+            "username": "user@example.com",
+            "last_used_at": "2026-03-18T00:00:00+00:00",
+            "session_path": str(session_dir / "userexamplecom.session"),
+            "cookiejar_path": str(session_dir / "userexamplecom.cookiejar"),
+        }
+    }
+
+    with patch.object(
+        account_index_module.os,
+        "replace",
+        wraps=account_index_module.os.replace,
+    ) as replace:
+        account_index_module._save_accounts(session_dir, accounts)
+
+    replace.assert_called_once()
+    assert replace.call_args.args[1] == account_index_module.account_index_path(
+        session_dir
+    )
+    assert account_index_module.load_accounts(session_dir) == accounts
+
+
+def test_auth_login_non_interactive_requires_credentials() -> None:
+    """Auth login should fail cleanly when non-interactive mode lacks credentials."""
+
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--non-interactive",
+            ],
+        )
+    assert result.exit_code != 0
+    assert "No password supplied and no stored password was found." in str(
+        result.exception
+    )
+
+
+def test_auth_login_non_interactive_explicit_password_skips_keyring() -> None:
+    """Explicit non-interactive logins must not access the local keyring and
+    must report the keyring state as unknown in JSON output."""
+
+    session_dir = Path("/virtual/non-interactive-explicit-password")
+    remember_account = MagicMock()
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module,
+            "PyiCloudService",
+            return_value=FakeAPI(session_dir=session_dir),
+        ),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=AssertionError("Keyring must not be accessed"),
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=AssertionError("Keyring must not be accessed"),
+        ),
+        patch.object(context_module, "load_accounts", return_value={}),
+        patch.object(context_module.CLIState, "remember_account", remember_account),
+        patch.object(context_module.Path, "exists", return_value=False),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+                "--format",
+                "json",
+            ],
+        )
+
+    assert result.exit_code == 0
+    # Pruning consults the keyring for neighbouring accounts, so it must be off.
+    assert remember_account.call_args.kwargs["prune"] is False
+    assert json.loads(result.stdout)["has_keyring_password"] is None
+
+
+def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() -> None:
+    """Explicit bad passwords should not delete a previously stored keyring password."""
+
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module,
+            "PyiCloudService",
+            side_effect=context_module.PyiCloudFailedLoginException("bad password"),
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "wrong-secret",
+                "--non-interactive",
+                "--session-dir",
+                str(_unique_session_dir("auth-login-keyring")),
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert str(result.exception) == "Bad username or password for user@example.com"
+    delete_password.assert_not_called()
+
+
+def test_account_lock_cli_handlers_preserve_stored_keyring_secret() -> None:
+    """CLI account-lock handlers should preserve credentials and give guidance."""
+    error = context_module.PyiCloudAccountLockedException("-20209", MagicMock())
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            china_mainland=False,
+            interactive=False,
+        )
+    )
+
+    with (
+        patch.object(state, "_password_for_login", return_value=("secret", "keyring")),
+        patch.object(context_module, "PyiCloudService", side_effect=error),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+        pytest.raises(context_module.CLIAbort) as login_excinfo,
+    ):
+        state.get_login_api()
+
+    delete_password.assert_not_called()
+    failing_call = MagicMock(side_effect=error)
+    with pytest.raises(context_module.CLIAbort) as service_excinfo:
+        context_module.service_call("Find My", failing_call)
+
+    message = (
+        "Apple Account is locked for security reasons. Unlock it before trying again."
+    )
+    assert str(login_excinfo.value) == message
+    assert str(service_excinfo.value) == message
+
+
+def test_connection_failure_cli_handlers_preserve_keyring_and_offer_retry() -> None:
+    """An unreachable iCloud must not be reported as a login failure."""
+    error = context_module.PyiCloudConnectionException("Request failed to iCloud")
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            china_mainland=False,
+            interactive=False,
+        )
+    )
+
+    with (
+        patch.object(state, "_password_for_login", return_value=("secret", "keyring")),
+        patch.object(context_module, "PyiCloudService", side_effect=error),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+        pytest.raises(context_module.CLIAbort) as login_excinfo,
+    ):
+        state.get_login_api()
+
+    # An outage is not a verdict on the stored password, so it must survive.
+    delete_password.assert_not_called()
+    login_message = str(login_excinfo.value)
+    assert "Could not reach iCloud" in login_message
+    assert "Bad username or password" not in login_message
+
+    # Build outside pytest.raises: MagicMock(side_effect=...) fires on
+    # construction, which would leave two invocations able to raise.
+    service_fn = MagicMock(side_effect=error)
+    with pytest.raises(context_module.CLIAbort) as service_excinfo:
+        context_module.service_call("Find My", service_fn)
+
+    service_message = str(service_excinfo.value)
+    assert service_message.startswith("Find My could not reach iCloud")
+    # Pointing at `auth login` would be wrong advice during an outage.
+    assert "requires re-authentication" not in service_message
+
+
+def test_2fa_code_request_failure_does_not_swallow_connection_error() -> None:
+    """An outage during the 2FA prompt must abort, not fall through to a code."""
+    error = context_module.PyiCloudConnectionException("Request failed to iCloud")
+    api = MagicMock(
+        fido2_devices=[],
+        request_2fa_code=MagicMock(side_effect=error),
+        use_existing_trusted_device_code=MagicMock(),
+    )
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            china_mainland=False,
+            interactive=True,
+        )
+    )
+
+    with (
+        patch.object(typer, "prompt") as prompt,
+        pytest.raises(context_module.CLIAbort) as excinfo,
+    ):
+        state._handle_2fa(api)
+
+    assert str(excinfo.value) == context_module.CONNECTION_FAILURE_MESSAGE
+    # The outage must abort the flow, not fall through to asking for a code.
+    prompt.assert_not_called()
+    api.use_existing_trusted_device_code.assert_not_called()
+
+
+def test_auth_logout_variants_and_remote_failure() -> None:
+    """Auth logout should map semantic flags to Apple's payload and keep keyring
+    intact.
+    """
+
+    def invoke_logout(*args: str, failing_api: FakeAPI | None = None) -> Result:
+        session_dir = _unique_session_dir("auth-logout")
+        _remember_local_account(
+            session_dir,
+            "user@example.com",
+            has_session_file=True,
+            keyring_passwords={"user@example.com"},
+        )
+        return _invoke(
+            failing_api or FakeAPI(session_dir=session_dir),
+            "auth",
+            "logout",
+            *args,
+            username=None,
+            session_dir=session_dir,
+            output_format="json",
+            keyring_passwords={"user@example.com"},
+        )
+
+    default_result = invoke_logout()
+    keep_trusted_result = invoke_logout("--keep-trusted")
+    all_sessions_result = invoke_logout("--all-sessions")
+    combined_result = invoke_logout("--keep-trusted", "--all-sessions")
+
+    assert default_result.exit_code == 0
+    assert json.loads(default_result.stdout)["payload"] == {
+        "trustBrowser": False,
+        "allBrowsers": False,
+    }
+    assert keep_trusted_result.exit_code == 0
+    assert json.loads(keep_trusted_result.stdout)["payload"] == {
+        "trustBrowser": True,
+        "allBrowsers": False,
+    }
+    assert all_sessions_result.exit_code == 0
+    assert json.loads(all_sessions_result.stdout)["payload"] == {
+        "trustBrowser": False,
+        "allBrowsers": True,
+    }
+    assert combined_result.exit_code == 0
+    assert json.loads(combined_result.stdout)["payload"] == {
+        "trustBrowser": True,
+        "allBrowsers": True,
+    }
+
+    session_dir = _unique_session_dir("auth-logout-failure")
+    _remember_local_account(
+        session_dir,
+        "user@example.com",
+        has_session_file=True,
+        keyring_passwords={"user@example.com"},
+    )
+    failing_api = FakeAPI(session_dir=session_dir)
+    failing_api.logout = MagicMock(
+        return_value={
+            "payload": {"trustBrowser": False, "allBrowsers": False},
+            "remote_logout_confirmed": False,
+            "local_session_cleared": True,
+        }
+    )
+    with patch.object(
+        context_module.utils, "delete_password_in_keyring"
+    ) as delete_password:
+        failure_result = _invoke(
+            failing_api,
+            "auth",
+            "logout",
+            username=None,
+            session_dir=session_dir,
+            keyring_passwords={"user@example.com"},
+        )
+    assert failure_result.exit_code == 0
+    assert "remote logout was not confirmed" in failure_result.stdout
+    delete_password.assert_not_called()
+
+
+def test_auth_logout_remove_keyring_is_explicit() -> None:
+    """Auth logout should only delete stored passwords when requested."""
+
+    session_dir = _unique_session_dir("auth-logout-remove-keyring")
+    _remember_local_account(
+        session_dir,
+        "user@example.com",
+        has_session_file=True,
+        keyring_passwords={"user@example.com"},
+    )
+
+    with patch.object(
+        context_module.utils, "delete_password_in_keyring"
+    ) as delete_password:
+        result = _invoke(
+            FakeAPI(session_dir=session_dir),
+            "auth",
+            "logout",
+            "--remove-keyring",
+            username=None,
+            session_dir=session_dir,
+            output_format="json",
+            keyring_passwords={"user@example.com"},
+        )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["stored_password_removed"] is True
+    delete_password.assert_called_once_with("user@example.com")
+
+
+def test_security_key_flow() -> None:
+    """Auth login should confirm the selected security key."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.fido2_devices = [{"id": "sk-1"}]
+    result = _invoke(fake_api, "auth", "login")
+    assert result.exit_code == 0
+    fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
+
+
+def test_security_key_account_lock_is_not_rewritten() -> None:
+    """Security-key handling should preserve the account-lock state."""
+    error = context_module.PyiCloudAccountLockedException("-20209", MagicMock())
+    fake_api = MagicMock()
+    fake_api.fido2_devices = [{"id": "sk-1"}]
+    fake_api.confirm_security_key.side_effect = error
+    state = context_module.CLIState.from_options(context_module.CLICommandOptions())
+
+    with pytest.raises(context_module.PyiCloudAccountLockedException) as excinfo:
+        state._handle_2fa(fake_api)
+
+    assert excinfo.value is error
+    fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
+
+
+def test_security_key_connection_failure_aborts_instead_of_swallowing() -> None:
+    """An outage during security-key verification should abort, not fall through."""
+    error = context_module.PyiCloudConnectionException("Request failed to iCloud")
+    fake_api = MagicMock()
+    fake_api.fido2_devices = [{"id": "sk-1"}]
+    fake_api.confirm_security_key.side_effect = error
+    state = context_module.CLIState.from_options(context_module.CLICommandOptions())
+
+    with pytest.raises(context_module.CLIAbort) as excinfo:
+        state._handle_2fa(fake_api)
+
+    # The generic handler would otherwise report a failed security key.
+    assert str(excinfo.value) == context_module.CONNECTION_FAILURE_MESSAGE
+    fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
+
+
+def test_trusted_device_2sa_flow() -> None:
+    """Auth login should send and validate a 2SA verification code."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2sa = True
+    fake_api.trusted_devices = [{"deviceName": "Trusted Device", "phoneNumber": "+1"}]
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+    assert result.exit_code == 0
+    fake_api.send_verification_code.assert_called_once_with(fake_api.trusted_devices[0])
+    fake_api.validate_verification_code.assert_called_once_with(
+        fake_api.trusted_devices[0], "123456"
+    )
+
+
+def test_sms_2fa_flow_requests_sms_before_prompt() -> None:
+    """Auth login should request SMS delivery before prompting for the code."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "sms"
+    fake_api.request_2fa_code.return_value = True
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+    assert result.exit_code == 0
+    assert "Requested a 2FA code by SMS." in result.stdout
+    fake_api.request_2fa_code.assert_called_once_with()
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_trusted_device_2fa_flow_reports_device_prompt() -> None:
+    """Auth login should report trusted-device prompt delivery when bridge succeeds."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Requested a 2FA prompt on your trusted Apple devices." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_code_prompt_aborts_when_request_2fa_code_requires_security_key() -> None:
+    """Auth login should not enter the numeric 2FA prompt loop for key-only
+    challenges.
+    """
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.return_value = False
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert result.exception.args[0] == (
+        "This 2FA challenge requires a security key. Connect one and retry."
+    )
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_retries_invalid_codes_before_success() -> None:
+    """Auth login should allow up to three trusted-device 2FA attempts."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+    fake_api.validate_2fa_code.side_effect = [False, False, True]
+
+    with patch.object(
+        context_module.typer,
+        "prompt",
+        side_effect=["111111", "222222", "333333"],
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+
+
+def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
+    """Auth login should stop after three invalid 2FA attempts."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "sms"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [False, False, False]
+
+    with patch.object(
+        context_module.typer,
+        "prompt",
+        side_effect=["111111", "222222", "333333"],
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert result.exception.args[0] == "Failed to verify the 2FA code."
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+
+
+def test_trusted_device_2fa_bridge_fallback_reports_notice() -> None:
+    """Auth login should print the bridge fallback notice before the SMS message."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_sms_fallback() -> bool:
+        fake_api.two_factor_delivery_method = "sms"
+        fake_api.two_factor_delivery_notice = (
+            "Trusted-device prompt failed; falling back to SMS."
+        )
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_sms_fallback
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Trusted-device prompt failed; falling back to SMS." in result.stdout
+    assert "Requested a 2FA code by SMS." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_sms_2fa_request_failure_still_prompts_for_existing_device_code() -> None:
+    """Auth login should accept a code that already appeared on a trusted device."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.side_effect = context_module.PyiCloudAPIResponseException(
+        "sms request failed"
+    )
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Failed to request the 2FA SMS code." in result.stdout
+    fake_api.use_existing_trusted_device_code.assert_called_once_with()
+    assert fake_api.two_factor_delivery_method == "trusted_device"
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_trusted_device_2fa_request_failure_aborts() -> None:
+    """Auth login should surface bridge delivery failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDevicePromptException("bridge failed")
+    )
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert result.exception.args[0] == (
+        "Failed to request the 2FA trusted-device prompt."
+    )
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_verification_failure_aborts() -> None:
+    """Auth login should surface bridge verification failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceVerificationException(
+            "bridge verification failed"
+        )
+    )
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert result.exception.args[0] == ("Failed to verify the 2FA trusted-device code.")
+
+
+def test_non_interactive_2sa_does_not_send_verification_code() -> None:
+    """Non-interactive 2SA should fail before sending a verification code."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Requested a 2FA prompt on your trusted Apple devices." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_notes_commands() -> None:
+    """Notes commands should expose list, detail, render, export, and sync flows."""
+
+    fake_api = FakeAPI()
+
+    recent_result = _invoke(fake_api, "notes", "recent")
+    assert recent_result.exit_code == 0
+    assert "Daily Plan" in recent_result.stdout
+    assert "Deleted Note" not in recent_result.stdout
+
+    recent_json_result = _invoke(
+        fake_api,
+        "notes",
+        "recent",
+        "--include-deleted",
+        output_format="json",
+    )
+    recent_payload = json.loads(recent_json_result.stdout)
+    assert recent_json_result.exit_code == 0
+    assert [row["id"] for row in recent_payload] == [
+        "Note/DELETED",
+        "Note/DAILY",
+        "Note/MEETING",
+    ]
+
+    folders_result = _invoke(fake_api, "notes", "folders")
+    assert folders_result.exit_code == 0
+    assert "Work" in folders_result.stdout
+
+    folder_list_result = _invoke(
+        fake_api,
+        "notes",
+        "list",
+        "--folder-id",
+        "Folder/WORK",
+        "--limit",
+        "2",
+        output_format="json",
+    )
+    folder_payload = json.loads(folder_list_result.stdout)
+    assert folder_list_result.exit_code == 0
+    assert [row["id"] for row in folder_payload] == ["Note/MEETING", "Note/FOLLOWUP"]
+
+    all_notes_result = _invoke(
+        fake_api,
+        "notes",
+        "list",
+        "--all",
+        "--since",
+        "notes-prev",
+        "--limit",
+        "2",
+        output_format="json",
+    )
+    all_payload = json.loads(all_notes_result.stdout)
+    assert all_notes_result.exit_code == 0
+    assert fake_api.notes.iter_all_requests[-1] == "notes-prev"
+    assert [row["id"] for row in all_payload] == ["Note/MEETING", "Note/FOLLOWUP"]
+
+    get_result = _invoke(
+        fake_api,
+        "notes",
+        "get",
+        "Note/DAILY",
+        "--with-attachments",
+        output_format="json",
+    )
+    get_payload = json.loads(get_result.stdout)
+    assert get_result.exit_code == 0
+    assert get_payload["attachments"][0]["id"] == "Attachment/PDF"
+
+    render_result = _invoke(
+        fake_api,
+        "notes",
+        "render",
+        "Note/DAILY",
+        "--preview-appearance",
+        "dark",
+        "--pdf-height",
+        "720",
+        output_format="json",
+    )
+    render_payload = json.loads(render_result.stdout)
+    assert render_result.exit_code == 0
+    assert render_payload["html"] == "<p>Ship CLI</p>"
+    assert fake_api.notes.render_calls[-1]["preview_appearance"] == "dark"
+    assert fake_api.notes.render_calls[-1]["pdf_object_height"] == 720
+
+    export_result = _invoke(
+        fake_api,
+        "notes",
+        "export",
+        "Note/DAILY",
+        "--output-dir",
+        str(TEST_ROOT / "notes-export"),
+        "--export-mode",
+        "lightweight",
+        "--fragment",
+        "--preview-appearance",
+        "dark",
+        "--pdf-height",
+        "480",
+        output_format="json",
+    )
+    export_payload = json.loads(export_result.stdout)
+    assert export_result.exit_code == 0
+    assert export_payload["path"].endswith("daily.html")
+    assert fake_api.notes.export_calls[-1]["export_mode"] == "lightweight"
+    assert fake_api.notes.export_calls[-1]["full_page"] is False
+    assert fake_api.notes.export_calls[-1]["preview_appearance"] == "dark"
+    assert fake_api.notes.export_calls[-1]["pdf_object_height"] == 480
+
+    changes_result = _invoke(
+        fake_api,
+        "notes",
+        "changes",
+        "--since",
+        "notes-prev",
+        "--limit",
+        "1",
+        output_format="json",
+    )
+    changes_payload = json.loads(changes_result.stdout)
+    assert changes_result.exit_code == 0
+    assert fake_api.notes.change_requests[-1] == "notes-prev"
+    assert changes_payload[0]["type"] == "updated"
+
+    cursor_result = _invoke(fake_api, "notes", "sync-cursor")
+    assert cursor_result.exit_code == 0
+    assert cursor_result.stdout.strip() == "notes-cursor-1"
+
+    cursor_json_result = _invoke(fake_api, "notes", "sync-cursor", output_format="json")
+    assert cursor_json_result.exit_code == 0
+    assert json.loads(cursor_json_result.stdout)["sync_cursor"] == "notes-cursor-1"
+
+
+def test_notes_search_uses_recents_first_and_fallback() -> None:
+    """Notes search should probe recents first, fall back to iter_all, and dedupe."""
+
+    fake_api = FakeAPI()
+
+    result = _invoke(
+        fake_api,
+        "notes",
+        "search",
+        "--title-contains",
+        "Meeting",
+        "--limit",
+        "2",
+        output_format="json",
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert [row["id"] for row in payload] == ["Note/MEETING", "Note/FOLLOWUP"]
+    assert fake_api.notes.recent_requests[-1] == 500
+    assert fake_api.notes.iter_all_requests == [None]
+
+
+def test_notes_commands_report_errors() -> None:
+    """Notes commands should surface clean selection and note-specific errors."""
+
+    fake_api = FakeAPI()
+
+    search_result = _invoke(fake_api, "notes", "search")
+    assert search_result.exit_code != 0
+    assert search_result.exception is not None
+    assert search_result.exception.args[0] == (
+        "Pass --title or --title-contains to search notes."
+    )
+
+    missing_result = _invoke(fake_api, "notes", "get", "Note/MISSING")
+    assert missing_result.exit_code != 0
+    assert missing_result.exception is not None
+    assert missing_result.exception.args[0] == "Note not found: Note/MISSING"
+
+    locked_result = _invoke(fake_api, "notes", "get", "Note/LOCKED")
+    assert locked_result.exit_code != 0
+    assert locked_result.exception is not None
+    assert locked_result.exception.args[0] == "Note is locked: Note/LOCKED"
+
+
+def test_notes_commands_report_reauthentication_and_unavailability() -> None:
+    """Notes commands should wrap service reauth and service-unavailable failures."""
+
+    class ReauthNotes(FakeNotes):
+        """Mock Notes service that raises reauth exception."""
+
+        def recents(self, *, limit: int = 50) -> list[NoteSummary]:
+            """Raise the reauth exception."""
+            raise context_module.PyiCloudFailedLoginException("No password set")
+
+    class UnavailableNotes(FakeNotes):
+        """Mock Notes service that raises unavailable exception."""
+
+        def sync_cursor(self) -> str:
+            """Raise the unavailable exception."""
+            raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
+
+    fake_api = FakeAPI()
+    fake_api.notes = ReauthNotes()
+    reauth_result = _invoke(fake_api, "notes", "recent")
+    assert reauth_result.exit_code != 0
+    assert reauth_result.exception is not None
+    assert reauth_result.exception.args[0] == (
+        "Notes requires re-authentication for user@example.com. "
+        "Run: icloud auth login --username user@example.com"
+    )
+
+    fake_api = FakeAPI()
+    fake_api.notes = UnavailableNotes()
+    unavailable_result = _invoke(fake_api, "notes", "sync-cursor")
+    assert unavailable_result.exit_code != 0
+    assert unavailable_result.exception is not None
+    assert unavailable_result.exception.args[0] == (
+        "Notes service unavailable: temporarily unavailable"
+    )
+
+
+def test_photos_extended_commands() -> None:
+    """Photos commands should expose library, detail, change, and cursor views."""
+
+    fake_api = FakeAPI()
+
+    libraries_result = _invoke(fake_api, "photos", "libraries", output_format="json")
+    get_result = _invoke(fake_api, "photos", "get", "photo-1", output_format="json")
+    changes_result = _invoke(
+        fake_api, "photos", "changes", "--limit", "1", output_format="json"
+    )
+    cursor_result = _invoke(
+        fake_api, "photos", "sync-cursor", "--library", "root", output_format="json"
+    )
+
+    assert libraries_result.exit_code == 0
+    libraries_payload = json.loads(libraries_result.stdout)
+    assert any(item["zone_name"] == "PrimarySync" for item in libraries_payload)
+    assert any(
+        item["key"] == "shared:SharedSync-TESTZONE" for item in libraries_payload
+    )
+    assert get_result.exit_code == 0
+    assert json.loads(get_result.stdout)["id"] == "photo-1"
+    assert changes_result.exit_code == 0
+    assert json.loads(changes_result.stdout)[0]["record_name"] == "photo-1"
+    assert cursor_result.exit_code == 0
+    assert json.loads(cursor_result.stdout)["sync_cursor"] == "photo-sync-root"
+
+
+def test_photos_read_commands_accept_shared_library_keys() -> None:
+    """List/get/download/changes should target explicit Shared Library keys."""
+
+    fake_api = FakeAPI()
+    output_path = TEST_ROOT / "shared-photo.bin"
+
+    list_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--limit",
+        "1",
+        output_format="json",
+    )
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "shared-photo-1",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        output_format="json",
+    )
+    download_result = _invoke(
+        fake_api,
+        "photos",
+        "download",
+        "shared-photo-1",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--output",
+        str(output_path),
+        output_format="json",
+    )
+    changes_result = _invoke(
+        fake_api,
+        "photos",
+        "changes",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--limit",
+        "1",
+        output_format="json",
+    )
+
+    assert list_result.exit_code == 0
+    assert json.loads(list_result.stdout)[0]["id"] == "shared-photo-1"
+    assert get_result.exit_code == 0
+    assert json.loads(get_result.stdout)["filename"] == "shared.jpg"
+    assert download_result.exit_code == 0
+    assert output_path.read_bytes() == b"shared-photo-1:original"
+    assert json.loads(download_result.stdout)["photo_id"] == "shared-photo-1"
+    assert changes_result.exit_code == 0
+    assert json.loads(changes_result.stdout)[0]["record_name"] == "shared-photo-1"
+
+
+def test_photos_read_commands_accept_supported_shared_library_album_filters() -> None:
+    """Shared Library reads should allow the currently supported smart albums."""
+
+    fake_api = FakeAPI()
+
+    list_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Favorites",
+        output_format="json",
+    )
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "shared-photo-1",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Favorites",
+        output_format="json",
+    )
+
+    assert list_result.exit_code == 0
+    assert json.loads(list_result.stdout)[0]["id"] == "shared-photo-1"
+    assert get_result.exit_code == 0
+    assert json.loads(get_result.stdout)["filename"] == "shared.jpg"
+
+
+def test_photos_cloudkit_read_commands_reject_legacy_shared_stream_library() -> None:
+    """CloudKit read commands should reject the legacy Shared Albums library key."""
+
+    fake_api = FakeAPI()
+    output_path = TEST_ROOT / "shared-stream.bin"
+
+    list_result = _invoke(fake_api, "photos", "list", "--library", "shared")
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "photo-1",
+        "--library",
+        "shared",
+    )
+    download_result = _invoke(
+        fake_api,
+        "photos",
+        "download",
+        "photo-1",
+        "--library",
+        "shared",
+        "--output",
+        str(output_path),
+    )
+    changes_result = _invoke(
+        fake_api,
+        "photos",
+        "changes",
+        "--library",
+        "shared",
+    )
+
+    expected = (
+        "Photo library 'shared' uses legacy Shared Albums streams and is not "
+        "supported by this command. Use 'root' or a Shared Library key like "
+        "'shared:<zoneName>'."
+    )
+    for result in (list_result, get_result, download_result, changes_result):
+        assert result.exit_code != 0
+        assert result.exception is not None
+        assert result.exception.args[0] == expected
+
+
+def test_photos_read_commands_reject_unsupported_shared_library_album_filters() -> None:
+    """Shared Library reads should fail clearly for unsupported album filters."""
+
+    fake_api = FakeAPI()
+    expected = (
+        "Shared Library 'shared:SharedSync-TESTZONE' currently supports album "
+        "filters only for Library, Favorites. Album 'Screenshots' is not "
+        "supported yet."
+    )
+
+    list_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Screenshots",
+    )
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "shared-photo-1",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Screenshots",
+    )
+
+    for result in (list_result, get_result):
+        assert result.exit_code != 0
+        assert result.exception is not None
+        assert result.exception.args[0] == expected
+
+
+def test_photos_sync_command_downloads_and_short_circuits() -> None:
+    """Photos sync should materialize files, persist state, and short-circuit on
+    rerun.
+    """
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-output"
+    state_dir = TEST_ROOT / "photos-sync-state"
+
+    first_result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+    second_result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+
+    first_payload = json.loads(first_result.stdout)
+    second_payload = json.loads(second_result.stdout)
+
+    assert first_result.exit_code == 0
+    assert first_payload["downloaded_count"] == 1
+    assert first_payload["short_circuited"] is False
+    assert (output_dir / "img.jpg").read_bytes() == b"photo-1:original"
+    assert Path(first_payload["state_path"]).exists()
+
+    assert second_result.exit_code == 0
+    assert second_payload["downloaded_count"] == 0
+    assert second_payload["short_circuited"] is True
+
+
+def test_photos_sync_cursor_accepts_shared_library_keys() -> None:
+    """Photos sync-cursor should resolve explicit Shared Library keys."""
+
+    fake_api = FakeAPI()
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync-cursor",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        output_format="json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["library"] == "shared:SharedSync-TESTZONE"
+    assert payload["sync_cursor"] == "photo-sync-shared-library"
+
+
+def test_photos_sync_style_commands_reject_legacy_shared_stream_library() -> None:
+    """sync-cursor/sync/watch should reject the legacy Shared Albums library key."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-shared-stream-output"
+    state_dir = TEST_ROOT / "photos-sync-shared-stream-state"
+    expected = (
+        "Photo library 'shared' uses legacy Shared Albums streams and is not "
+        "supported by this command. Use 'root' or a Shared Library key like "
+        "'shared:<zoneName>'."
+    )
+
+    sync_cursor_result = _invoke(
+        fake_api,
+        "photos",
+        "sync-cursor",
+        "--library",
+        "shared",
+    )
+    sync_result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--library",
+        "shared",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+    )
+    watch_result = _invoke(
+        fake_api,
+        "photos",
+        "watch",
+        "--library",
+        "shared",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--interval",
+        "1",
+        "--iterations",
+        "1",
+    )
+
+    for result in (sync_cursor_result, sync_result, watch_result):
+        assert result.exit_code != 0
+        assert result.exception is not None
+        assert result.exception.args[0] == expected
+
+
+def test_photos_sync_command_accepts_shared_library_keys() -> None:
+    """Photos sync should materialize Shared Library assets via --library."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-shared-output"
+    state_dir = TEST_ROOT / "photos-sync-shared-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["library"] == "shared:SharedSync-TESTZONE"
+    assert payload["downloaded_count"] == 1
+    assert payload["short_circuited"] is False
+    assert (output_dir / "shared.jpg").read_bytes() == b"shared-photo-1:original"
+
+
+def test_photos_sync_command_accepts_supported_shared_library_album_filters() -> None:
+    """Shared Library sync should allow the currently supported smart albums."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-shared-favorites-output"
+    state_dir = TEST_ROOT / "photos-sync-shared-favorites-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Favorites",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["albums"] == ["Favorites"]
+    assert payload["downloaded_count"] == 1
+
+
+def test_photos_sync_command_rejects_unsupported_shared_library_album_filters() -> None:
+    """Shared Library sync should fail clearly for unsupported album filters."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-shared-unsupported-output"
+    state_dir = TEST_ROOT / "photos-sync-shared-unsupported-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Screenshots",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert result.exception.args[0] == (
+        "Shared Library 'shared:SharedSync-TESTZONE' currently supports album "
+        "filters only for Library, Favorites. Album 'Screenshots' is not "
+        "supported yet."
+    )
+
+
+def test_photos_watch_command_accepts_shared_library_keys() -> None:
+    """Photos watch should reuse sync semantics for Shared Library keys."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-watch-shared-output"
+    state_dir = TEST_ROOT / "photos-watch-shared-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "watch",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--interval",
+        "1",
+        "--iterations",
+        "2",
+        output_format="json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload) == 2
+    assert payload[0]["library"] == "shared:SharedSync-TESTZONE"
+    assert payload[0]["downloaded_count"] == 1
+    assert payload[0]["short_circuited"] is False
+    assert payload[1]["library"] == "shared:SharedSync-TESTZONE"
+    assert payload[1]["downloaded_count"] == 0
+    assert payload[1]["short_circuited"] is True
+    assert (output_dir / "shared.jpg").read_bytes() == b"shared-photo-1:original"
+
+
+def test_photos_sync_command_supports_print_only_and_album_filters() -> None:
+    """Photos sync should support preview-only output for album-scoped sync targets."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-preview"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--album",
+        "All Photos",
+        "--folder-structure",
+        "{:%Y/%m}",
+        "--only-print-filenames",
+    )
+
+    assert result.exit_code == 0
+    assert "2026/03/img.jpg" in result.stdout
+
+
+def test_photos_watch_command_streams_bounded_runs() -> None:
+    """Photos watch should reuse sync semantics across bounded iterations."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-watch-output"
+    state_dir = TEST_ROOT / "photos-watch-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "watch",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--interval",
+        "1",
+        "--iterations",
+        "2",
+        output_format="json",
+    )
+
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert len(payload) == 2
+    assert payload[0]["iteration"] == 1
+    assert payload[0]["downloaded_count"] == 1
+    assert payload[0]["short_circuited"] is False
+    assert payload[1]["iteration"] == 2
+    assert payload[1]["downloaded_count"] == 0
+    assert payload[1]["short_circuited"] is True
+
+
+def test_photos_watch_command_reports_progress_in_text_mode() -> None:
+    """Photos watch should emit immediate progress messages in text mode."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-watch-progress-output"
+    state_dir = TEST_ROOT / "photos-watch-progress-state"
+
+    with patch("pyicloud.cli.commands.photos.time.sleep") as sleep:
+        result = _invoke(
+            fake_api,
+            "photos",
+            "watch",
+            "--directory",
+            str(output_dir),
+            "--state-dir",
+            str(state_dir),
+            "--interval",
+            "1",
+            "--iterations",
+            "2",
+        )
+
+    assert result.exit_code == 0
+    assert "Starting photo watch run 1 of 2" in result.stdout
+    assert "Waiting 1s before photo watch run 2 of 2" in result.stdout
+    assert "Starting photo watch run 2 of 2" in result.stdout
+    assert result.stdout.index(
+        "Waiting 1s before photo watch run 2 of 2"
+    ) < result.stdout.index("Starting photo watch run 2 of 2")
+    sleep.assert_called_once_with(1)
+    assert "Photo Watch Run 1" in result.stdout
+    assert "Photo Watch Run 2" in result.stdout
+
+
+def test_photos_sync_command_accepts_downloader_materialization_flags() -> None:
+    """Photos sync should accept the next downloader-parity flags."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-parity"
+    state_dir = TEST_ROOT / "photos-sync-parity-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--align-raw",
+        "original",
+        "--xmp-sidecar",
+        "--set-exif-datetime",
+        "--keep-icloud-recent-days",
+        "0",
+    )
+
+    assert result.exit_code == 0
+    assert "Photo Sync" in result.stdout
+
+
+def test_photos_sync_cursor_missing_library() -> None:
+    """Photos sync-cursor should fail for unknown library keys."""
+
+    fake_api = FakeAPI()
+    result = _invoke(fake_api, "photos", "sync-cursor", "--library", "missing")
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert result.exception.args[0] == "No photo library matched 'missing'."
+
+
+def test_photos_shared_streams_command() -> None:
+    """Photos shared-streams command should list shared photo streams."""
+
+    fake_api = FakeAPI()
+
+    text_result = _invoke(fake_api, "photos", "shared-streams")
+    json_result = _invoke(fake_api, "photos", "shared-streams", output_format="json")
+
+    assert text_result.exit_code == 0
+    assert "Vacation 2026" in text_result.stdout
+    assert "Family Photos" in text_result.stdout
+
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert len(payload) == 2
+    assert payload[0]["name"] == "Vacation 2026"
+    assert payload[0]["full_name"] == "Vacation 2026"
+    assert payload[0]["count"] == 1
+    assert payload[1]["name"] == "Family Photos"
+    assert payload[1]["count"] == 1
+
+
+def test_photos_read_commands_accept_shared_stream_albums() -> None:
+    """List/get/download should support shared stream album reads."""
+
+    fake_api = FakeAPI()
+    output_path = TEST_ROOT / "shared-stream-photo.bin"
+
+    list_text_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--shared-stream",
+        "--album",
+        "Vacation 2026",
+        "--limit",
+        "1",
+    )
+    list_json_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--shared-stream",
+        "--album",
+        "Vacation 2026",
+        "--limit",
+        "1",
+        output_format="json",
+    )
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "stream-photo-1",
+        "--shared-stream",
+        "--album",
+        "Vacation 2026",
+        output_format="json",
+    )
+    download_result = _invoke(
+        fake_api,
+        "photos",
+        "download",
+        "stream-photo-1",
+        "--shared-stream",
+        "--album",
+        "Vacation 2026",
+        "--output",
+        str(output_path),
+        output_format="json",
+    )
+
+    assert list_text_result.exit_code == 0
+    assert "Liked" in list_text_result.stdout
+    assert "Like Count" in list_text_result.stdout
+    assert "beach.jpg" in list_text_result.stdout
+    assert "True" in list_text_result.stdout
+    assert "7" in list_text_result.stdout
+
+    assert list_json_result.exit_code == 0
+    listed_item = json.loads(list_json_result.stdout)[0]
+    assert listed_item["id"] == "stream-photo-1"
+    assert listed_item["liked"] is True
+    assert listed_item["like_count"] == 7
+
+    assert get_result.exit_code == 0
+    get_payload = json.loads(get_result.stdout)
+    assert get_payload["id"] == "stream-photo-1"
+    assert get_payload["liked"] is True
+    assert get_payload["like_count"] == 7
+
+    assert download_result.exit_code == 0
+    assert output_path.read_bytes() == b"stream-photo-1:original"
+    assert json.loads(download_result.stdout)["photo_id"] == "stream-photo-1"
+
+
+def test_photos_albums_command() -> None:
+    """Photos albums command should list photo albums."""
+
+    fake_api = FakeAPI()
+
+    text_result = _invoke(fake_api, "photos", "albums")
+    json_result = _invoke(fake_api, "photos", "albums", output_format="json")
+
+    assert text_result.exit_code == 0
+    assert "All Photos" in text_result.stdout
+
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert len(payload) == 1
+    assert payload[0]["name"] == "All Photos"
+    assert payload[0]["full_name"] == "All Photos"
+    assert payload[0]["count"] == 1
+
+
+def test_drive_missing_paths_report_cli_abort() -> None:
+    """Drive commands should collapse missing path lookups into CLIAbort errors."""
+
+    fake_api = FakeAPI()
+    output_path = TEST_ROOT / "missing.txt"
+
+    list_result = _invoke(fake_api, "drive", "list", "/missing")
+    download_result = _invoke(
+        fake_api,
+        "drive",
+        "download",
+        "/missing",
+        "--output",
+        str(output_path),
+    )
+
+    assert list_result.exit_code != 0
+    assert list_result.exception is not None
+    assert list_result.exception.args[0] == "Path not found: /missing"
+    assert download_result.exit_code != 0
+    assert download_result.exception is not None
+    assert download_result.exception.args[0] == "Path not found: /missing"
+
+
+def test_reminders_core_commands() -> None:
+    """Reminders core commands should expose list, detail, mutation, and sync flows."""
+
+    fake_api = FakeAPI()
+
+    lists_result = _invoke(fake_api, "reminders", "lists")
+    assert lists_result.exit_code == 0
+    assert "Inbox" in lists_result.stdout
+    assert "blue (#007AFF)" in lists_result.stdout
+
+    list_result = _invoke(fake_api, "reminders", "list", output_format="json")
+    list_payload = json.loads(list_result.stdout)
+    assert list_result.exit_code == 0
+    assert [row["id"] for row in list_payload] == ["Reminder/A", "Reminder/C"]
+    assert all(not row["completed"] for row in list_payload)
+
+    completed_result = _invoke(
+        fake_api,
+        "reminders",
+        "list",
+        "--list-id",
+        "INBOX",
+        "--include-completed",
+        output_format="json",
+    )
+    completed_payload = json.loads(completed_result.stdout)
+    assert completed_result.exit_code == 0
+    assert [row["id"] for row in completed_payload] == ["Reminder/A", "Reminder/B"]
+    assert fake_api.reminders.snapshot_requests[-1]["list_id"] == "List/INBOX"
+
+    get_result = _invoke(fake_api, "reminders", "get", "Reminder/A")
+    assert get_result.exit_code == 0
+    assert "Parent Reminder" in get_result.stdout
+
+    create_result = _invoke(
+        fake_api,
+        "reminders",
+        "create",
+        "--list-id",
+        "INBOX",
+        "--title",
+        "Call mom",
+        "--desc",
+        "Saturday",
+        "--priority",
+        "9",
+        "--flagged",
+        "--all-day",
+        output_format="json",
+    )
+    create_payload = json.loads(create_result.stdout)
+    created_id = create_payload["id"]
+    assert create_result.exit_code == 0
+    assert create_payload["list_id"] == "List/INBOX"
+    assert create_payload["flagged"] is True
+    assert create_payload["all_day"] is True
+
+    update_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--title",
+        "Buy oat milk",
+        "--not-flagged",
+        "--clear-time-zone",
+        "--clear-parent-reminder",
+        output_format="json",
+    )
+    update_payload = json.loads(update_result.stdout)
+    assert update_result.exit_code == 0
+    assert update_payload["title"] == "Buy oat milk"
+    assert update_payload["flagged"] is False
+    assert update_payload["time_zone"] is None
+    assert update_payload["parent_reminder_id"] is None
+
+    early_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--early-reminder",
+        "3 hours",
+        "--early-reminder",
+        "1d",
+        "--urgent",
+        output_format="json",
+    )
+    early_payload = json.loads(early_result.stdout)
+    assert early_result.exit_code == 0
+    assert [row["count"] for row in early_payload["early_reminders"]] == [-3, -1]
+    assert [row["unit"] for row in early_payload["early_reminders"]] == [1, 2]
+    assert early_payload["urgent"]["enabled"] is True
+
+    clear_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--clear-early-reminders",
+        "--not-urgent",
+        output_format="json",
+    )
+    clear_payload = json.loads(clear_result.stdout)
+    assert clear_result.exit_code == 0
+    assert clear_payload["early_reminders"] == []
+    assert clear_payload["urgent"]["enabled"] is False
+
+    status_result = _invoke(
+        fake_api,
+        "reminders",
+        "set-status",
+        "Reminder/A",
+        "--completed",
+        output_format="json",
+    )
+    status_payload = json.loads(status_result.stdout)
+    assert status_result.exit_code == 0
+    assert status_payload["completed"] is True
+
+    snapshot_result = _invoke(
+        fake_api,
+        "reminders",
+        "snapshot",
+        "--list-id",
+        "INBOX",
+        output_format="json",
+    )
+    snapshot_payload = json.loads(snapshot_result.stdout)
+    assert snapshot_result.exit_code == 0
+    assert set(snapshot_payload) == {
+        "alarms",
+        "attachments",
+        "hashtags",
+        "recurrence_rules",
+        "reminders",
+        "triggers",
+    }
+
+    changes_result = _invoke(
+        fake_api,
+        "reminders",
+        "changes",
+        "--since",
+        "reminders-prev",
+        "--limit",
+        "1",
+        output_format="json",
+    )
+    changes_payload = json.loads(changes_result.stdout)
+    assert changes_result.exit_code == 0
+    assert fake_api.reminders.change_requests[-1] == "reminders-prev"
+    assert changes_payload[0]["type"] == "updated"
+
+    cursor_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert cursor_result.exit_code == 0
+    assert cursor_result.stdout.strip() == "reminders-cursor-1"
+
+    cursor_json_result = _invoke(
+        fake_api, "reminders", "sync-cursor", output_format="json"
+    )
+    assert cursor_json_result.exit_code == 0
+    assert json.loads(cursor_json_result.stdout)["sync_cursor"] == "reminders-cursor-1"
+
+    delete_result = _invoke(
+        fake_api,
+        "reminders",
+        "delete",
+        created_id,
+        output_format="json",
+    )
+    delete_payload = json.loads(delete_result.stdout)
+    assert delete_result.exit_code == 0
+    assert delete_payload["deleted"] is True
+    assert fake_api.reminders.reminder_rows[created_id].deleted is True
+
+
+@pytest.mark.timeout(10)
+def test_reminders_subgroup_commands() -> None:
+    """Reminder subgroup commands should expose alarm, hashtag, attachment, and
+    recurrence flows.
+    """
+
+    fake_api = FakeAPI()
+
+    alarm_list_result = _invoke(
+        fake_api,
+        "reminders",
+        "alarm",
+        "list",
+        "Reminder/A",
+        output_format="json",
+    )
+    alarm_list_payload = json.loads(alarm_list_result.stdout)
+    assert alarm_list_result.exit_code == 0
+    assert alarm_list_payload[0]["alarm"]["id"] == "Alarm/A"
+
+    alarm_create_result = _invoke(
+        fake_api,
+        "reminders",
+        "alarm",
+        "add-location",
+        "Reminder/C",
+        "--title",
+        "Home",
+        "--address",
+        "Rue de Example",
+        "--latitude",
+        "49.61",
+        "--longitude",
+        "6.13",
+        "--radius",
+        "75",
+        "--proximity",
+        "leaving",
+        output_format="json",
+    )
+    alarm_create_payload = json.loads(alarm_create_result.stdout)
+    assert alarm_create_result.exit_code == 0
+    assert alarm_create_payload["trigger"]["title"] == "Home"
+    assert (
+        fake_api.reminders.trigger_rows[alarm_create_payload["trigger"]["id"]].proximity
+        == Proximity.LEAVING
+    )
+
+    hashtag_list_result = _invoke(
+        fake_api,
+        "reminders",
+        "hashtag",
+        "list",
+        "Reminder/A",
+        output_format="json",
+    )
+    hashtag_list_payload = json.loads(hashtag_list_result.stdout)
+    assert hashtag_list_result.exit_code == 0
+    assert hashtag_list_payload[0]["id"] == "Hashtag/ERRANDS"
+
+    hashtag_create_result = _invoke(
+        fake_api,
+        "reminders",
+        "hashtag",
+        "create",
+        "Reminder/C",
+        "home",
+        output_format="json",
+    )
+    hashtag_create_payload = json.loads(hashtag_create_result.stdout)
+    hashtag_suffix = hashtag_create_payload["id"].split("/", 1)[1]
+    assert hashtag_create_result.exit_code == 0
+
+    hashtag_update_result = _invoke(
+        fake_api,
+        "reminders",
+        "hashtag",
+        "update",
+        "Reminder/C",
+        hashtag_suffix,
+        "--name",
+        "chores",
+        output_format="json",
+    )
+    hashtag_update_payload = json.loads(hashtag_update_result.stdout)
+    assert hashtag_update_result.exit_code == 0
+    assert hashtag_update_payload["name"] == "chores"
+
+    hashtag_delete_result = _invoke(
+        fake_api,
+        "reminders",
+        "hashtag",
+        "delete",
+        "Reminder/C",
+        hashtag_suffix,
+        output_format="json",
+    )
+    hashtag_delete_payload = json.loads(hashtag_delete_result.stdout)
+    assert hashtag_delete_result.exit_code == 0
+    assert hashtag_delete_payload["deleted"] is True
+
+    attachment_list_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "list",
+        "Reminder/A",
+        output_format="json",
+    )
+    attachment_list_payload = json.loads(attachment_list_result.stdout)
+    assert attachment_list_result.exit_code == 0
+    assert attachment_list_payload[0]["id"] == "Attachment/LINK"
+
+    attachment_create_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "create-url",
+        "Reminder/C",
+        "--url",
+        "https://example.com/new",
+        output_format="json",
+    )
+    attachment_create_payload = json.loads(attachment_create_result.stdout)
+    attachment_suffix = attachment_create_payload["id"].split("/", 1)[1]
+    assert attachment_create_result.exit_code == 0
+
+    attachment_update_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "update",
+        "Reminder/C",
+        attachment_suffix,
+        "--url",
+        "https://example.org/new",
+        "--uti",
+        "public.url",
+        output_format="json",
+    )
+    attachment_update_payload = json.loads(attachment_update_result.stdout)
+    assert attachment_update_result.exit_code == 0
+    assert attachment_update_payload["url"] == "https://example.org/new"
+
+    attachment_delete_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "delete",
+        "Reminder/C",
+        attachment_suffix,
+        output_format="json",
+    )
+    attachment_delete_payload = json.loads(attachment_delete_result.stdout)
+    assert attachment_delete_result.exit_code == 0
+    assert attachment_delete_payload["deleted"] is True
+
+    recurrence_list_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "list",
+        "Reminder/A",
+        output_format="json",
+    )
+    recurrence_list_payload = json.loads(recurrence_list_result.stdout)
+    assert recurrence_list_result.exit_code == 0
+    assert recurrence_list_payload[0]["id"] == "Recurrence/WEEKLY"
+
+    recurrence_create_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "create",
+        "Reminder/C",
+        "--frequency",
+        "monthly",
+        "--interval",
+        "2",
+        output_format="json",
+    )
+    recurrence_create_payload = json.loads(recurrence_create_result.stdout)
+    recurrence_suffix = recurrence_create_payload["id"].split("/", 1)[1]
+    assert recurrence_create_result.exit_code == 0
+
+    recurrence_update_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "update",
+        "Reminder/C",
+        recurrence_suffix,
+        "--frequency",
+        "yearly",
+        "--interval",
+        "3",
+        "--occurrence-count",
+        "4",
+        output_format="json",
+    )
+    recurrence_update_payload = json.loads(recurrence_update_result.stdout)
+    assert recurrence_update_result.exit_code == 0
+    assert recurrence_update_payload["interval"] == 3
+    assert recurrence_update_payload["occurrence_count"] == 4
+
+    recurrence_delete_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "delete",
+        "Reminder/C",
+        recurrence_suffix,
+        output_format="json",
+    )
+    recurrence_delete_payload = json.loads(recurrence_delete_result.stdout)
+    assert recurrence_delete_result.exit_code == 0
+    assert recurrence_delete_payload["deleted"] is True
+
+
+def test_reminders_commands_report_errors() -> None:
+    """Reminders commands should surface clean validation and lookup errors."""
+
+    fake_api = FakeAPI()
+
+    missing_result = _invoke(fake_api, "reminders", "get", "Reminder/MISSING")
+    assert missing_result.exit_code != 0
+    assert missing_result.exception is not None
+    assert missing_result.exception.args[0] == "Reminder not found: Reminder/MISSING"
+
+    update_result = _invoke(fake_api, "reminders", "update", "Reminder/A")
+    assert update_result.exit_code != 0
+    assert update_result.exception is not None
+    assert update_result.exception.args[0] == "No reminder updates were requested."
+
+    both_alerts_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--early-reminder",
+        "1 day",
+        "--clear-early-reminders",
+    )
+    assert both_alerts_result.exit_code != 0
+    assert "not both" in both_alerts_result.stderr
+
+    bad_alert_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--early-reminder",
+        "3 weeks",
+    )
+    assert bad_alert_result.exit_code != 0
+    assert "hours or days" in bad_alert_result.stderr
+
+    zero_alert_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--early-reminder",
+        "0d",
+    )
+    assert zero_alert_result.exit_code != 0
+    assert "must be positive" in zero_alert_result.stderr
+
+    hashtag_result = _invoke(
+        fake_api,
+        "reminders",
+        "hashtag",
+        "delete",
+        "Reminder/A",
+        "missing",
+    )
+    assert hashtag_result.exit_code != 0
+    assert hashtag_result.exception is not None
+    assert hashtag_result.exception.args[0] == (
+        "No hashtag matched 'missing' for reminder Reminder/A."
+    )
+
+    attachment_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "update",
+        "Reminder/A",
+        "LINK",
+    )
+    assert attachment_result.exit_code != 0
+    assert attachment_result.exception is not None
+    assert attachment_result.exception.args[0] == (
+        "No attachment updates were requested."
+    )
+
+    recurrence_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "update",
+        "Reminder/A",
+        "WEEKLY",
+    )
+    assert recurrence_result.exit_code != 0
+    assert recurrence_result.exception is not None
+    assert recurrence_result.exception.args[0] == (
+        "No recurrence updates were requested."
+    )
+
+    class ApiErrorReminders(FakeReminders):
+        """Mock Reminders service that raises API error exception."""
+
+        def sync_cursor(self) -> str:
+            """Raise the API error exception."""
+            raise RemindersApiError("sync failed")
+
+    class AuthErrorReminders(FakeReminders):
+        """Mock Reminders service that raises auth error exception."""
+
+        def sync_cursor(self) -> str:
+            """Raise the auth error exception."""
+            raise RemindersAuthError("token expired")
+
+    fake_api = FakeAPI()
+    fake_api.reminders = ApiErrorReminders()
+    api_error_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert api_error_result.exit_code != 0
+    assert api_error_result.exception is not None
+    assert api_error_result.exception.args[0] == "sync failed"
+
+    fake_api = FakeAPI()
+    fake_api.reminders = AuthErrorReminders()
+    auth_error_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert auth_error_result.exit_code != 0
+    assert auth_error_result.exception is not None
+    assert auth_error_result.exception.args[0] == "token expired"
+
+
+def test_reminders_commands_report_reauthentication_and_unavailability() -> None:
+    """Reminders commands should wrap service reauth and service-unavailable
+    failures.
+    """
+
+    class ReauthReminders(FakeReminders):
+        """Mock Reminders service that raises reauth exception."""
+
+        def lists(self) -> list[RemindersList]:
+            """Raise the reauth exception."""
+            raise context_module.PyiCloudFailedLoginException("No password set")
+
+    class UnavailableReminders(FakeReminders):
+        """Mock Reminders service that raises unavailable exception."""
+
+        def sync_cursor(self) -> str:
+            """Raise the unavailable exception."""
+            raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
+
+    fake_api = FakeAPI()
+    fake_api.reminders = ReauthReminders()
+    reauth_result = _invoke(fake_api, "reminders", "lists")
+    assert reauth_result.exit_code != 0
+    assert reauth_result.exception is not None
+    assert reauth_result.exception.args[0] == (
+        "Reminders requires re-authentication for user@example.com. "
+        "Run: icloud auth login --username user@example.com"
+    )
+
+    fake_api = FakeAPI()
+    fake_api.reminders = UnavailableReminders()
+    unavailable_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert unavailable_result.exit_code != 0
+    assert unavailable_result.exception is not None
+    assert unavailable_result.exception.args[0] == (
+        "Reminders service unavailable: temporarily unavailable"
+    )
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (
+            context_module.CLIAbort(
+                "No local accounts were found; pass --username to bootstrap one."
+            ),
+            "No local accounts were found; pass --username to bootstrap one.",
+        ),
+        (
+            context_module.PyiCloudAccountLockedException("-20209", MagicMock()),
+            "Apple Account is locked for security reasons. "
+            "Unlock it before trying again.",
+        ),
+        (
+            context_module.PyiCloudConnectionException("Request failed to iCloud"),
+            context_module.CONNECTION_FAILURE_MESSAGE,
+        ),
+    ],
+)
+def test_main_returns_clean_error_for_expected_cli_error(
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+    message: str,
+) -> None:
+    """The entrypoint should not emit a traceback for expected CLI errors."""
+
+    with patch.object(cli_module, "app", side_effect=error):
+        code = cli_module.main()
+    captured = capsys.readouterr()
+    assert code == 1
+    assert captured.out == ""
+    assert captured.err == f"{message}\n"
+
+
+def _advertised_webservices() -> dict[str, Any]:
+    """Return a map advertising every key the library needs."""
+
+    return {
+        entry.key: {
+            "url": f"https://p31-{entry.key}.icloud.com:443",
+            "status": "active",
+        }
+        for entry in WEBSERVICES
+    }
+
+
+def _unwrapped(result: Any) -> str:
+    """Return command output with rich's line wrapping collapsed.
+
+    Terminal width is not part of what these tests assert. A cell that wraps
+    puts the table's own border characters between the fragments, so those go
+    first and the remaining whitespace is then collapsed.
+    """
+
+    text = _plain_output(result)
+    stripped = "".join(" " if "\u2500" <= ch <= "\u257f" else ch for ch in text)
+    return " ".join(stripped.split())
+
+
+def _doctor_api(webservices: dict[str, Any] | None = None) -> FakeAPI:
+    """Return an authenticated fake whose advertised map can be shaped per test."""
+
+    fake_api = FakeAPI()
+    fake_api.webservices = (
+        _advertised_webservices() if webservices is None else webservices
+    )
+    return fake_api
+
+
+def test_doctor_reports_a_healthy_account() -> None:
+    """A complete service map passes and says so in a quotable way."""
+
+    result = _invoke(_doctor_api(), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Environment" in text
+    assert "Session" in text
+    assert "Webservices" in text
+    assert "No problems found" in text
+    # The point of saying so is to send the next report to the right place.
+    assert "github.com/timlaing/pyicloud/issues" in text
+
+
+def test_doctor_missing_optional_mail_does_not_fail() -> None:
+    """The experimental Mail endpoint may be absent on a healthy account."""
+    advertised = _advertised_webservices()
+    del advertised["mccgateway"]
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    finding = next(
+        item for item in payload["webservices"] if item["key"] == "mccgateway"
+    )
+    assert finding["status"] == "missing"
+    assert finding["is_problem"] is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user@example.test",
+        "https://example.test/?q=1",
+        "https://example.test/#fragment",
+    ],
+)
+def test_doctor_rejects_unusable_mail_urls_without_probing(url: str) -> None:
+    """Ordinary diagnostics must reject roots the Mail service cannot use."""
+    advertised = _advertised_webservices()
+    advertised["mccgateway"] = {"url": url}
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    finding = next(
+        item for item in payload["webservices"] if item["key"] == "mccgateway"
+    )
+    assert finding["status"] == "malformed"
+    assert finding["is_problem"] is True
+    assert finding["url"] is None
+
+
+def test_doctor_names_the_services_a_withdrawn_key_takes_down() -> None:
+    """A missing key fails the run and reports the blast radius, not the key."""
+
+    advertised = _advertised_webservices()
+    del advertised["ckdatabasews"]
+
+    result = _invoke(_doctor_api(advertised), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 1
+    assert "MISSING" in text
+    assert "ckdatabasews" in text
+    for service in ("photos", "reminders", "notes", "invites"):
+        assert service in text
+    assert "pyicloud needs updating" in text
+
+
+def test_doctor_reports_a_malformed_unused_entry_without_failing() -> None:
+    """The `schoolwork: {}` shape a live account returns is shown, not fatal."""
+
+    advertised = _advertised_webservices()
+    advertised["schoolwork"] = {}
+
+    result = _invoke(_doctor_api(advertised), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    # Flagged where the key is read, and explained below it.
+    assert "schoolwork (no url)" in text
+    assert "Advertised without a usable url, so it cannot be resolved" in text
+    assert "No problems found" in text
+
+
+def test_doctor_emits_no_findings_when_the_session_reports_unauthenticated() -> None:
+    """The findings and the verdict must not contradict each other.
+
+    get_api() can return while a later status read says the session is not
+    authenticated, and reporting a service map as OK under a verdict that says
+    the map could not be checked is worse than reporting nothing.
+    """
+
+    fake_api = _doctor_api()
+    # Authenticated for the two reads get_api() makes, then not for the one
+    # the report itself takes.
+    authed = {
+        "authenticated": True,
+        "trusted_session": True,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    fake_api.get_auth_status = MagicMock(
+        side_effect=[authed, authed, {**authed, "authenticated": False}]
+    )
+
+    result = _invoke(fake_api, "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["session"]["authenticated"] is False
+    assert payload["webservices"] == []
+    assert payload["ok"] is False
+
+
+def test_doctor_json_output_is_machine_readable() -> None:
+    """JSON mode carries the verdict, the environment and every finding."""
+
+    advertised = _advertised_webservices()
+    del advertised["sharedstreams"]
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    assert payload["services_at_risk"] == ["photos"]
+    assert set(payload["environment"]) == {"pyicloud", "python", "platform"}
+    assert payload["session"]["authenticated"] is True
+    findings = {item["key"]: item for item in payload["webservices"]}
+    assert findings["sharedstreams"]["status"] == "missing"
+    assert findings["sharedstreams"]["is_problem"] is True
+    assert findings["account"]["status"] == "ok"
+
+
+def test_doctor_without_a_session_still_reports_what_it_can() -> None:
+    """Not being logged in is a diagnosis, so the command must not just abort."""
+
+    fake_api = _doctor_api()
+    fake_api.get_auth_status = MagicMock(
+        return_value={
+            "authenticated": False,
+            "trusted_session": False,
+            "requires_2fa": False,
+            "requires_2sa": False,
+        }
+    )
+
+    result = _invoke(fake_api, "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Environment" in text
+    assert "Authenticated" in text
+    assert "icloud auth login" in text
+    assert "report is incomplete" in text
+
+
+def test_invites_list_shows_both_scopes() -> None:
+    """Listing covers events you host and events shared with you."""
+
+    result = _invoke(FakeAPI(), "invites", "list")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "private" in text
+    assert "shared" in text
+    assert "Standup" in text
+    assert "Sam Appleseed" in text
+
+
+def test_invites_start_times_are_rendered_compactly() -> None:
+    """A full ISO timestamp wraps a row onto three lines and hides the id.
+
+    The id column is only worth showing if enough of it survives to pass to
+    the next command, so the start time is rendered to the minute. Checked on
+    the formatter rather than the table, because a wrapped cell's fragments
+    land in different columns and cannot be reassembled from the output.
+    """
+
+    fmt = invites_module._format_when
+
+    assert (
+        fmt({"starts_at": datetime(2026, 5, 1, 9, 0, tzinfo=timezone.utc)})
+        == "2026-05-01 09:00 UTC"
+    )
+    assert (
+        fmt({
+            "starts_at": datetime(2026, 6, 2, tzinfo=timezone.utc),
+            "is_all_day": True,
+        })
+        == "2026-06-02 (all day)"
+    )
+    assert fmt({"starts_at": None}) == ""
+
+    moment = invites_module._format_moment
+    assert moment({"ends_at": None}, "ends_at") == ""
+    assert moment({"ends_at": "TBD"}, "ends_at") == "TBD"
+
+
+def test_invites_list_shows_the_compact_time_and_the_id() -> None:
+    """The rendered row carries both, which is the point of the formatting."""
+
+    text = _unwrapped(_invoke(FakeAPI(), "invites", "list"))
+
+    assert "2026-05-01 09:00" in text
+    assert "09:00:00+00:00" not in text
+    assert "AAAA1111" in text
+
+
+def test_invites_show_accepts_a_short_id_prefix() -> None:
+    """Listing truncates ids, so a few characters have to be enough to act on.
+
+    This is the whole reason prefix matching exists: the id column is cut to
+    fit the terminal, so requiring all 36 characters would make it decorative.
+    """
+
+    result = _invoke(FakeAPI(), "invites", "show", "AAAA2")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Birthday" in text
+    assert "Sam Appleseed" in text
+    assert "The Park" in text
+
+
+def test_invites_show_matches_an_id_case_insensitively() -> None:
+    """Ids render upper-case but nobody types them that way."""
+
+    upper = _invoke(FakeAPI(), "invites", "show", "AAAA2222")
+    lower = _invoke(FakeAPI(), "invites", "show", "aaaa2222")
+
+    assert upper.exit_code == 0
+    assert lower.exit_code == 0
+    assert _unwrapped(upper) == _unwrapped(lower)
+
+
+def test_invites_show_accepts_a_full_id() -> None:
+    """A complete id is still an unambiguous prefix of itself."""
+
+    result = _invoke(
+        FakeAPI(), "invites", "show", "AAAA2222-0000-0000-0000-000000000002"
+    )
+
+    assert result.exit_code == 0
+    assert "Birthday" in _unwrapped(result)
+
+
+def test_invites_show_rejects_an_ambiguous_prefix() -> None:
+    """A prefix matching two events names both rather than guessing."""
+
+    # Both ids start "AAAA"; only the fifth character tells them apart.
+    result = _invoke(FakeAPI(), "invites", "show", "AAAA")
+
+    assert result.exit_code != 0
+    message = str(result.exception)
+    assert "matches more than one event" in message
+    assert "000000000001" in message
+    assert "000000000002" in message
+
+
+def test_invites_show_rejects_an_unknown_prefix() -> None:
+    """An id that matches nothing points at the command that lists them."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "ZZZZ")
+
+    assert result.exit_code != 0
+    assert "icloud invites list" in str(result.exception)
+
+
+def test_invites_rsvps_lists_responses() -> None:
+    """Responses render with status and guest counts."""
+
+    result = _invoke(
+        FakeAPI(), "invites", "rsvps", "AAAA2222-0000-0000-0000-000000000002"
+    )
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Dana Appleseed" in text
+    assert "GOING" in text
+    assert "See you there" in text
+
+
+def test_invites_resolve_previews_a_link() -> None:
+    """Resolving shows who is inviting you without joining."""
+
+    result = _invoke(FakeAPI(), "invites", "resolve", "008FIXTURE")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Sam Appleseed" in text
+    assert "INVITED" in text
+
+
+def test_invites_json_output() -> None:
+    """JSON mode carries the fields the tables show."""
+
+    result = _invoke(FakeAPI(), "invites", "list", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert {event["scope"] for event in payload} == {"private", "shared"}
+    shared = next(e for e in payload if e["scope"] == "shared")
+    assert shared["title"] == "Birthday"
+    assert shared["is_all_day"] is True
+    assert shared["location"] == "The Park"
+
+
+def test_invites_reports_an_unavailable_service_without_a_traceback() -> None:
+    """The service is built by a property, so the call has to be deferred.
+
+    `api.invites` can raise PyiCloudServiceUnavailable while constructing the
+    service. Passing `api.invites.events` to service_call instead of a lambda
+    would evaluate the property outside the guard and let that escape as a
+    traceback, which is why the lambda there is not redundant.
+    """
+
+    result = _invoke(UnavailableInvitesAPI(), "invites", "list")
+
+    assert result.exit_code != 0
+    assert "Invites service unavailable" in str(result.exception)
+
+
+def test_invites_resolve_accepts_a_whole_invite_link() -> None:
+    """People copy the link, not the trailing segment out of it."""
+
+    from_link = _invoke(
+        FakeAPI(),
+        "invites",
+        "resolve",
+        "https://www.icloud.com/invites/008FIXTURE",
+    )
+    from_guid = _invoke(FakeAPI(), "invites", "resolve", "008FIXTURE")
+
+    assert from_link.exit_code == 0
+    assert from_guid.exit_code == 0
+    assert _unwrapped(from_link) == _unwrapped(from_guid)
+
+
+def test_invites_resolve_rejects_an_empty_id_without_calling_apple() -> None:
+    """An empty id should cost a message, not a round trip and a 400."""
+
+    result = _invoke(FakeAPI(), "invites", "resolve", "   ")
+
+    assert result.exit_code != 0
+    assert "No invite id given" in str(result.exception)
+
+
+def test_invites_resolve_rejects_a_link_without_an_id() -> None:
+    """A truncated link must not forward its last path segment to Apple."""
+
+    result = _invoke(FakeAPI(), "invites", "resolve", "https://www.icloud.com/invites/")
+
+    assert result.exit_code != 0
+    assert "No invite id given" in str(result.exception)
+
+
+def test_invites_resolve_accepts_a_link_with_a_query_string() -> None:
+    """Share links often carry tracking parameters after the id."""
+
+    result = _invoke(
+        FakeAPI(),
+        "invites",
+        "resolve",
+        "https://www.icloud.com/invites/008FIXTURE?campaign=share",
+    )
+
+    assert result.exit_code == 0
+    assert "Sam Appleseed" in _unwrapped(result)
+
+
+def test_invites_show_strips_surrounding_whitespace() -> None:
+    """A copied id can arrive padded without being a different id."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "  AAAA2  ")
+
+    assert result.exit_code == 0
+    assert "Birthday" in _unwrapped(result)
+
+
+def test_invites_show_rejects_an_empty_id() -> None:
+    """Whitespace is not a prefix of every event."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "   ")
+
+    assert result.exit_code != 0
+    assert "No event id given" in str(result.exception)
+
+
+def test_invites_short_guid_accepts_a_path_like_id() -> None:
+    """A bare id with a trailing path segment keeps only the segment."""
+
+    assert invites_module._short_guid_from("prefix/008FIXTURE") == "008FIXTURE"
+
+
+def test_invites_show_json_output() -> None:
+    """JSON mode carries the detail fields the table shows."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "AAAA2222", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["title"] == "Birthday"
+    assert payload["scope"] == "shared"
+    assert payload["share_short_guid"] == "008FIXTURE"
+    assert payload["share_url"] == "https://www.icloud.com/invites/008FIXTURE"
+    assert payload["participant_count"] == 0
+
+
+def test_invites_rsvps_json_output() -> None:
+    """JSON mode carries the RSVP fields the table shows."""
+
+    result = _invoke(FakeAPI(), "invites", "rsvps", "AAAA1111", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload == [
+        {
+            "participant_id": "P1",
+            "name": "Dana Appleseed",
+            "status": "GOING",
+            "message": "See you there",
+            "additional_adults": 1,
+            "additional_kids": 0,
+        }
+    ]
+
+
+def test_invites_resolve_json_output() -> None:
+    """JSON mode carries the resolved share fields the table shows."""
+
+    result = _invoke(
+        FakeAPI(), "invites", "resolve", "008FIXTURE", output_format="json"
+    )
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["short_guid"] == "008FIXTURE"
+    assert payload["owner_given_name"] == "Sam"
+    assert payload["participant_status"] == "INVITED"
+    assert payload["participant_permission"] == "READ_WRITE"
+
+
+def test_invites_reports_a_listing_error_as_advice() -> None:
+    """An InvitesError is prefixed rather than escaping as a traceback."""
+
+    result = _invoke(InvitesErrorAPI(), "invites", "list")
+
+    assert result.exit_code != 0
+    assert "Invites: boom" in str(result.exception)
+
+
+def test_invites_show_reports_a_missing_event() -> None:
+    """An id that lists but cannot be fetched gets advice, not a trace.
+
+    The message names the resolved id, not the prefix the user typed, so it is
+    clear which event the listing promised but the lookup could not return.
+    """
+
+    result = _invoke(VanishingEventAPI(), "invites", "show", "AAAA2")
+
+    assert result.exit_code != 0
+    assert "No event with id AAAA2222-0000-0000-0000-000000000002" in str(
+        result.exception
+    )
+
+
+def _probing_api(
+    webservices: dict[str, Any] | None = None,
+) -> tuple[FakeAPI, dict[str, MagicMock]]:
+    """Return an authenticated fake plus the service mocks its probes will hit.
+
+    The mocks are handed back rather than read off the fake afterwards: the
+    doctor attaches services `FakeAPI` does not declare, and assertions that
+    reach through the fake for them are neither type- nor lint-checkable.
+    """
+
+    fake_api = _doctor_api(webservices)
+    services = {name: MagicMock() for name in PROBED_SERVICES}
+    services["calendar"].get_calendars.return_value = []
+    services["notes"].sync_cursor.return_value = "cursor"
+    services["reminders"].sync_cursor.return_value = "cursor"
+    services["invites"].events.return_value = []
+    services["hidemyemail"].__len__ = MagicMock(return_value=0)
+    for name, mock in services.items():
+        setattr(fake_api, name, mock)
+    return fake_api, services
+
+
+def test_doctor_does_not_call_any_service_without_the_flag() -> None:
+    """The default run must stay a pure read of already-fetched state."""
+
+    fake_api, services = _probing_api()
+
+    result = _invoke(fake_api, "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    services["devices"].refresh.assert_not_called()
+    services["calendar"].get_calendars.assert_not_called()
+    assert "Service probes" not in text
+    # The verdict must not overstate what a map-only run proves.
+    assert "Nothing was called; add --probe" in text
+
+
+def test_doctor_does_not_probe_a_session_that_reports_unauthenticated() -> None:
+    """--probe must be gated on the session, like the map findings already are.
+
+    `api` can be non-null while the status read afterwards says otherwise.
+    Calling all eleven services with that session yields a page of failures
+    that say nothing about the library, under a verdict stating nothing could
+    be checked.
+    """
+
+    fake_api, services = _probing_api()
+    authed = {
+        "authenticated": True,
+        "trusted_session": True,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    fake_api.get_auth_status = MagicMock(
+        side_effect=[authed, authed, {**authed, "authenticated": False}]
+    )
+
+    result = _invoke(fake_api, "doctor", "--probe", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["probes"] == []
+    services["calendar"].get_calendars.assert_not_called()
+    services["devices"].refresh.assert_not_called()
+
+
+def test_doctor_probe_calls_each_service_and_reports_it() -> None:
+    """--probe adds the section and actually exercises the services."""
+
+    fake_api, services = _probing_api()
+
+    result = _invoke(fake_api, "doctor", "--probe")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Service probes" in text
+    assert "each one answered" in text
+    services["calendar"].get_calendars.assert_called_once()
+    # Find My must be read without pinging the user's hardware.
+    services["devices"].__len__.assert_called_once()
+    services["devices"].refresh.assert_not_called()
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_doctor_probe_skips_mail_without_usable_endpoint(malformed: bool) -> None:
+    """Missing Mail is harmless; malformed Mail still fails the map check."""
+    advertised = _advertised_webservices()
+    if malformed:
+        advertised["mccgateway"] = {}
+    else:
+        del advertised["mccgateway"]
+    fake_api, services = _probing_api(advertised)
+    services["mail"].folders.side_effect = AssertionError("Mail must not be probed")
+
+    result = _invoke(fake_api, "doctor", "--probe", output_format="json")
+    payload = json.loads(result.stdout)
+    probes = {item["service"]: item for item in payload["probes"]}
+
+    services["mail"].folders.assert_not_called()
+    services["calendar"].get_calendars.assert_called_once()
+    assert result.exit_code == int(malformed)
+    assert payload["ok"] is not malformed
+    assert probes["mail"]["status"] == "skipped"
+    assert probes["mail"]["is_failure"] is False
+    assert probes["calendar"]["status"] == "ok"
+
+
+def test_doctor_probe_fails_on_a_withdrawn_endpoint() -> None:
+    """A 410 behind a healthy host is exactly what probing exists to catch."""
+
+    fake_api, services = _probing_api()
+    type(services["photos"]).libraries = PropertyMock(
+        side_effect=PyiCloudAPIResponseException("Gone", 410)
+    )
+
+    result = _invoke(fake_api, "doctor", "--probe")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 1
+    assert "GONE" in text
+    assert "affecting: photos" in text
+    assert "pyicloud needs updating" in text
+
+
+def test_doctor_probe_reports_account_state_without_failing() -> None:
+    """A migrated service is the user's account, not a pyicloud defect."""
+
+    fake_api, services = _probing_api()
+    type(services["files"]).root = PropertyMock(
+        side_effect=PyiCloudServiceUnavailable("Account migrated")
+    )
+
+    result = _invoke(fake_api, "doctor", "--probe")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "unavailable" in text
+    assert "Account migrated" in text
+    assert "each one answered" in text
+
+
+def test_doctor_probe_json_includes_every_result() -> None:
+    """JSON mode carries the probe outcomes alongside the map findings."""
+
+    fake_api, _services = _probing_api()
+    result = _invoke(fake_api, "doctor", "--probe", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    probes = {item["service"]: item for item in payload["probes"]}
+    assert probes["calendar"]["status"] == "ok"
+    assert probes["calendar"]["is_failure"] is False
+    assert set(probes) == set(PROBED_SERVICES)

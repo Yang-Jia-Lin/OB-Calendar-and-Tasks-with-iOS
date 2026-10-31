@@ -1,0 +1,1810 @@
+"""Tests for the Invites service."""
+
+# pylint: disable=protected-access
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
+import json
+from typing import Any
+import unittest
+from unittest.mock import MagicMock
+
+from pydantic import ValidationError
+import pytest
+
+from pyicloud.common.cloudkit import (
+    CKLookupResponse,
+    CKModifyResponse,
+    CKQueryResponse,
+    CKZoneChangesZone,
+    CKZoneIDReq,
+    CKZoneListResponse,
+)
+from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.services.invites import (
+    AcceptanceStatus,
+    Event,
+    EventScope,
+    EventShare,
+    EventTime,
+    InvitesService,
+    OneTimeLinkGuest,
+    ParticipantType,
+    Rsvp,
+    RsvpStatus,
+)
+from pyicloud.services.invites.client import (
+    CloudKitInvitesClient,
+    InvitesApiError,
+    InvitesAuthError,
+    InvitesEntitlementError,
+    InvitesError,
+    InvitesRateLimited,
+)
+from pyicloud.services.invites.codecs import (
+    decode_integrations,
+    decode_json_bytes,
+    encode_json_bytes,
+)
+from pyicloud.services.invites.entitlement import (
+    CREATE_EVENT_FEATURE,
+    GATEWAY_BASE_URL,
+    FeatureAccess,
+    parse_feature_access,
+)
+from pyicloud.services.invites.service import EventNotFound
+from tests.fixture_loader import load_fixture
+
+
+def load_invites_fixture(name: str) -> Any:
+    """Load a synthetic Invites CloudKit fixture."""
+    return load_fixture("invites", name)
+
+
+# ---------------------------------------------------------------------------
+# Codecs
+# ---------------------------------------------------------------------------
+
+
+class CodecsTest(unittest.TestCase):
+    """Tests for invite codecs."""
+
+    def test_decode_json_bytes_round_trip(self) -> None:
+        """Decoding encoded JSON bytes reproduces the original data."""
+        original = {"startSince1970": 1768435200000, "isAllDay": False}
+        enc = encode_json_bytes(original)
+        self.assertEqual(decode_json_bytes(enc), original)
+
+    def test_decode_json_bytes_none_input(self) -> None:
+        """decoding None input returns None."""
+        self.assertIsNone(decode_json_bytes(None))
+
+    def test_decode_json_bytes_invalid_base64(self) -> None:
+        """decoding invalid base64 returns None."""
+        self.assertIsNone(decode_json_bytes("not base64!!"))
+
+    def test_decode_json_bytes_invalid_json(self) -> None:
+        """decoding valid base64 of non-JSON returns None."""
+        # Valid base64, but the decoded payload is not JSON.
+        bogus = "bm90LWpzb24="  # base64 of "not-json"
+        self.assertIsNone(decode_json_bytes(bogus))
+
+    def test_decode_json_bytes_accepts_bytes(self) -> None:
+        """decoding raw bytes returns the decoded JSON."""
+        self.assertEqual(decode_json_bytes(b'{"k": 1}'), {"k": 1})
+
+    def test_decode_json_bytes_accepts_base64_bytes(self) -> None:
+        """decoding base64-encoded bytes matches the str path."""
+        # Bytes carrying the base64-encoded wire form decode the same as
+        # the str path. Catches callers passing the wire form as bytes.
+        encoded = encode_json_bytes({"k": 1}).encode("ascii")
+        self.assertEqual(decode_json_bytes(encoded), {"k": 1})
+
+    def test_decode_integrations_extracts_types(self) -> None:
+        """decode_integrations extracts the widget type values."""
+        blob = {
+            "version": "1",
+            "data": [
+                {"type": "com.apple.widget.weather"},
+                {"type": "com.apple.widget.photos"},
+                {"not_type": "ignored"},
+            ],
+        }
+        self.assertEqual(
+            decode_integrations(blob),
+            ("com.apple.widget.weather", "com.apple.widget.photos"),
+        )
+
+    def test_decode_integrations_handles_missing(self) -> None:
+        """decode_integrations returns empty when data is missing or malformed."""
+        self.assertEqual(decode_integrations(None), ())
+        self.assertEqual(decode_integrations({}), ())
+        self.assertEqual(decode_integrations({"data": "not-a-list"}), ())
+
+
+# ---------------------------------------------------------------------------
+# DTOs
+# ---------------------------------------------------------------------------
+
+
+class DtoTest(unittest.TestCase):
+    """Tests for invites data transfer objects."""
+
+    def test_rsvp_status_enum(self) -> None:
+        """RsvpStatus enum maps to the expected wire integer values."""
+        self.assertEqual(int(RsvpStatus.NO_RESPONSE), 0)
+        self.assertEqual(int(RsvpStatus.NOT_GOING), 1)
+        self.assertEqual(int(RsvpStatus.MAYBE), 2)
+        self.assertEqual(int(RsvpStatus.GOING), 3)
+
+    def test_event_share_url(self) -> None:
+        """EventShare builds the shared invite URL from its short guid."""
+        share = EventShare(short_guid="008ABC", public_permission="NONE")
+        self.assertEqual(share.url, "https://www.icloud.com/invites/008ABC")
+
+    def test_event_is_frozen(self) -> None:
+        """Event rejects attribute mutation."""
+        event = Event(
+            event_id="x",
+            scope=EventScope.PRIVATE,
+            time=EventTime(start=datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        )
+        with self.assertRaises(ValidationError):
+            event.title = "mutated"
+
+    def test_invites_dtos_serialize(self) -> None:
+        """Invites DTOs serialize to dictionaries."""
+        share = EventShare(short_guid="008XYZ", public_permission="READ_WRITE")
+        data = share.model_dump()
+        self.assertEqual(data["short_guid"], "008XYZ")
+
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+
+
+class InvitesServiceTest(unittest.TestCase):
+    """Tests for Invites service."""
+
+    def setUp(self) -> None:
+        self.service = InvitesService(
+            service_root="https://example.com",
+            session=MagicMock(),
+            params={},
+        )
+
+    @pytest.fixture(autouse=True)
+    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Expose pytest's monkeypatch fixture to unittest-style tests."""
+        self._monkeypatch = monkeypatch
+
+    def _events_query_response(self) -> CKQueryResponse:
+        return CKQueryResponse.model_validate(
+            load_invites_fixture("events_query_response.json")
+        )
+
+    def _event_lookup_response(self) -> CKLookupResponse:
+        return CKLookupResponse.model_validate(
+            load_invites_fixture("event_lookup_response.json")
+        )
+
+    def _rsvp_zone_page_from_fixture(self) -> CKZoneChangesZone:
+        """The RSVP fixture as a zone-changes page, the shape RSVPs arrive in."""
+        return self._rsvp_zone_page(
+            load_invites_fixture("rsvp_query_response.json")["records"]
+        )
+
+    @staticmethod
+    def _shared_zone_list() -> CKZoneListResponse:
+        """One zone shared with this account, as /zones/list returns it."""
+        return CKZoneListResponse.model_validate({
+            "zones": [
+                {
+                    "zoneID": {
+                        "zoneName": "SHARED-ZONE-FIXTURE",
+                        "ownerRecordName": "_shared-owner",
+                        "zoneType": "REGULAR_CUSTOM_ZONE",
+                    }
+                }
+            ]
+        })
+
+    @staticmethod
+    def _shared_zone_page(
+        records: list[Any] | None = None, *, more_coming: bool = False
+    ) -> CKZoneChangesZone:
+        """One page of a shared zone's changes."""
+        if records is None:
+            records = load_invites_fixture("events_query_response.json")["records"]
+        return CKZoneChangesZone.model_validate({
+            "zoneID": {
+                "zoneName": "SHARED-ZONE-FIXTURE",
+                "ownerRecordName": "_shared-owner",
+            },
+            "records": records,
+            "moreComing": more_coming,
+            "syncToken": "FIXTURE-SYNC-TOKEN",
+        })
+
+    @classmethod
+    def _shared_zone_changes(cls) -> list[CKZoneChangesZone]:
+        """A single-page shared zone, as iter_changes yields it."""
+        return [cls._shared_zone_page()]
+
+    def test_events_returns_dtos_from_private_query(self) -> None:
+        """events() returns DTOs populated from the private-scope query."""
+        # `events()` queries both private and shared. We return the events from
+        # the private side and an empty record set for shared.
+        empty = CKQueryResponse(records=[])
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(side_effect=[self._events_query_response(), empty]),
+        )
+
+        events = self.service.events()
+
+        self.assertEqual(len(events), 2)
+        first = events[0]
+        self.assertEqual(first.event_id, "EVENT-FIXTURE-AAAA")
+        self.assertEqual(first.scope, EventScope.PRIVATE)
+        self.assertEqual(first.title, "Event Fixture A")
+        self.assertTrue(first.is_published)
+        self.assertFalse(first.is_private)
+        self.assertFalse(first.is_cancelled)
+        self.assertEqual(first.max_attendees, 100)
+
+        # Decoded structured fields
+        self.assertIsNotNone(first.time)
+        assert first.time is not None  # narrow for type checker
+        self.assertEqual(
+            first.time.start,
+            datetime.fromtimestamp(1768435200, tz=timezone.utc),
+        )
+        self.assertEqual(
+            first.time.end,
+            datetime.fromtimestamp(1768446000, tz=timezone.utc),
+        )
+        self.assertFalse(first.time.is_all_day)
+        self.assertFalse(first.time.is_open_ended)
+
+        self.assertIsNotNone(first.place)
+        assert first.place is not None  # narrow for type checker
+        self.assertEqual(first.place.city, "Fixture City")
+        self.assertEqual(first.place.time_zone_identifier, "Europe/Paris")
+        self.assertEqual(first.place.latitude, 48.8566)
+
+        self.assertEqual(
+            first.integrations,
+            ("com.apple.widget.weather", "com.apple.widget.location"),
+        )
+        # No share / rsvps in the lightweight list view
+        self.assertIsNone(first.share)
+        self.assertEqual(first.rsvps, ())
+
+        # Second event has the minimal "tz-only place" form
+        second = events[1]
+        self.assertEqual(second.event_id, "EVENT-FIXTURE-BBBB")
+        self.assertFalse(second.is_published)
+        self.assertIsNotNone(second.place)
+        assert second.place is not None  # narrow for type checker
+        self.assertIsNone(second.place.latitude)
+        self.assertEqual(second.place.city, "Fixture City")
+        self.assertIsNotNone(second.time)
+        assert second.time is not None
+        self.assertTrue(second.time.is_open_ended)
+
+    def test_events_merges_private_and_shared_with_dedup(self) -> None:
+        """events() merges private and shared results and deduplicates them.
+
+        The two scopes are read by different mechanisms: private is one
+        zone-wide query, while shared has to be enumerated zone by zone.
+        """
+        query_mock = MagicMock(return_value=self._events_query_response())
+        changes_mock = MagicMock(return_value=iter(self._shared_zone_changes()))
+        self._monkeypatch.setattr(self.service.raw, "query", query_mock)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(return_value=self._shared_zone_list()),
+        )
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes_mock)
+
+        events = self.service.events()
+
+        # Two distinct events per scope (private + shared) → 4 total, all unique.
+        self.assertEqual(len(events), 4)
+        keys = {(e.scope, e.event_id) for e in events}
+        self.assertEqual(len(keys), 4)
+
+    def test_shared_events_are_never_read_with_a_zone_wide_query(self) -> None:
+        """CloudKit rejects zone-wide queries against the shared database.
+
+        The previous implementation issued one anyway, which made events()
+        raise on every account. The old test could not catch that because it
+        mocked the query as succeeding, which the real API never does.
+        """
+        query_mock = MagicMock(return_value=self._events_query_response())
+        self._monkeypatch.setattr(self.service.raw, "query", query_mock)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(return_value=self._shared_zone_list()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter(self._shared_zone_changes())),
+        )
+
+        self.service.events()
+
+        scopes_queried = [call.args[0] for call in query_mock.call_args_list]
+        self.assertEqual(scopes_queried, ["private"])
+        self.assertTrue(
+            all(call.kwargs.get("zone_wide") for call in query_mock.call_args_list)
+        )
+
+    def test_a_shared_zone_is_read_to_its_last_page(self) -> None:
+        """A zone with more behind it must not lose the later pages.
+
+        `changes()` returns one page. Taking only that page dropped events with
+        no sign anything was missing, and a live account with a single small
+        share could never surface it -- `moreComing` is simply false there.
+        """
+        first_records = load_invites_fixture("events_query_response.json")["records"]
+        second = dict(first_records[0])
+        second["recordName"] = "EventDetails:PAGE-TWO-EVENT"
+        pages = [
+            self._shared_zone_page(first_records, more_coming=True),
+            self._shared_zone_page([second]),
+        ]
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=CKQueryResponse.model_validate({"records": []})),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(return_value=self._shared_zone_list()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "iter_changes", MagicMock(return_value=iter(pages))
+        )
+
+        events = self.service.events()
+
+        # Two from the first page, one from the second.
+        self.assertEqual(len(events), 3)
+        self.assertIn("PAGE-TWO-EVENT", {event.event_id for event in events})
+
+    def test_one_unreadable_shared_zone_does_not_hide_the_others(self) -> None:
+        """A share we cannot read must not take down the whole listing."""
+        two_zones = CKZoneListResponse.model_validate({
+            "zones": [
+                {"zoneID": {"zoneName": "BROKEN-ZONE", "ownerRecordName": "_o"}},
+                {
+                    "zoneID": {
+                        "zoneName": "SHARED-ZONE-FIXTURE",
+                        "ownerRecordName": "_shared-owner",
+                    }
+                },
+            ]
+        })
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=CKQueryResponse.model_validate({"records": []})),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "zones_list", MagicMock(return_value=two_zones)
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(
+                side_effect=[
+                    InvitesApiError("boom"),
+                    iter(self._shared_zone_changes()),
+                ]
+            ),
+        )
+
+        events = self.service.events()
+
+        self.assertEqual(len(events), 2)
+        self.assertTrue(all(e.scope is EventScope.SHARED for e in events))
+
+    def test_a_shared_zone_is_addressed_with_its_owner(self) -> None:
+        """A shared zone is only addressable with its original owner.
+
+        Without ownerRecordName the lookup finds nothing, so event() raised
+        EventNotFound for a shared event that events() had just returned.
+        """
+        zones_mock = MagicMock(return_value=self._shared_zone_list())
+        self._monkeypatch.setattr(self.service.raw, "zones_list", zones_mock)
+
+        zone_id = self.service._zone_id_req("SHARED-ZONE-FIXTURE", EventScope.SHARED)
+
+        self.assertEqual(zone_id.zoneName, "SHARED-ZONE-FIXTURE")
+        self.assertEqual(zone_id.ownerRecordName, "_shared-owner")
+
+    def test_a_private_zone_needs_no_owner_and_no_extra_request(self) -> None:
+        """The private scope must not pay for a zone listing it does not need."""
+        zones_mock = MagicMock(return_value=self._shared_zone_list())
+        self._monkeypatch.setattr(self.service.raw, "zones_list", zones_mock)
+
+        zone_id = self.service._zone_id_req("EVENT-AAAA", EventScope.PRIVATE)
+
+        self.assertEqual(zone_id.zoneName, "EVENT-AAAA")
+        self.assertIsNone(zone_id.ownerRecordName)
+        zones_mock.assert_not_called()
+
+    def test_an_unknown_shared_zone_falls_back_to_no_owner(self) -> None:
+        """A zone we cannot resolve must not raise out of zone construction."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(side_effect=InvitesApiError("nope")),
+        )
+
+        zone_id = self.service._zone_id_req("MISSING-ZONE", EventScope.SHARED)
+
+        self.assertEqual(zone_id.zoneName, "MISSING-ZONE")
+        self.assertIsNone(zone_id.ownerRecordName)
+
+    def test_the_public_endpoint_translates_a_transport_error(self) -> None:
+        """resolve() and accept() go through a different path to the rest.
+
+        `_post_public` inspects `resp.status_code` itself, but PyiCloudSession
+        raises on a non-ok JSON response before it ever returns, so those
+        checks are dead for a 4xx and the raw exception reached callers. The
+        five scoped wrappers were fixed for this; this sixth site uses a
+        different shape and was missed.
+        """
+        session = MagicMock()
+        session.post.side_effect = PyiCloudAPIResponseException("Bad Request", 400)
+        self._monkeypatch.setattr(self.service.raw, "_session", session)
+
+        with self.assertRaises(InvitesApiError):
+            self.service.raw.resolve(["008FIXTURE"])
+        with self.assertRaises(InvitesApiError):
+            self.service.raw.accept(["008FIXTURE"])
+
+    def test_the_public_endpoint_maps_auth_and_rate_limits(self) -> None:
+        """The same mapping as everywhere else, not a generic error."""
+        for code, expected in (
+            (401, InvitesAuthError),
+            (429, InvitesRateLimited),
+        ):
+            session = MagicMock()
+            session.post.side_effect = PyiCloudAPIResponseException("nope", code)
+            self._monkeypatch.setattr(self.service.raw, "_session", session)
+            with self.subTest(code=code), self.assertRaises(expected):
+                self.service.raw.resolve(["008FIXTURE"])
+
+    def test_a_rate_limit_keeps_the_retry_after_apple_sent(self) -> None:
+        """Apple says how long to wait; dropping it makes callers guess.
+
+        The header survives on the exception's response, so the mapping has to
+        read it rather than raise a bare InvitesRateLimited.
+        """
+        response = MagicMock()
+        response.headers = {"Retry-After": "42"}
+        session = MagicMock()
+        session.post.side_effect = PyiCloudAPIResponseException(
+            "slow down", 429, response
+        )
+        self._monkeypatch.setattr(self.service.raw, "_session", session)
+
+        with self.assertRaises(InvitesRateLimited) as caught:
+            self.service.raw.resolve(["008FIXTURE"])
+
+        self.assertEqual(caught.exception.retry_after, 42.0)
+
+    def test_a_rate_limit_without_a_retry_after_is_still_mapped(self) -> None:
+        """A missing or unreadable header must not break the mapping."""
+        for headers in ({}, {"Retry-After": "soon"}):
+            session = MagicMock()
+            response = MagicMock()
+            response.headers = headers
+            session.post.side_effect = PyiCloudAPIResponseException(
+                "slow down", 429, response
+            )
+            self._monkeypatch.setattr(self.service.raw, "_session", session)
+            with self.subTest(headers=headers):
+                with self.assertRaises(InvitesRateLimited) as caught:
+                    self.service.raw.resolve(["008FIXTURE"])
+                self.assertIsNone(caught.exception.retry_after)
+
+    def test_a_rate_limit_accepts_an_http_date_retry_after(self) -> None:
+        """RFC 9110 also allows a date; it must not be silently discarded.
+
+        A caller told exactly when to retry should wait that long rather than
+        fall back to a guess because ``float()`` rejected the date form.
+        """
+        retry_at = datetime.now(timezone.utc) + timedelta(seconds=90)
+        response = MagicMock()
+        response.headers = {"Retry-After": format_datetime(retry_at)}
+        session = MagicMock()
+        session.post.side_effect = PyiCloudAPIResponseException(
+            "slow down", 429, response
+        )
+        self._monkeypatch.setattr(self.service.raw, "_session", session)
+
+        with self.assertRaises(InvitesRateLimited) as caught:
+            self.service.raw.resolve(["008FIXTURE"])
+
+        assert caught.exception.retry_after is not None  # narrow for type checker
+        self.assertGreater(caught.exception.retry_after, 0)
+        self.assertLessEqual(caught.exception.retry_after, 90)
+
+    def test_a_past_retry_after_date_clamps_to_zero(self) -> None:
+        """A date with no zone, or one already past, must not go negative."""
+        response = MagicMock()
+        response.headers = {"Retry-After": "Thu, 01 Jan 1970 00:00:00"}
+        session = MagicMock()
+        session.post.side_effect = PyiCloudAPIResponseException(
+            "slow down", 429, response
+        )
+        self._monkeypatch.setattr(self.service.raw, "_session", session)
+
+        with self.assertRaises(InvitesRateLimited) as caught:
+            self.service.raw.resolve(["008FIXTURE"])
+
+        self.assertEqual(caught.exception.retry_after, 0.0)
+
+    def test_a_negative_or_non_finite_retry_after_is_rejected(self) -> None:
+        """A malformed numeric delay must not surface as a usable wait."""
+        for header in ("-1", "NaN", "Infinity", "-Infinity"):
+            response = MagicMock()
+            response.headers = {"Retry-After": header}
+            session = MagicMock()
+            session.post.side_effect = PyiCloudAPIResponseException(
+                "slow down", 429, response
+            )
+            self._monkeypatch.setattr(self.service.raw, "_session", session)
+            with self.subTest(header=header):
+                with self.assertRaises(InvitesRateLimited) as caught:
+                    self.service.raw.resolve(["008FIXTURE"])
+                self.assertIsNone(caught.exception.retry_after)
+
+    def test_an_rsvp_image_is_downloaded_from_its_url(self) -> None:
+        """The bytes come back through the service, not via `raw`.
+
+        `Rsvp.image_download_url` was populated and the client could fetch it,
+        but nothing connected the two, so callers had to reach past the service
+        to get a guest's photo.
+        """
+        rsvp = Rsvp(
+            record_name="RSVP/1",
+            participant_id="P1",
+            status=RsvpStatus.GOING,
+            image_download_url="https://cvws.icloud-content.com/asset",
+        )
+        download = MagicMock(return_value=b"\xff\xd8\xff\xe0jpeg")
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        data = self.service.rsvp_image(rsvp)
+
+        self.assertEqual(data, b"\xff\xd8\xff\xe0jpeg")
+        download.assert_called_once_with("https://cvws.icloud-content.com/asset")
+
+    def test_a_non_https_rsvp_image_url_is_refused(self) -> None:
+        """The download uses the authenticated session.
+
+        A non-HTTPS target would put iCloud credentials on the wire in the
+        clear, so the scheme is checked before the request the same way
+        PhotosUploader guards the upload URL Apple echoes back to it.
+        """
+        download = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        for url in ("http://cvws.icloud-content.com/a", "ftp://example.com/a"):
+            rsvp = Rsvp(
+                record_name="RSVP/x",
+                participant_id="PX",
+                status=RsvpStatus.GOING,
+                image_download_url=url,
+            )
+            with self.subTest(url=url), self.assertRaises(InvitesApiError):
+                self.service.rsvp_image(rsvp)
+        download.assert_not_called()
+
+    def test_an_rsvp_image_url_without_a_host_is_refused(self) -> None:
+        """A URL with no host is rejected before the session reaches it.
+
+        ``urlparse("https:example.com/a")`` has the HTTPS scheme but no netloc,
+        ``urlparse("https://@/a")`` has an authority but no hostname, and an
+        unmatched bracket makes ``urlparse`` raise ``ValueError``; all three
+        must surface as ``InvitesApiError``.
+        """
+        download = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        for url in (
+            "https:cvws.icloud-content.com/a",
+            "https:///a",
+            "https://@/a",
+            "https://[bad/a",
+        ):
+            rsvp = Rsvp(
+                record_name="RSVP/y",
+                participant_id="PY",
+                status=RsvpStatus.GOING,
+                image_download_url=url,
+            )
+            with self.subTest(url=url), self.assertRaises(InvitesApiError):
+                self.service.rsvp_image(rsvp)
+        download.assert_not_called()
+
+    def test_an_rsvp_without_an_image_downloads_nothing(self) -> None:
+        """Most responses carry only a monogram, so this is the common case."""
+        rsvp = Rsvp(record_name="RSVP/2", participant_id="P2", status=RsvpStatus.MAYBE)
+        download = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        self.assertIsNone(self.service.rsvp_image(rsvp))
+        download.assert_not_called()
+
+    def test_a_failed_rsvp_image_download_raises_an_invites_error(self) -> None:
+        """Callers catching InvitesError should not have to catch anything else."""
+        rsvp = Rsvp(
+            record_name="RSVP/3",
+            participant_id="P3",
+            status=RsvpStatus.GOING,
+            image_download_url="https://cvws.icloud-content.com/gone",
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "download_asset_bytes",
+            MagicMock(side_effect=InvitesApiError("gone")),
+        )
+
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp_image(rsvp)
+
+    def test_a_status_code_maps_the_same_as_a_string_or_an_int(self) -> None:
+        """`PyiCloudAPIResponseException.code` is typed `int | str | None`.
+
+        A string "401" compared against the int statuses would fall through to
+        a generic error, so an expired session would look like a server fault.
+        """
+        cases: list[tuple[object, type[Exception]]] = [
+            (401, InvitesAuthError),
+            ("401", InvitesAuthError),
+            (403, InvitesAuthError),
+            (429, InvitesRateLimited),
+            ("429", InvitesRateLimited),
+            (500, InvitesApiError),
+            ("not-a-number", InvitesApiError),
+            (None, InvitesApiError),
+        ]
+        for code, expected in cases:
+            error = PyiCloudAPIResponseException("boom", code)  # type: ignore[arg-type]
+            with self.subTest(code=code), self.assertRaises(expected):
+                CloudKitInvitesClient._raise_invites_error(error)
+
+    def test_a_transport_error_reaches_callers_as_an_invites_error(self) -> None:
+        """The session raises before CloudKitHttp can map the status code.
+
+        PyiCloudSession raises PyiCloudAPIResponseException on a non-ok JSON
+        response, so CloudKitHttp.post() never sees the 4xx it is written to
+        translate. Without mapping it at the invites boundary, the service's
+        own `except InvitesError` guards silently do not fire -- which is how a
+        400 from the shared database escaped events() entirely.
+        """
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=self._events_query_response()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw._private,
+            "zones_list",
+            MagicMock(side_effect=PyiCloudAPIResponseException("Bad Request", 400)),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw._shared,
+            "zones_list",
+            MagicMock(side_effect=PyiCloudAPIResponseException("Bad Request", 400)),
+        )
+
+        with self.assertRaises(InvitesApiError):
+            self.service.raw.zones_list("shared")
+
+        # And the service degrades rather than propagating it.
+        events = self.service.events()
+        self.assertEqual(len(events), 2)
+
+    def test_a_failing_zone_list_yields_no_shared_events(self) -> None:
+        """The shared scope degrades to empty rather than raising."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=self._events_query_response()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(side_effect=InvitesApiError("nope")),
+        )
+
+        events = self.service.events()
+
+        self.assertEqual(len(events), 2)
+        self.assertTrue(all(e.scope is EventScope.PRIVATE for e in events))
+
+    def test_event_full_lookup_includes_share_and_rsvps(self) -> None:
+        """A full event lookup returns share and RSVP details.
+
+        RSVPs and one-time links both come from the zone's changes feed, like
+        `rsvps()`.
+        """
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(return_value=self._event_lookup_response()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([self._rsvp_zone_page_from_fixture()])),
+        )
+
+        event = self.service.event("EVENT-FIXTURE-AAAA")
+
+        self.assertEqual(event.event_id, "EVENT-FIXTURE-AAAA")
+        self.assertEqual(event.scope, EventScope.PRIVATE)
+        self.assertIsNotNone(event.share)
+        assert event.share is not None  # narrow for type checker
+        self.assertEqual(event.share.short_guid, "008TESTFIXTUREAAAA")
+        self.assertEqual(
+            event.share.url,
+            "https://www.icloud.com/invites/008TESTFIXTUREAAAA",
+        )
+        self.assertEqual(event.share.public_permission, "READ_WRITE")
+        self.assertEqual(len(event.share.participants), 2)
+
+        owner = event.share.participants[0]
+        self.assertEqual(owner.type, ParticipantType.OWNER)
+        self.assertEqual(owner.acceptance_status, AcceptanceStatus.ACCEPTED)
+        self.assertEqual(owner.email, "owner@example.com")
+        self.assertEqual(owner.given_name, "Owner")
+
+        guest = event.share.participants[1]
+        self.assertEqual(guest.type, ParticipantType.PUBLIC_USER)
+        self.assertEqual(guest.email, "guest@example.com")
+
+        self.assertEqual(len(event.rsvps), 1)
+        rsvp = event.rsvps[0]
+        self.assertEqual(rsvp.status, RsvpStatus.GOING)
+        self.assertEqual(rsvp.name, "Fixture Guest")
+        self.assertEqual(rsvp.message, "Looking forward to it!")
+        self.assertEqual(rsvp.num_additional_adults, 1)
+        self.assertEqual(rsvp.num_additional_kids, 0)
+        self.assertEqual(rsvp.participant_id, "PARTICIPANT-FIXTURE-GUEST")
+
+    def test_event_full_keeps_records_read_before_a_mid_feed_failure(self) -> None:
+        """A changes feed that fails after a page does not drop that page."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(return_value=self._event_lookup_response()),
+        )
+
+        def pages(*_args: Any, **_kwargs: Any) -> Iterator[CKZoneChangesZone]:
+            yield self._rsvp_zone_page()
+            raise InvitesApiError("boom")
+
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", pages)
+
+        event = self.service.event("EVENT-FIXTURE-AAAA")
+
+        self.assertEqual(len(event.rsvps), 1)
+        self.assertEqual(event.rsvps[0].name, "Dana")
+
+    def test_event_full_drops_records_a_tombstone_deletes(self) -> None:
+        """A tombstone removes the RSVP and one-time link it deletes."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(return_value=self._event_lookup_response()),
+        )
+        live = self._rsvp_zone_page([
+            {
+                "recordName": "P1.rsvp",
+                "recordType": "RSVP",
+                "fields": {"name": {"type": "STRING", "value": "Dana"}},
+            },
+            {
+                "recordName": "PARTICIPANT-OTL_otl",
+                "recordType": "OneTimeLinkGuestInfo",
+                "fields": {},
+            },
+        ])
+        deleted = CKZoneChangesZone.model_validate({
+            "zoneID": {"zoneName": "EVENT-FIXTURE-AAAA"},
+            "records": [
+                {"recordName": "P1.rsvp", "deleted": True},
+                {"recordName": "PARTICIPANT-OTL_otl", "deleted": True},
+            ],
+            "syncToken": "TOKEN",
+        })
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([live, deleted])),
+        )
+
+        event = self.service.event("EVENT-FIXTURE-AAAA")
+
+        self.assertEqual(event.rsvps, ())
+        self.assertIsNotNone(event.share)
+        assert event.share is not None
+        self.assertEqual(event.share.one_time_links, ())
+
+    def test_event_falls_through_to_shared_on_private_miss(self) -> None:
+        """event() falls back to the shared scope on a private miss."""
+        # Private lookup returns no matching records; shared lookup succeeds.
+        empty_lookup = CKLookupResponse(records=[])
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(side_effect=[empty_lookup, self._event_lookup_response()]),
+        )
+        # The shared-path full hydration reads RSVPs and one-time links from the
+        # changes feed.
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([self._rsvp_zone_page_from_fixture()])),
+        )
+
+        event = self.service.event("EVENT-FIXTURE-AAAA")
+        self.assertEqual(event.scope, EventScope.SHARED)
+        self.assertEqual(len(event.rsvps), 1)
+
+    def test_event_missing_raises(self) -> None:
+        """event() raises EventNotFound when no matching record exists."""
+        empty_lookup = CKLookupResponse(records=[])
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(return_value=empty_lookup),
+        )
+        with self.assertRaises(EventNotFound):
+            self.service.event("NO-SUCH-EVENT")
+
+    def test_rsvps_returns_dtos(self) -> None:
+        """rsvps() converts the zone's RSVP records into DTOs.
+
+        The fixture is the query response this method used to make; its records
+        are the same shape a zone-changes page returns, so it still describes
+        what Apple sends back.
+        """
+        page = self._rsvp_zone_page_from_fixture()
+        changes = MagicMock(return_value=iter([page]))
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes)
+        owner_event = Event(
+            event_id="EVENT-FIXTURE-AAAA",
+            scope=EventScope.PRIVATE,
+            time=EventTime(start=datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        )
+
+        rsvps = self.service.rsvps(owner_event)
+
+        self.assertEqual(len(rsvps), 1)
+        rsvp = rsvps[0]
+        self.assertIsInstance(rsvp, Rsvp)
+        self.assertEqual(rsvp.status, RsvpStatus.GOING)
+        self.assertEqual(rsvp.participant_id, "PARTICIPANT-FIXTURE-GUEST")
+        self.assertEqual(rsvp.num_additional_adults, 1)
+        # The event's scope still picks the sub-client.
+        self.assertEqual(changes.call_args.args[0], "private")
+
+    def _rsvp_zone_page(
+        self,
+        records: list[Any] | None = None,
+        *,
+        extra_types: bool = False,
+        more_coming: bool = False,
+    ) -> CKZoneChangesZone:
+        """One page of a zone's changes, holding an RSVP record."""
+        if records is None:
+            records = [
+                {
+                    "recordName": "P1.rsvp",
+                    "recordType": "RSVP",
+                    "fields": {"name": {"type": "STRING", "value": "Dana"}},
+                }
+            ]
+        if extra_types:
+            # A real zone returns the event and the share alongside the RSVPs,
+            # and not necessarily RSVP-first.
+            records = [
+                {"recordName": "EventDetails:E", "recordType": "EventDetails"},
+                *records,
+                {"recordName": "cloudkit.zoneshare", "recordType": "cloudkit.share"},
+            ]
+        return CKZoneChangesZone.model_validate({
+            "zoneID": {"zoneName": "EVENT-FIXTURE-AAAA"},
+            "records": records,
+            "moreComing": more_coming,
+            "syncToken": "TOKEN",
+        })
+
+    def test_rsvps_are_read_through_zone_changes_not_a_query(self) -> None:
+        """An event's own zone rejects `records/query`.
+
+        The previous implementation queried the zone, which worked only for
+        events shared with you and returned 400 for every event you host.
+        """
+        query = MagicMock()
+        changes = MagicMock(return_value=iter([self._rsvp_zone_page()]))
+        self._monkeypatch.setattr(self.service.raw, "query", query)
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes)
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual(len(rsvps), 1)
+        query.assert_not_called()
+        zone_req = changes.call_args.kwargs["zone_req"]
+        self.assertEqual(zone_req.zoneID.zoneName, "EVENT-FIXTURE-AAAA")
+        self.assertEqual(zone_req.desiredRecordTypes, ["RSVP"])
+
+    def test_rsvps_ignores_the_other_records_a_zone_returns(self) -> None:
+        """A zone holds its event and share too; only RSVPs are wanted.
+
+        `desiredRecordTypes` is a request rather than a guarantee, so the
+        filter has to stand on its own.
+        """
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([self._rsvp_zone_page(extra_types=True)])),
+        )
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual(len(rsvps), 1)
+        self.assertEqual(rsvps[0].name, "Dana")
+
+    def test_rsvps_reads_every_page(self) -> None:
+        """A zone with more behind it must not lose the later responses.
+
+        The shared scope is addressed by its owner, so the changes request must
+        carry the owner `zones_list` reports for the event.
+        """
+        pages = [
+            self._rsvp_zone_page(more_coming=True),
+            self._rsvp_zone_page([
+                {
+                    "recordName": "P2.rsvp",
+                    "recordType": "RSVP",
+                    "fields": {"name": {"type": "STRING", "value": "Erin"}},
+                }
+            ]),
+        ]
+        changes = MagicMock(return_value=iter(pages))
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(
+                return_value=CKZoneListResponse.model_validate({
+                    "zones": [
+                        {
+                            "zoneID": {
+                                "zoneName": "EVENT-FIXTURE-AAAA",
+                                "ownerRecordName": "_shared-owner",
+                                "zoneType": "REGULAR_CUSTOM_ZONE",
+                            }
+                        }
+                    ]
+                })
+            ),
+        )
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.SHARED)
+
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual({rsvp.name for rsvp in rsvps}, {"Dana", "Erin"})
+        zone_req = changes.call_args.kwargs["zone_req"]
+        self.assertEqual(zone_req.zoneID.ownerRecordName, "_shared-owner")
+
+    def test_rsvps_keeps_only_the_latest_change_per_record(self) -> None:
+        """A record repeated in the feed yields one RSVP, its latest state."""
+        first = self._rsvp_zone_page()
+        updated = self._rsvp_zone_page(
+            [
+                {
+                    "recordName": "P1.rsvp",
+                    "recordType": "RSVP",
+                    "fields": {"name": {"type": "STRING", "value": "Dana Updated"}},
+                }
+            ],
+            more_coming=True,
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([first, updated])),
+        )
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual(len(rsvps), 1)
+        self.assertEqual(rsvps[0].name, "Dana Updated")
+
+    def test_rsvps_ignores_tombstones(self) -> None:
+        """A tombstone drops the record it deletes, even one seen before it."""
+        live = self._rsvp_zone_page()
+        deleted = CKZoneChangesZone.model_validate({
+            "zoneID": {"zoneName": "EVENT-FIXTURE-AAAA"},
+            "records": [
+                {"recordName": "P1.rsvp", "deleted": True},
+                {"recordName": "GHOST.rsvp", "deleted": True},
+            ],
+            "syncToken": "TOKEN",
+        })
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([live, deleted])),
+        )
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+
+        self.assertEqual(self.service.rsvps(event), [])
+
+    def test_resolve_returns_resolved_share(self) -> None:
+        """resolve() returns the resolved share details."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "resolve",
+            MagicMock(return_value=load_invites_fixture("resolve_response.json")),
+        )
+
+        resolved = self.service.resolve("008TESTFIXTUREAAAA")
+
+        self.assertEqual(resolved.short_guid, "008TESTFIXTUREAAAA")
+        self.assertEqual(resolved.event_id, "EVENT-FIXTURE-AAAA")
+        self.assertEqual(resolved.owner_email, "owner@example.com")
+        self.assertEqual(resolved.owner_given_name, "Owner")
+        self.assertEqual(resolved.participant_type, "OWNER")
+        self.assertEqual(resolved.participant_status, "ACCEPTED")
+        self.assertEqual(
+            resolved.share.url,
+            "https://www.icloud.com/invites/008TESTFIXTUREAAAA",
+        )
+
+    def test_accept_returns_full_event(self) -> None:
+        """accept() returns the full event hydrated from the shared scope."""
+        # accept() POSTs to public, then fetches the full event from SHARED.
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "accept",
+            MagicMock(return_value=load_invites_fixture("accept_response.json")),
+        )
+        lookup_mock = MagicMock(return_value=self._event_lookup_response())
+        self._monkeypatch.setattr(self.service.raw, "lookup", lookup_mock)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([self._rsvp_zone_page_from_fixture()])),
+        )
+
+        event = self.service.accept("008TESTFIXTUREAAAA")
+
+        self.assertEqual(event.event_id, "EVENT-FIXTURE-AAAA")
+        self.assertEqual(event.scope, EventScope.SHARED)
+        self.assertEqual(len(event.rsvps), 1)
+        self.assertIsNotNone(event.share)
+        assert event.share is not None  # narrow for type checker
+        self.assertEqual(event.share.short_guid, "008TESTFIXTUREAAAA")
+        # lookup was called against the shared sub-client first.
+        first_lookup_scope = lookup_mock.call_args_list[0].args[0]
+        self.assertEqual(first_lookup_scope, "shared")
+
+
+# ---------------------------------------------------------------------------
+# OneTimeLink DTO construction (the empty fixture case is exercised above;
+# this directly tests the dataclass shape).
+# ---------------------------------------------------------------------------
+
+
+class OneTimeLinkGuestTest(unittest.TestCase):
+    """Tests for OneTimeLink guest models."""
+
+    def test_default_collections_are_empty_tuples(self) -> None:
+        """OneTimeLinkGuest default collections are empty tuples."""
+        otl = OneTimeLinkGuest(
+            record_name="PARTICIPANT-X_otl",
+            participant_id="PARTICIPANT-X",
+        )
+        self.assertEqual(otl.emails, ())
+        self.assertEqual(otl.phone_numbers, ())
+        self.assertEqual(otl.name, "")
+
+
+# ---------------------------------------------------------------------------
+# Service writes (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+def _make_event_with_share(
+    *,
+    scope: EventScope = EventScope.SHARED,
+    rsvps: tuple[Rsvp, ...] = (),
+    current_user_participant_id: str = "PARTICIPANT-FIXTURE-GUEST",
+) -> Event:
+    """Build a minimal Event with a share pre-populated for write tests."""
+    share = EventShare(
+        short_guid="008TESTFIXTUREAAAA",
+        public_permission="READ_WRITE",
+        current_user_participant_id=current_user_participant_id,
+    )
+    return Event(
+        event_id="EVENT-FIXTURE-AAAA",
+        scope=scope,
+        time=EventTime(start=datetime(2026, 1, 15, tzinfo=timezone.utc)),
+        share=share,
+        rsvps=rsvps,
+    )
+
+
+def _existing_going_rsvp() -> Rsvp:
+    return Rsvp(
+        record_name="PARTICIPANT-FIXTURE-GUEST_rsvp",
+        participant_id="PARTICIPANT-FIXTURE-GUEST",
+        name="Fixture Guest",
+        status=RsvpStatus.GOING,
+        message="Looking forward to it!",
+        num_additional_adults=1,
+        num_additional_kids=0,
+        record_change_tag="rsvpFixture1",
+    )
+
+
+class RsvpWriteTest(unittest.TestCase):
+    """Tests for RSVP write operations."""
+
+    def setUp(self) -> None:
+        self.service = InvitesService(
+            service_root="https://example.com",
+            session=MagicMock(),
+            params={},
+        )
+        self.modify_response = CKModifyResponse.model_validate(
+            load_invites_fixture("rsvp_modify_response.json")
+        )
+
+    @pytest.fixture(autouse=True)
+    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Expose pytest's monkeypatch fixture to unittest-style tests."""
+        self._monkeypatch = monkeypatch
+
+    def test_rsvp_update_uses_existing_change_tag_and_update_op(self) -> None:
+        """Updating an existing RSVP reuses its change tag and update op."""
+        existing = _existing_going_rsvp()
+        event = _make_event_with_share(rsvps=(existing,))
+        modify_mock = MagicMock(return_value=self.modify_response)
+        self._monkeypatch.setattr(self.service.raw, "modify", modify_mock)
+
+        result = self.service.rsvp(
+            event,
+            RsvpStatus.MAYBE,
+            message="Tentative",
+        )
+
+        self.assertIsInstance(result, Rsvp)
+        self.assertEqual(result.status, RsvpStatus.MAYBE)
+        self.assertEqual(result.record_change_tag, "rsvpFixture2")
+
+        call = modify_mock.call_args
+        self.assertEqual(call.args[0], "shared")
+        ops = call.kwargs["operations"]
+        self.assertEqual(len(ops), 1)
+        op = ops[0]
+        self.assertEqual(op.operationType, "update")
+        record = op.record
+        self.assertEqual(record.recordName, "PARTICIPANT-FIXTURE-GUEST_rsvp")
+        self.assertEqual(record.recordType, "RSVP")
+        self.assertEqual(record.recordChangeTag, "rsvpFixture1")
+        # Status field wrapped as encrypted INT64.
+        status_field = record.fields.get("status")
+        self.assertIsNotNone(status_field)
+        assert status_field is not None
+        self.assertEqual(status_field.value, 2)
+
+    def test_rsvp_first_response_creates_record(self) -> None:
+        """A first RSVP response creates a record with no change tag."""
+        # No existing RSVP in event.rsvps → create op, no recordChangeTag.
+        event = _make_event_with_share(rsvps=())
+        modify_mock = MagicMock(return_value=self.modify_response)
+        self._monkeypatch.setattr(self.service.raw, "modify", modify_mock)
+
+        self.service.rsvp(event, RsvpStatus.GOING, name="Fixture Guest")
+
+        op = modify_mock.call_args.kwargs["operations"][0]
+        self.assertEqual(op.operationType, "create")
+        self.assertIsNone(op.record.recordChangeTag)
+
+    def test_rsvp_not_going_zeros_plus_ones(self) -> None:
+        """A NOT_GOING RSVP zeroes any plus-one counts."""
+        existing = _existing_going_rsvp()
+        event = _make_event_with_share(rsvps=(existing,))
+        modify_mock = MagicMock(return_value=self.modify_response)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "modify",
+            modify_mock,
+        )
+
+        self.service.rsvp(
+            event,
+            RsvpStatus.NOT_GOING,
+            plus_one_adults=2,  # caller-supplied counts must be ignored
+            plus_one_kids=1,
+        )
+
+        record = modify_mock.call_args.kwargs["operations"][0].record
+        adults = record.fields.get("numAdditionalAdults")
+        kids = record.fields.get("numAdditionalKids")
+        guests = record.fields.get("numAdditionalGuests")
+        assert adults is not None
+        assert kids is not None
+        assert guests is not None
+        self.assertEqual(adults.value, 0)
+        self.assertEqual(kids.value, 0)
+        self.assertEqual(guests.value, 0)
+
+    def test_rsvp_plus_one_counts_sum_to_total(self) -> None:
+        """Plus-one adult and kid counts sum to the recorded guest total."""
+        event = _make_event_with_share()
+        modify_mock = MagicMock(return_value=self.modify_response)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "modify",
+            modify_mock,
+        )
+
+        self.service.rsvp(
+            event,
+            RsvpStatus.GOING,
+            plus_one_adults=2,
+            plus_one_kids=3,
+        )
+
+        record = modify_mock.call_args.kwargs["operations"][0].record
+        guests = record.fields.get("numAdditionalGuests")
+        assert guests is not None
+        self.assertEqual(guests.value, 5)
+
+    def test_rsvp_owner_dispatches_to_private_scope(self) -> None:
+        """Owner RSVPs are dispatched to the private sub-client."""
+        owner_event = _make_event_with_share(
+            scope=EventScope.PRIVATE,
+            current_user_participant_id="PARTICIPANT-FIXTURE-OWNER",
+        )
+        # Tailor the response so the modify helper can locate the owner's record.
+        owner_response = self.modify_response.model_copy(deep=True)
+        owner_response.records[0].recordName = "PARTICIPANT-FIXTURE-OWNER_rsvp"
+        modify_mock = MagicMock(return_value=owner_response)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "modify",
+            modify_mock,
+        )
+
+        self.service.rsvp(owner_event, RsvpStatus.GOING)
+
+        self.assertEqual(
+            modify_mock.call_args.args[0],
+            "private",
+        )
+
+    def test_rsvp_omits_name_and_message_when_not_provided(self) -> None:
+        """RSVP omits name and message fields when not provided."""
+        event = _make_event_with_share()
+        modify_mock = MagicMock(return_value=self.modify_response)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "modify",
+            modify_mock,
+        )
+
+        self.service.rsvp(event, RsvpStatus.MAYBE)
+
+        record = modify_mock.call_args.kwargs["operations"][0].record
+        self.assertNotIn("name", record.fields)
+        self.assertNotIn("message", record.fields)
+
+    def test_rsvp_includes_name_and_message_when_provided(self) -> None:
+        """RSVP includes name and message fields when provided."""
+        event = _make_event_with_share()
+        modify_mock = MagicMock(return_value=self.modify_response)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "modify",
+            modify_mock,
+        )
+
+        self.service.rsvp(
+            event,
+            RsvpStatus.GOING,
+            name="Fixture Guest",
+            message="See you there",
+        )
+
+        record = modify_mock.call_args.kwargs["operations"][0].record
+        name_field = record.fields.get("name")
+        message_field = record.fields.get("message")
+        assert name_field is not None
+        assert message_field is not None
+        self.assertEqual(name_field.value, "Fixture Guest")
+        self.assertEqual(message_field.value, "See you there")
+
+    def test_rsvp_raises_when_share_not_loaded(self) -> None:
+        """rsvp() raises when the event has no share loaded."""
+        event = Event(
+            event_id="EVENT-FIXTURE-AAAA",
+            scope=EventScope.SHARED,
+            time=EventTime(start=datetime(2026, 1, 15, tzinfo=timezone.utc)),
+            share=None,
+        )
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING)
+
+    def test_rsvp_raises_when_share_has_no_current_participant(self) -> None:
+        """rsvp() raises when the share has no current participant."""
+        event = _make_event_with_share(current_user_participant_id="")
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING)
+
+    def test_rsvp_rejects_negative_plus_one_counts(self) -> None:
+        """rsvp() rejects negative plus-one counts before any wire call."""
+        event = _make_event_with_share()
+        # Sentinel modify mock that should never be reached.
+        modify_mock = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "modify", modify_mock)
+
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING, plus_one_adults=-1)
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING, plus_one_kids=-1)
+
+        # Validation must run before any wire call.
+        modify_mock.assert_not_called()
+
+
+def _cancellable_event(scope: EventScope = EventScope.PRIVATE) -> Event:
+    """Build an Event carrying the change tag a write needs."""
+    return Event(
+        event_id="EVENT-FIXTURE-AAAA",
+        scope=scope,
+        time=EventTime(start=datetime(2026, 1, 15, tzinfo=timezone.utc)),
+        record_change_tag="fixtureA1",
+    )
+
+
+class CancelTest(unittest.TestCase):
+    """Tests for cancelling and reinstating an event."""
+
+    def setUp(self) -> None:
+        self.service = InvitesService(
+            service_root="https://example.com",
+            session=MagicMock(),
+            params={},
+        )
+        self.modify_response = CKModifyResponse.model_validate(
+            load_invites_fixture("event_cancel_modify_response.json")
+        )
+        self.service._feature_access = FeatureAccess(
+            feature_key=CREATE_EVENT_FEATURE,
+            can_use=True,
+            access_token="token-fixture",
+            cache_till=datetime(2099, 1, 1, tzinfo=timezone.utc),
+        )
+
+    @pytest.fixture(autouse=True)
+    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Expose pytest's monkeypatch fixture to unittest-style tests."""
+        self._monkeypatch = monkeypatch
+
+    def _patch_wire(self, share_tag: str | None = "shareFixtureA1") -> MagicMock:
+        """Stub the modify call and the share change-tag lookup."""
+        modify_mock = MagicMock(return_value=self.modify_response)
+        self._monkeypatch.setattr(self.service.raw, "modify", modify_mock)
+        self._monkeypatch.setattr(
+            self.service, "_share_change_tag", lambda *_args, **_kwargs: share_tag
+        )
+        return modify_mock
+
+    def test_cancel_sets_the_flag_on_event_and_share(self) -> None:
+        """cancel() writes isCancelled to the event and its share at once."""
+        modify_mock = self._patch_wire()
+
+        result = self.service.cancel(_cancellable_event())
+
+        self.assertTrue(result.is_cancelled)
+        self.assertEqual(result.record_change_tag, "fixtureA2")
+
+        call = modify_mock.call_args
+        self.assertEqual(call.args[0], "private")
+        self.assertIs(call.kwargs["atomic"], True)
+        ops = call.kwargs["operations"]
+        self.assertEqual(
+            [(op.record.recordName, op.record.recordType) for op in ops],
+            [
+                ("EventDetails:EVENT-FIXTURE-AAAA", "EventDetails"),
+                ("cloudkit.zoneshare", "cloudkit.share"),
+            ],
+        )
+        for op in ops:
+            self.assertEqual(op.operationType, "update")
+            field = op.record.fields.get("isCancelled")
+            self.assertIsNotNone(field)
+            assert field is not None
+            self.assertEqual(field.value, 1)
+        self.assertEqual(ops[0].record.recordChangeTag, "fixtureA1")
+        self.assertEqual(ops[1].record.recordChangeTag, "shareFixtureA1")
+
+    def test_cancel_false_reinstates_the_event(self) -> None:
+        """cancel(cancelled=False) writes a zero rather than skipping."""
+        modify_mock = self._patch_wire()
+
+        self.service.cancel(_cancellable_event(), cancelled=False)
+
+        for op in modify_mock.call_args.kwargs["operations"]:
+            field = op.record.fields.get("isCancelled")
+            assert field is not None
+            self.assertEqual(field.value, 0)
+
+    def test_cancel_sends_the_entitlement_token_as_a_hint(self) -> None:
+        """The event write carries the token Apple demands, and only there."""
+        modify_mock = self._patch_wire()
+
+        self.service.cancel(_cancellable_event())
+
+        ops = modify_mock.call_args.kwargs["operations"]
+        hint = ops[0].record.fields.get("hint")
+        self.assertIsNotNone(hint)
+        assert hint is not None
+        self.assertEqual(
+            json.loads(str(hint.value)),
+            {"subscriptionAccessToken": "token-fixture"},
+        )
+        # The share record is not gated on the token and must not carry it.
+        self.assertNotIn("hint", ops[1].record.fields)
+
+    def test_cancel_writes_the_event_when_the_share_is_unreadable(self) -> None:
+        """An unreadable share still lets the event itself be cancelled."""
+        modify_mock = self._patch_wire(share_tag=None)
+
+        self.service.cancel(_cancellable_event())
+
+        ops = modify_mock.call_args.kwargs["operations"]
+        self.assertEqual(len(ops), 1)
+        self.assertEqual(ops[0].record.recordType, "EventDetails")
+
+    def test_cancel_uses_the_shared_scope_for_a_shared_event(self) -> None:
+        """A shared event is written through the shared database."""
+        modify_mock = self._patch_wire()
+        self._monkeypatch.setattr(
+            self.service, "_shared_zone_owner", lambda _: "_FAKE_OWNER"
+        )
+
+        self.service.cancel(_cancellable_event(scope=EventScope.SHARED))
+
+        self.assertEqual(modify_mock.call_args.args[0], "shared")
+
+    def test_cancel_rejects_an_event_without_a_change_tag(self) -> None:
+        """An event carrying no change tag is refused before any wire call."""
+        modify_mock = self._patch_wire()
+        event = _cancellable_event()
+        event = event.model_copy(update={"record_change_tag": None})
+
+        with self.assertRaises(InvitesApiError):
+            self.service.cancel(event)
+
+        modify_mock.assert_not_called()
+
+    def test_cancel_raises_when_the_event_is_missing_from_the_response(self) -> None:
+        """A response without the event record is an error, not a silent pass."""
+        self._patch_wire()
+        empty = CKModifyResponse.model_validate({"records": []})
+        self._monkeypatch.setattr(
+            self.service.raw, "modify", MagicMock(return_value=empty)
+        )
+
+        event = _cancellable_event()
+
+        with self.assertRaises(InvitesApiError):
+            self.service.cancel(event)
+
+    def test_share_change_tag_reads_the_tag_off_the_share_record(self) -> None:
+        """The share's own change tag comes back from the zone lookup."""
+        lookup = CKLookupResponse.model_validate(
+            load_invites_fixture("event_lookup_response.json")
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "lookup", MagicMock(return_value=lookup)
+        )
+
+        tag = self.service._share_change_tag(
+            "private", CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+        )
+
+        self.assertEqual(tag, "shareA1")
+
+    def test_share_change_tag_is_none_when_the_lookup_fails(self) -> None:
+        """A failed share lookup degrades to None instead of propagating."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(side_effect=InvitesApiError("nope")),
+        )
+
+        tag = self.service._share_change_tag(
+            "private", CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+        )
+
+        self.assertIsNone(tag)
+
+    def test_share_change_tag_is_none_when_the_share_is_absent(self) -> None:
+        """A lookup that omits the share record yields no tag."""
+        lookup = CKLookupResponse.model_validate({"records": []})
+        self._monkeypatch.setattr(
+            self.service.raw, "lookup", MagicMock(return_value=lookup)
+        )
+
+        tag = self.service._share_change_tag(
+            "private", CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+        )
+
+        self.assertIsNone(tag)
+
+    def test_share_change_tag_is_none_on_a_per_record_error(self) -> None:
+        """A per-record lookup error degrades to None rather than raising.
+
+        CloudKit answers lookup failures in-band with HTTP 200; cancellation
+        keeps its event-only fallback instead of losing the write entirely.
+        """
+        lookup = CKLookupResponse.model_validate({
+            "records": [
+                {
+                    "recordName": "cloudkit.zoneshare",
+                    "serverErrorCode": "PERMISSION_DENIED",
+                    "reason": "Not allowed",
+                }
+            ]
+        })
+        self._monkeypatch.setattr(
+            self.service.raw, "lookup", MagicMock(return_value=lookup)
+        )
+
+        tag = self.service._share_change_tag(
+            "private", CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+        )
+
+        self.assertIsNone(tag)
+
+    def test_share_change_tag_propagates_auth_failures(self) -> None:
+        """An auth failure reading the share is not hidden by the fallback."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(side_effect=InvitesAuthError("expired")),
+        )
+        zone_id = CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+
+        with self.assertRaises(InvitesAuthError):
+            self.service._share_change_tag("private", zone_id)
+
+    def test_event_from_modify_response_skips_non_event_records(self) -> None:
+        """Records ahead of the event are skipped rather than matched."""
+        reordered = self.modify_response.model_copy(
+            update={"records": list(reversed(self.modify_response.records))}
+        )
+
+        event = self.service._event_from_modify_response(
+            reordered,
+            "EventDetails:EVENT-FIXTURE-AAAA",
+            EventScope.PRIVATE,
+        )
+
+        self.assertEqual(event.event_id, "EVENT-FIXTURE-AAAA")
+
+
+class FeatureAccessRequestTest(unittest.TestCase):
+    """Tests for the raw entitlement-gateway call."""
+
+    def _client(self, session: MagicMock) -> CloudKitInvitesClient:
+        return CloudKitInvitesClient(
+            "https://example.com/database/1/container/env",
+            session,
+            {"dsid": "12345"},
+        )
+
+    def test_feature_access_asks_the_gateway_for_one_feature(self) -> None:
+        """The account's own gateway URL is called with the feature header."""
+        session = MagicMock()
+        session.get.return_value.json.return_value = [
+            {
+                "featureKey": CREATE_EVENT_FEATURE,
+                "canUse": True,
+                "accessToken": "token-fixture",
+                "cacheTill": "2100-01-01T00:00:00Z",
+            }
+        ]
+
+        access = self._client(session).feature_access(CREATE_EVENT_FEATURE)
+
+        self.assertEqual(access.access_token, "token-fixture")
+        url = session.get.call_args.args[0]
+        self.assertEqual(
+            url,
+            f"{GATEWAY_BASE_URL}/accounts/12345/subscriptions/features",
+        )
+        self.assertEqual(
+            session.get.call_args.kwargs["headers"],
+            {"x-apple-softwarecapabilityflags": CREATE_EVENT_FEATURE},
+        )
+
+    def test_feature_access_wraps_a_non_json_reply(self) -> None:
+        """An HTML error page from the gateway surfaces as an Invites error."""
+        session = MagicMock()
+        session.get.return_value.json.side_effect = ValueError("not json")
+
+        client = self._client(session)
+
+        with self.assertRaises(InvitesApiError):
+            client.feature_access(CREATE_EVENT_FEATURE)
+
+    def test_feature_access_translates_transport_errors(self) -> None:
+        """A transport failure is reported as an Invites error, not a raw one."""
+        session = MagicMock()
+        session.get.side_effect = PyiCloudAPIResponseException("boom", code="500")
+
+        client = self._client(session)
+
+        with self.assertRaises(InvitesError):
+            client.feature_access(CREATE_EVENT_FEATURE)
+
+
+class EntitlementTokenTest(unittest.TestCase):
+    """Tests for fetching and caching the event-editing entitlement."""
+
+    def setUp(self) -> None:
+        self.service = InvitesService(
+            service_root="https://example.com",
+            session=MagicMock(),
+            params={},
+        )
+
+    @pytest.fixture(autouse=True)
+    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Expose pytest's monkeypatch fixture to unittest-style tests."""
+        self._monkeypatch = monkeypatch
+
+    def _stub_gateway(self, access: FeatureAccess) -> MagicMock:
+        fetch = MagicMock(return_value=access)
+        self._monkeypatch.setattr(self.service.raw, "feature_access", fetch)
+        return fetch
+
+    def test_token_is_fetched_once_while_it_stays_valid(self) -> None:
+        """A live grant is reused instead of fetched again on every write."""
+        fetch = self._stub_gateway(
+            FeatureAccess(
+                feature_key=CREATE_EVENT_FEATURE,
+                can_use=True,
+                access_token="token-fixture",
+                cache_till=datetime(2099, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+
+        self.assertEqual(self.service._entitlement_token(), "token-fixture")
+        self.assertEqual(self.service._entitlement_token(), "token-fixture")
+
+        fetch.assert_called_once_with(CREATE_EVENT_FEATURE)
+
+    def test_expired_token_is_fetched_again(self) -> None:
+        """A grant past its cacheTill is replaced rather than reused."""
+        fetch = self._stub_gateway(
+            FeatureAccess(
+                feature_key=CREATE_EVENT_FEATURE,
+                can_use=True,
+                access_token="token-fixture",
+                cache_till=datetime(2000, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+
+        self.service._entitlement_token()
+        self.service._entitlement_token()
+
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_account_without_the_feature_raises_before_writing(self) -> None:
+        """An account Apple will not let edit events fails with its own error."""
+        self._stub_gateway(
+            FeatureAccess(feature_key=CREATE_EVENT_FEATURE, can_use=False)
+        )
+
+        with self.assertRaises(InvitesEntitlementError):
+            self.service._entitlement_token()
+
+    def test_feature_access_reads_the_gateway_payload(self) -> None:
+        """The gateway's list payload is parsed into the matching feature."""
+        access = parse_feature_access(
+            [
+                {"featureKey": "apps.rsvp.other", "canUse": False},
+                {
+                    "featureKey": CREATE_EVENT_FEATURE,
+                    "canUse": True,
+                    "accessToken": "token-fixture",
+                    "cacheTill": "2100-01-01T00:00:00Z",
+                },
+            ],
+            CREATE_EVENT_FEATURE,
+        )
+
+        self.assertTrue(access.can_use)
+        self.assertEqual(access.access_token, "token-fixture")
+        self.assertEqual(access.cache_till, datetime(2100, 1, 1, tzinfo=timezone.utc))
+        self.assertTrue(access.usable_at(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+
+    def test_feature_access_defaults_to_unusable_when_absent(self) -> None:
+        """A payload without the feature is treated as no entitlement."""
+        access = parse_feature_access([], CREATE_EVENT_FEATURE)
+
+        self.assertFalse(access.can_use)
+        self.assertIsNone(access.access_token)
+        self.assertFalse(access.usable_at(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+
+    def test_feature_access_survives_an_unparsable_cache_till(self) -> None:
+        """A grant Apple dates oddly is kept, but never treated as cached."""
+        access = parse_feature_access(
+            [
+                {
+                    "featureKey": CREATE_EVENT_FEATURE,
+                    "canUse": True,
+                    "accessToken": "token-fixture",
+                    "cacheTill": 4102444800000,
+                }
+            ],
+            CREATE_EVENT_FEATURE,
+        )
+
+        self.assertTrue(access.can_use)
+        self.assertIsNone(access.cache_till)
+        self.assertFalse(access.usable_at(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+
+    def test_feature_access_ignores_a_malformed_cache_till(self) -> None:
+        """A cacheTill Apple sends as a non-date string is treated as absent."""
+        access = parse_feature_access(
+            [
+                {
+                    "featureKey": CREATE_EVENT_FEATURE,
+                    "canUse": True,
+                    "accessToken": "token-fixture",
+                    "cacheTill": "not-a-date",
+                }
+            ],
+            CREATE_EVENT_FEATURE,
+        )
+
+        self.assertIsNone(access.cache_till)
+        self.assertFalse(access.usable_at(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+
+
+if __name__ == "__main__":
+    unittest.main()

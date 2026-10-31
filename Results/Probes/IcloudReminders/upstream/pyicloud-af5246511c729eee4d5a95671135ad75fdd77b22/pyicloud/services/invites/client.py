@@ -1,0 +1,543 @@
+"""Low-level CloudKit client for the Invites container.
+
+Invites operates across three CK database scopes, but the public scope's
+endpoints (``records/resolve`` / ``records/accept``) are shaped differently
+from the records-in-zones model used by ``private`` / ``shared``, so the
+composition isn't symmetric:
+
+* ``private`` — owner's own events. Held as a
+  :class:`CloudKitContainerClient` sub-client.
+* ``shared`` — events accepted as a guest. Held as a separate
+  :class:`CloudKitContainerClient` sub-client.
+* ``public`` — share resolution. No sub-client; reached through a small
+  dedicated ``_post_public`` helper that mirrors the common HTTP wrapper's
+  auth/rate-limit/error behavior. ``records/resolve`` and ``records/accept``
+  take shortGUIDs, not zoneIDs, so they don't fit the typed query/lookup/
+  modify abstraction.
+
+A follow-up PR may promote a ``scope=`` parameter to
+:class:`CloudKitContainerClient` and collapse this composition into a single
+client; see the Invites design doc.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Iterator
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+import logging
+import math
+from typing import Any, Literal, NoReturn, cast
+from urllib.parse import urlencode
+
+from pyicloud.common.cloudkit import (
+    CKLookupResponse,
+    CKModifyOperation,
+    CKModifyResponse,
+    CKQueryObject,
+    CKQueryResponse,
+    CKZoneChangesResponse,
+    CKZoneChangesZone,
+    CKZoneChangesZoneReq,
+    CKZoneIDReq,
+    CKZoneListResponse,
+    CKZoneModifyOperation,
+    CKZoneModifyResponse,
+    CloudKitExtraMode,
+)
+from pyicloud.common.cloudkit.client import (
+    CloudKitApiError,
+    CloudKitAuthError,
+    CloudKitContainerClient,
+    CloudKitRateLimited,
+)
+from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
+from pyicloud.services.invites._constants import ONE_TIME_LINK_RECORD_NAME_SUFFIX
+from pyicloud.services.invites.entitlement import (
+    GATEWAY_BASE_URL,
+    FeatureAccess,
+    parse_feature_access,
+)
+
+LOGGER = logging.getLogger(__name__)
+DEFAULT_TIMEOUT = (10.0, 60.0)
+_UNAUTHORIZED_STATUSES = (401, 403)
+_RATE_LIMITED_STATUS = 429
+
+
+def _parse_retry_after(header: str | None) -> float | None:
+    """Read a ``Retry-After`` value as seconds to wait, if it parses.
+
+    RFC 9110 allows either a delay in seconds (``"120"``) or an HTTP-date
+    (``"Wed, 21 Oct 2015 07:28:00 GMT"``). Apple sends the former, but the date
+    form must not be dropped silently: the header is the only thing telling a
+    rate-limited caller exactly when it may retry.
+    """
+
+    if not header:
+        return None
+    try:
+        seconds = float(header)
+    except (TypeError, ValueError):
+        pass
+    else:
+        # RFC 9110 delay-seconds is 1*DIGIT, so a negative or non-finite value
+        # is malformed. Surfacing it would hand callers a wait they cannot use.
+        return seconds if math.isfinite(seconds) and seconds >= 0 else None
+    try:
+        retry_at = parsedate_to_datetime(header)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+
+
+def _retry_after_of(exc: PyiCloudAPIResponseException) -> float | None:
+    """Return the ``Retry-After`` Apple sent with a rate limit, if any.
+
+    The session attaches the response to the exception, so the header survives
+    the trip. Dropping it would leave callers backing off on a guess when Apple
+    has told them exactly how long to wait.
+    """
+
+    response = exc.response
+    if response is None:
+        return None
+    return _parse_retry_after(response.headers.get("Retry-After"))
+
+
+def _status_of(exc: PyiCloudAPIResponseException) -> int | None:
+    """Return the exception's status as an int, whichever form it arrived in.
+
+    ``PyiCloudAPIResponseException.code`` is typed ``int | str | None``, and a
+    string ``"401"`` compared against the int statuses below would silently
+    fall through to a generic error instead of an auth one.
+    """
+
+    try:
+        return int(exc.code) if exc.code is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+ScopeLiteral = Literal["private", "shared"]
+
+
+# ------------------------------- Errors --------------------------------------
+
+
+class InvitesError(PyiCloudException):
+    """Base Invites transport error."""
+
+
+class InvitesAuthError(InvitesError):
+    """Auth/PCS/cookie issues (401/403)."""
+
+
+class InvitesRateLimited(InvitesError):
+    """429 Too Many Requests."""
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class InvitesEntitlementError(InvitesError):
+    """The account may not perform this write.
+
+    Apple gates event edits behind a subscription feature and answers an
+    unproven write with ``502 INTERNAL_ERROR``, which says nothing useful. This
+    is raised before the request instead.
+    """
+
+
+class InvitesApiError(InvitesError):
+    """Catch-all API error."""
+
+    def __init__(self, message: str, payload: object | None = None) -> None:
+        super().__init__(message)
+        self.payload = payload
+
+
+class InvitesCreationError(InvitesApiError):
+    """Creation failed; identifies the new zone and whether cleanup succeeded.
+
+    ``cleanup_succeeded`` is None if zone creation was not confirmed. Such an
+    ambiguous outcome is not automatically deleted. The original failure is
+    chained as the cause, and a failed cleanup is retained separately.
+    """
+
+    def __init__(
+        self,
+        event_id: str,
+        *,
+        cleanup_succeeded: bool | None,
+        cleanup_error: Exception | None = None,
+    ) -> None:
+        super().__init__(f"Event creation failed for zone {event_id!r}")
+        self.event_id = event_id
+        self.cleanup_succeeded = cleanup_succeeded
+        self.cleanup_error = cleanup_error
+
+
+class InvitesInvitationError(InvitesApiError):
+    """A submitted invitation failed or its result could not be verified.
+
+    Inspect the original cause and the retained participant/record IDs before
+    retrying. A timeout or malformed response does not imply rollback. No
+    automatic retry or compensating participant removal has been attempted.
+    """
+
+    def __init__(self, event_id: str, participant_id: str) -> None:
+        super().__init__(
+            f"Invitation for participant {participant_id!r} in event {event_id!r} "
+            "failed or could not be verified; inspect it before retrying."
+        )
+        self.event_id = event_id
+        self.participant_id = participant_id
+        self.record_name = f"{participant_id}{ONE_TIME_LINK_RECORD_NAME_SUFFIX}"
+
+
+# ------------------------------ Raw client -----------------------------------
+
+
+class CloudKitInvitesClient:
+    """Raw CloudKit service for the Invites container.
+
+    Two :class:`CloudKitContainerClient` sub-clients are constructed at init
+    time (private + shared). Public methods take a ``scope`` argument to
+    select between them. ``resolve`` / ``accept`` are dedicated public-scope
+    helpers that issue their POST via :meth:`_post_public` rather than a
+    third sub-client (the public endpoints don't match the records-in-zones
+    shape the common client is built around).
+    """
+
+    def __init__(
+        self,
+        env_base_url: str,
+        session: Any,
+        base_params: dict[str, object],
+        *,
+        validation_extra: CloudKitExtraMode | None = None,
+        timeout: tuple[float, float] = DEFAULT_TIMEOUT,
+    ) -> None:
+        self._session = session
+        self._base_params = dict(base_params or {})
+        self._timeout = timeout
+        self._public_base = f"{env_base_url}/public"
+
+        common_kwargs: dict[str, Any] = {
+            "session": session,
+            "base_params": base_params,
+            "validation_extra": validation_extra,
+            "timeout": timeout,
+            "bool_param_style": "lower",
+            "redact_urls": True,
+        }
+        self._private = CloudKitContainerClient(
+            f"{env_base_url}/private", **common_kwargs
+        )
+        self._shared = CloudKitContainerClient(
+            f"{env_base_url}/shared", **common_kwargs
+        )
+        LOGGER.info("CloudKitInvitesClient initialized.")
+
+    def _client_for(self, scope: ScopeLiteral) -> CloudKitContainerClient:
+        if scope == "private":
+            return self._private
+        if scope == "shared":
+            return self._shared
+        raise ValueError(f"Unsupported scope: {scope!r}")
+
+    @staticmethod
+    def _raise_invites_error(exc: Exception) -> NoReturn:
+        cause = exc.__cause__ or exc
+        if isinstance(exc, CloudKitAuthError):
+            raise InvitesAuthError(str(exc)) from cause
+        if isinstance(exc, CloudKitRateLimited):
+            raise InvitesRateLimited(str(exc), retry_after=exc.retry_after) from cause
+        if isinstance(exc, CloudKitApiError):
+            raise InvitesApiError(str(exc), payload=exc.payload) from cause
+        if isinstance(exc, PyiCloudAPIResponseException):
+            # CloudKitHttp.post() maps 4xx onto the CloudKit errors above, but
+            # never gets the chance: PyiCloudSession raises on a non-ok JSON
+            # response first, so the transport error arrives here untranslated
+            # and callers catching InvitesError never see it. Map it the same
+            # way the HTTP layer would have.
+            status = _status_of(exc)
+            if status in _UNAUTHORIZED_STATUSES:
+                raise InvitesAuthError(str(exc)) from cause
+            if status == _RATE_LIMITED_STATUS:
+                raise InvitesRateLimited(
+                    str(exc), retry_after=_retry_after_of(exc)
+                ) from cause
+            raise InvitesApiError(str(exc)) from cause
+        raise exc
+
+    # ----- Records-in-zones scoped wrappers ----------------------------------
+
+    def feature_access(self, feature: str) -> FeatureAccess:
+        """Ask Apple whether this account may use ``feature``, and for a token.
+
+        Not a CloudKit call: the gateway lives outside the container and is not
+        in the advertised webservices map, so it is reached directly.
+        """
+
+        dsid = self._base_params.get("dsid")
+        url = f"{GATEWAY_BASE_URL}/accounts/{dsid}/subscriptions/features"
+        try:
+            response = self._session.get(
+                url,
+                params=self._base_params,
+                headers={"x-apple-softwarecapabilityflags": feature},
+                timeout=self._timeout,
+            )
+            payload = response.json()
+        except PyiCloudAPIResponseException as exc:
+            self._raise_invites_error(exc)
+        except ValueError as exc:
+            raise InvitesApiError(
+                "Entitlement gateway returned a non-JSON response"
+            ) from exc
+        return parse_feature_access(payload, feature)
+
+    def zones_list(self, scope: ScopeLiteral) -> CKZoneListResponse:
+        """List the zones in the given scope.
+
+        The shared database rejects zone-wide queries, so enumerating it means
+        listing its zones first and reading each one.
+        """
+        try:
+            return self._client_for(scope).zones_list()
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    def zones_modify(
+        self, operations: list[CKZoneModifyOperation]
+    ) -> CKZoneModifyResponse:
+        """Create/delete zones only in the owner's private database."""
+        try:
+            return self._private.zones_modify(operations)
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    def iter_changes(
+        self,
+        scope: ScopeLiteral,
+        *,
+        zone_req: CKZoneChangesZoneReq,
+        results_limit: int | None = None,
+    ) -> Iterator[CKZoneChangesZone]:
+        """Yield every page of a zone's changes, not only the first.
+
+        ``changes()`` returns one page. A zone with ``moreComing`` set has more
+        behind it, and taking only the first page silently drops records.
+        """
+        try:
+            yield from self._client_for(scope).iter_changes(
+                zone_req=zone_req,
+                results_limit=results_limit,
+            )
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    def query(
+        self,
+        scope: ScopeLiteral,
+        *,
+        query: CKQueryObject,
+        zone_id: CKZoneIDReq | None = None,
+        desired_keys: list[str] | None = None,
+        results_limit: int | None = None,
+        continuation: str | None = None,
+        zone_wide: bool = False,
+    ) -> CKQueryResponse:
+        """Query records in the given scope, returning the typed response."""
+        try:
+            return self._client_for(scope).query(
+                query=query,
+                zone_id=zone_id,
+                desired_keys=desired_keys,
+                results_limit=results_limit,
+                continuation=continuation,
+                zone_wide=zone_wide,
+            )
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    def lookup(
+        self,
+        scope: ScopeLiteral,
+        record_names: Iterable[str],
+        *,
+        zone_id: CKZoneIDReq,
+        desired_keys: list[str] | None = None,
+    ) -> CKLookupResponse:
+        """Look up records by name in the given scope."""
+        try:
+            return self._client_for(scope).lookup(
+                record_names,
+                zone_id=zone_id,
+                desired_keys=desired_keys,
+            )
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    def modify(
+        self,
+        scope: ScopeLiteral,
+        *,
+        operations: list[CKModifyOperation],
+        zone_id: CKZoneIDReq,
+        atomic: bool | None = None,
+    ) -> CKModifyResponse:
+        """Create, update, or delete records in the given scope."""
+        try:
+            return self._client_for(scope).modify(
+                operations=operations,
+                zone_id=zone_id,
+                atomic=atomic,
+            )
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    def changes(
+        self,
+        scope: ScopeLiteral,
+        *,
+        zone_req: CKZoneChangesZoneReq,
+        results_limit: int | None = None,
+    ) -> CKZoneChangesResponse:
+        """Fetch a page of zone changes for the given scope."""
+        try:
+            return self._client_for(scope).changes(
+                zone_req=zone_req,
+                results_limit=results_limit,
+            )
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    # ----- Public-scope resolve / accept -------------------------------------
+
+    def resolve(self, short_guids: list[str]) -> dict[str, Any]:
+        """POST ``public/records/resolve`` — preview a share without joining."""
+        return self._post_public(
+            "/records/resolve",
+            {"shortGUIDs": [{"value": g} for g in short_guids]},
+        )
+
+    def accept(self, short_guids: list[str]) -> dict[str, Any]:
+        """POST ``public/records/accept`` — accept a share and gain access."""
+        return self._post_public(
+            "/records/accept",
+            {"shortGUIDs": [{"value": g} for g in short_guids]},
+        )
+
+    def _post_public(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST to the public-scope endpoint.
+
+        Mirrors the auth / rate-limit / error-response handling of the common
+        client's HTTP wrapper. Inlined here (rather than promoted to common)
+        to keep this PR scoped to the Invites service.
+        """
+        url = self._public_base + path
+        params = self._normalized_params()
+        if params:
+            url = f"{url}?{urlencode(params)}"
+        LOGGER.debug("CloudKit Invites POST %s", path)
+
+        try:
+            resp = self._session.post(url, json=payload, timeout=self._timeout)
+        except PyiCloudAPIResponseException as exc:
+            # Same trap as the scoped wrappers above: PyiCloudSession raises on
+            # a non-ok JSON response, so this is the path a real 4xx takes. The
+            # status checks below stay for session-like objects that return the
+            # response instead of raising; map the transport error the way
+            # those checks would have.
+            self._raise_invites_error(exc)
+        code = getattr(resp, "status_code", 0)
+        if not isinstance(code, int):
+            code = 200
+
+        if code in (401, 403):
+            raise InvitesAuthError(f"HTTP {code}: unauthorized")
+        if code == 429:
+            headers = getattr(resp, "headers", {})
+            raise InvitesRateLimited(
+                "HTTP 429: rate limited",
+                retry_after=_parse_retry_after(headers.get("Retry-After")),
+            )
+        if code >= 400:
+            try:
+                body: Any = resp.json()
+            except Exception:
+                body = getattr(resp, "text", None)
+            raise InvitesApiError(f"HTTP {code}", payload=body)
+
+        try:
+            return cast(dict[str, Any], resp.json())
+        except Exception as exc:
+            raise InvitesApiError(
+                "Invalid JSON response",
+                payload=getattr(resp, "text", None),
+            ) from exc
+
+    def _normalized_params(self) -> dict[str, str]:
+        """Stringify base params the same way the common HTTP wrapper does."""
+        out: dict[str, str] = {}
+        for key, value in self._base_params.items():
+            if isinstance(value, bool):
+                out[key] = "true" if value else "false"
+            else:
+                out[key] = str(value)
+        return out
+
+    # ----- Asset helpers -----------------------------------------------------
+
+    def download_asset_bytes(self, url: str) -> bytes:
+        """Download raw bytes from a CloudKit asset URL via the private scope."""
+        try:
+            return self._private.download_asset_bytes(url)
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)

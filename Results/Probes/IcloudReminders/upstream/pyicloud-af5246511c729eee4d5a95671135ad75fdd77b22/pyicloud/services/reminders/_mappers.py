@@ -1,0 +1,480 @@
+"""CloudKit record mappers for the Reminders service."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+import json as _json
+import logging
+from typing import Any, cast
+
+from pyicloud.common.cloudkit import CKRecord
+
+from ._protocol import (
+    _as_raw_id,
+    _decode_attachment_url,
+    _decode_cloudkit_text_value,
+    _decode_crdt_document,
+    _decode_due_date_delta_alerts,
+    _decode_nsdatecomponents,
+    _decode_urgent_presentation_alarms,
+    _ref_name,
+    _structure_has_visible_text,
+)
+from .client import RemindersApiError
+from .models import (
+    Alarm,
+    DateTrigger,
+    Hashtag,
+    ImageAttachment,
+    LocationTrigger,
+    Proximity,
+    RecurrenceFrequency,
+    RecurrenceRule,
+    Reminder,
+    RemindersList,
+    UrgentPresentationAlarms,
+    URLAttachment,
+)
+
+Attachment = URLAttachment | ImageAttachment
+
+
+class RemindersRecordMapper:
+    """Translate CloudKit records into Reminders domain models."""
+
+    def __init__(
+        self,
+        get_raw: Callable[[], Any],
+        logger: logging.Logger,
+    ) -> None:
+        self._get_raw = get_raw
+        self._logger = logger
+        self._warned_trigger_types: set[str] = set()
+
+    @staticmethod
+    def _parse_reminder_ids_payload(payload_text: str, source: str) -> list[str]:
+        """Decode a JSON array of reminder IDs into normalized raw IDs."""
+        try:
+            payload = _json.loads(payload_text)
+        except (ValueError, TypeError) as exc:
+            raise RemindersApiError(
+                f"Failed to parse {source}",
+                payload={"source": source, "payload": payload_text},
+            ) from exc
+
+        if not isinstance(payload, list):
+            raise RemindersApiError(
+                f"{source} must decode to a JSON array",
+                payload={"source": source, "payload": payload},
+            )
+
+        reminder_ids: list[str] = []
+        for item in payload:
+            if not isinstance(item, str):
+                raise RemindersApiError(
+                    f"{source} must contain only string reminder IDs",
+                    payload={"source": source, "payload": payload},
+                )
+            reminder_ids.append(_as_raw_id(item, "Reminder"))
+
+        return reminder_ids
+
+    def _reminder_ids_for_list_record(self, rec: CKRecord) -> list[str]:
+        """Load reminder membership from inline or asset-backed list fields."""
+        fields = rec.fields
+        reminder_ids_raw = fields.get_value("ReminderIDs")
+        if reminder_ids_raw is not None:
+            if not isinstance(reminder_ids_raw, str):
+                raise RemindersApiError(
+                    "ReminderIDs field had unexpected type",
+                    payload={
+                        "recordName": rec.recordName,
+                        "type": type(reminder_ids_raw).__name__,
+                    },
+                )
+            return self._parse_reminder_ids_payload(
+                reminder_ids_raw,
+                f"List {rec.recordName} ReminderIDs",
+            )
+
+        asset = fields.get_value("ReminderIDsAsset")
+        if asset is None:
+            return []
+
+        asset_bytes = getattr(asset, "downloadedData", None)
+        if asset_bytes is None:
+            download_url = getattr(asset, "downloadURL", None)
+            if not download_url:
+                raise RemindersApiError(
+                    f"List {rec.recordName} ReminderIDsAsset is missing "
+                    f"data and downloadURL",
+                    payload={"recordName": rec.recordName},
+                )
+            asset_bytes = self._get_raw().download_asset_bytes(download_url)
+
+        try:
+            payload_text = asset_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RemindersApiError(
+                f"List {rec.recordName} ReminderIDsAsset was not valid UTF-8",
+                payload={"recordName": rec.recordName},
+            ) from exc
+
+        return self._parse_reminder_ids_payload(
+            payload_text,
+            f"List {rec.recordName} ReminderIDsAsset",
+        )
+
+    def _coerce_text(self, value: Any, *, field_name: str, record_name: str) -> str:
+        """Normalize CloudKit text-like values into ``str`` for domain models."""
+        try:
+            return _decode_cloudkit_text_value(value)
+        except UnicodeDecodeError:
+            self._logger.warning(
+                "Field %s on %s was undecodable bytes; replacing invalid UTF-8",
+                field_name,
+                record_name,
+            )
+            return cast(str, value.decode("utf-8", errors="replace"))
+
+    def record_to_list(self, rec: CKRecord) -> RemindersList:
+        """Map a CloudKit list record to a ``RemindersList`` domain model."""
+        fields = rec.fields
+        title = fields.get_value("Name")
+        color = fields.get_value("Color")
+        reminder_ids = self._reminder_ids_for_list_record(rec)
+        raw_count = fields.get_value("Count")
+        count = int(raw_count) if raw_count is not None else 0
+        if count == 0 and reminder_ids:
+            # Live list records can carry complete reminder membership while the
+            # Count field stays at zero. Prefer the membership size in that case.
+            count = len(reminder_ids)
+
+        return RemindersList(
+            id=rec.recordName,
+            title=str(title) if title else "Untitled",
+            color=str(color) if color else None,
+            count=count,
+            badge_emblem=fields.get_value("BadgeEmblem"),
+            sorting_style=fields.get_value("SortingStyle"),
+            is_group=bool(fields.get_value("IsGroup")),
+            deleted=bool(fields.get_value("Deleted")),
+            reminder_ids=reminder_ids,
+            record_change_tag=rec.recordChangeTag,
+        )
+
+    def record_to_reminder(self, rec: CKRecord) -> Reminder:  # noqa: S3776
+        """Map a CloudKit reminder record to a ``Reminder`` domain model."""
+        fields = rec.fields
+        created = fields.get_value("CreationDate")
+        if created is None and rec.created is not None:
+            created = rec.created.timestamp
+
+        modified = fields.get_value("LastModifiedDate")
+        if modified is None and rec.modified is not None:
+            modified = rec.modified.timestamp
+
+        undecodable_text_fields: list[str] = []
+        title_doc = fields.get_value("TitleDocument")
+        title = "Untitled"
+        if title_doc:
+            try:
+                title = self._coerce_text(
+                    _decode_crdt_document(title_doc),
+                    field_name="TitleDocument",
+                    record_name=rec.recordName,
+                )
+            except Exception as exc:
+                self._logger.warning(
+                    "TitleDocument decode failed for %s: %s",
+                    rec.recordName,
+                    exc,
+                )
+                title = ""
+                undecodable_text_fields.append("TitleDocument")
+
+        notes_doc = fields.get_value("NotesDocument")
+        desc = ""
+        if notes_doc:
+            try:
+                desc = self._coerce_text(
+                    _decode_crdt_document(notes_doc),
+                    field_name="NotesDocument",
+                    record_name=rec.recordName,
+                )
+            except Exception as exc:
+                self._logger.warning(
+                    "NotesDocument decode failed for %s: %s",
+                    rec.recordName,
+                    exc,
+                )
+                undecodable_text_fields.append("NotesDocument")
+
+        # The baseline update() compares against has to reflect the text the
+        # server actually holds. _decode_crdt_document reads the cached
+        # "string" field and never the substrings, so a document whose text
+        # lives only in the substrings decodes to ""; recording that as the
+        # baseline would make a real caller edit look unchanged and skip the
+        # write. That shape is detectable: the structure still carries visible
+        # substrings the cached string dropped. A genuinely empty document
+        # shows none, and keeps its "" baseline so a caller that did not touch
+        # the text still preserves a newer edit made on a device.
+        server_title: str | None = title
+        if "TitleDocument" in undecodable_text_fields or (
+            title_doc and not title and _structure_has_visible_text(title_doc)
+        ):
+            server_title = None
+        server_desc: str | None = desc
+        if "NotesDocument" in undecodable_text_fields or (
+            notes_doc and not desc and _structure_has_visible_text(notes_doc)
+        ):
+            server_desc = None
+
+        early_payload, early_alerts = _decode_due_date_delta_alerts(
+            fields.get_value("DueDateDeltaAlertsData")
+        )
+
+        return Reminder(
+            id=rec.recordName,
+            list_id=_ref_name(fields, "List"),
+            title=title,
+            desc=desc,
+            undecodable_text_fields=tuple(undecodable_text_fields),
+            server_title=server_title,
+            server_desc=server_desc,
+            due_date=fields.get_value("DueDate"),
+            start_date=fields.get_value("StartDate"),
+            completed=bool(fields.get_value("Completed")),
+            completed_date=fields.get_value("CompletionDate"),
+            priority=int(fields.get_value("Priority") or 0),
+            flagged=bool(fields.get_value("Flagged")),
+            all_day=bool(fields.get_value("AllDay")),
+            deleted=bool(fields.get_value("Deleted")),
+            time_zone=fields.get_value("TimeZone"),
+            alarm_ids=[
+                _as_raw_id(x, "Alarm") for x in (fields.get_value("AlarmIDs") or [])
+            ],
+            hashtag_ids=[
+                _as_raw_id(x, "Hashtag") for x in (fields.get_value("HashtagIDs") or [])
+            ],
+            attachment_ids=[
+                _as_raw_id(x, "Attachment")
+                for x in (fields.get_value("AttachmentIDs") or [])
+            ],
+            recurrence_rule_ids=[
+                _as_raw_id(x, "RecurrenceRule")
+                for x in (fields.get_value("RecurrenceRuleIDs") or [])
+            ],
+            parent_reminder_id=_ref_name(fields, "ParentReminder") or None,
+            early_reminders=early_alerts,
+            urgent=self._urgent_from_fields(fields, rec.recordName),
+            early_reminder_account_id=early_payload.get("accountIdentifier") or None,
+            created=created,
+            modified=modified,
+            record_change_tag=rec.recordChangeTag,
+        )
+
+    def record_to_alarm(self, rec: CKRecord) -> Alarm:
+        """Map a CloudKit alarm record to an ``Alarm`` domain model."""
+        fields = rec.fields
+        return Alarm(
+            id=rec.recordName,
+            alarm_uid=fields.get_value("AlarmUID") or "",
+            reminder_id=_ref_name(fields, "Reminder"),
+            trigger_id=fields.get_value("TriggerID") or "",
+            record_change_tag=rec.recordChangeTag,
+        )
+
+    def record_to_alarm_trigger(
+        self, rec: CKRecord
+    ) -> LocationTrigger | DateTrigger | None:
+        """Map a CloudKit alarm trigger record to a typed trigger model."""
+        fields = rec.fields
+        trigger_type = fields.get_value("Type") or ""
+        alarm_id = _ref_name(fields, "Alarm")
+
+        if trigger_type == "Location":
+            prox_raw = int(fields.get_value("Proximity") or 1)
+            try:
+                proximity = Proximity(prox_raw)
+            except ValueError:
+                self._logger.warning(
+                    "Unknown Proximity %d on %s",
+                    prox_raw,
+                    rec.recordName,
+                )
+                proximity = Proximity.ARRIVING
+
+            return LocationTrigger(
+                id=rec.recordName,
+                alarm_id=alarm_id,
+                title=fields.get_value("Title") or "",
+                address=fields.get_value("Address") or "",
+                latitude=float(fields.get_value("Latitude") or 0.0),
+                longitude=float(fields.get_value("Longitude") or 0.0),
+                radius=float(fields.get_value("Radius") or 0.0),
+                proximity=proximity,
+                location_uid=fields.get_value("LocationUID") or "",
+                record_change_tag=rec.recordChangeTag,
+            )
+
+        if trigger_type == "Date":
+            return DateTrigger(
+                id=rec.recordName,
+                alarm_id=alarm_id,
+                date_components=_decode_nsdatecomponents(
+                    fields.get_value("DateComponentsData")
+                ),
+                record_change_tag=rec.recordChangeTag,
+            )
+
+        # Log each unsupported type once so repeated reads of the same record
+        # do not flood the logs with the same diagnostic.
+        if trigger_type not in self._warned_trigger_types:
+            self._warned_trigger_types.add(trigger_type)
+            self._logger.warning(
+                "Unsupported AlarmTrigger type '%s' (first seen on %s)",
+                trigger_type,
+                rec.recordName,
+            )
+        return None
+
+    def record_to_attachment(self, rec: CKRecord) -> Attachment | None:
+        """Map a CloudKit attachment record to a URL or image attachment."""
+        fields = rec.fields
+        att_type = fields.get_value("Type") or ""
+        reminder_id = _ref_name(fields, "Reminder")
+
+        if att_type == "URL":
+            return URLAttachment(
+                id=rec.recordName,
+                reminder_id=reminder_id,
+                url=_decode_attachment_url(fields.get_value("URL") or ""),
+                uti=fields.get_value("UTI") or "public.url",
+                record_change_tag=rec.recordChangeTag,
+            )
+
+        if att_type == "Image":
+            file_asset = fields.get_value("FileAsset")
+            download_url = ""
+            if file_asset and hasattr(file_asset, "downloadURL"):
+                download_url = file_asset.downloadURL or ""
+
+            return ImageAttachment(
+                id=rec.recordName,
+                reminder_id=reminder_id,
+                file_asset_url=download_url,
+                filename=fields.get_value("FileName") or "",
+                file_size=int(fields.get_value("FileSize") or 0),
+                width=int(fields.get_value("Width") or 0),
+                height=int(fields.get_value("Height") or 0),
+                uti=fields.get_value("UTI") or "public.jpeg",
+                record_change_tag=rec.recordChangeTag,
+            )
+
+        self._logger.warning(
+            "Unknown Attachment type '%s' on %s",
+            att_type,
+            rec.recordName,
+        )
+        return None
+
+    def record_to_hashtag(self, rec: CKRecord) -> Hashtag:
+        """Map a CloudKit hashtag record to a ``Hashtag`` domain model."""
+        fields = rec.fields
+        return Hashtag(
+            id=rec.recordName,
+            name=self._coerce_text(
+                fields.get_value("Name"),
+                field_name="Name",
+                record_name=rec.recordName,
+            ),
+            reminder_id=_ref_name(fields, "Reminder"),
+            created=fields.get_value("CreationDate"),
+            record_change_tag=rec.recordChangeTag,
+        )
+
+    def _urgent_from_fields(
+        self, fields: Any, record_name: str
+    ) -> UrgentPresentationAlarms | None:
+        """Decode a reminder's Urgent presentation-alarm fields, if present.
+
+        The fields only appear when Urgent has been switched on for the
+        reminder: an ``ASSETID`` pointing at a small unencrypted JSON document
+        plus a checksum string. A missing or undecodable asset degrades to
+        what is readable (usually just the checksum) rather than failing the
+        reminder read.
+        """
+        checksum = fields.get_value("UrgentPresentationAlarmsChecksum")
+        asset = fields.get_value("UrgentPresentationAlarmsAsData")
+        if not checksum and asset is None:
+            return None
+
+        urgent = UrgentPresentationAlarms(checksum=checksum or None)
+        if asset is None:
+            return urgent
+
+        asset_bytes = getattr(asset, "downloadedData", None)
+        if asset_bytes is None:
+            download_url = getattr(asset, "downloadURL", None)
+            if not download_url:
+                self._logger.warning(
+                    "UrgentPresentationAlarmsAsData on %s has neither data "
+                    "nor downloadURL",
+                    record_name,
+                )
+                return urgent
+            try:
+                asset_bytes = self._get_raw().download_asset_bytes(download_url)
+            except RemindersApiError as exc:
+                # An expired or failing asset download must not fail the
+                # read of every reminder in the list; degrade to the
+                # checksum. Auth errors still propagate: the session itself
+                # is unusable and every other read would fail too.
+                self._logger.warning(
+                    "UrgentPresentationAlarmsAsData on %s failed to download: %s",
+                    record_name,
+                    exc,
+                )
+                return urgent
+
+        try:
+            decoded = _decode_urgent_presentation_alarms(asset_bytes)
+        except ValueError as exc:
+            self._logger.warning(
+                "UrgentPresentationAlarmsAsData on %s was undecodable: %s",
+                record_name,
+                exc,
+            )
+            return urgent
+        return decoded.model_copy(update={"checksum": urgent.checksum})
+
+    def record_to_recurrence_rule(self, rec: CKRecord) -> RecurrenceRule:
+        """Map a CloudKit recurrence rule record to a ``RecurrenceRule``.
+
+        ``Frequency`` is zero-based on the wire (0 daily ... 3 yearly), which
+        is what ``RecurrenceFrequency`` encodes, so the value is read as-is.
+        """
+        fields = rec.fields
+        freq_raw = fields.get_value("Frequency")
+        if freq_raw is None:
+            freq = RecurrenceFrequency.DAILY
+        else:
+            try:
+                freq = RecurrenceFrequency(int(freq_raw))
+            except ValueError:
+                self._logger.warning(
+                    "Unknown Recurrence frequency %r on %s; defaulting to daily",
+                    freq_raw,
+                    rec.recordName,
+                )
+                freq = RecurrenceFrequency.DAILY
+        return RecurrenceRule(
+            id=rec.recordName,
+            reminder_id=_ref_name(fields, "Reminder"),
+            frequency=freq,
+            interval=fields.get_value("Interval") or 1,
+            occurrence_count=fields.get_value("OccurrenceCount") or 0,
+            first_day_of_week=fields.get_value("FirstDayOfTheWeek") or 0,
+            record_change_tag=rec.recordChangeTag,
+        )

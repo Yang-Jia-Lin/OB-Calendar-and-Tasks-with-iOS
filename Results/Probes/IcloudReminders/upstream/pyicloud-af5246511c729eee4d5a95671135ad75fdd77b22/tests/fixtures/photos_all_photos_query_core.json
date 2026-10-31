@@ -1,0 +1,8 @@
+{
+  "filters": {
+    "direction": "DESCENDING",
+    "startRank": 0
+  },
+  "recordType": "CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted",
+  "resultsLimit": 2
+}

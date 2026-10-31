@@ -1,0 +1,252 @@
+"""Domain models for reminders and related data structures."""
+
+from datetime import datetime
+from enum import IntEnum
+from typing import Literal
+
+from pydantic import Field
+
+from pyicloud.common.models import FrozenServiceModel, MutableServiceModel
+
+
+class EarlyReminderUnit(IntEnum):
+    """Unit for an early-reminder offset relative to the due date."""
+
+    HOURS = 1
+    DAYS = 2
+
+
+class EarlyReminder(FrozenServiceModel):
+    """An "Early Reminder" alert set before a reminder is due.
+
+    Mirrors the app's ``dueDateDeltaAlerts`` payload: ``count`` is the offset
+    and is negative (before the due date), so "3 hours before" is
+    ``EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS)``.
+    """
+
+    count: int = Field(le=0)
+    unit: EarlyReminderUnit = EarlyReminderUnit.HOURS
+    identifier: str = ""
+    creation_date: float | None = None
+
+
+class UrgentPresentationAlarms(FrozenServiceModel):
+    """Decoded "Urgent" presentation-alarm state (iOS 26.2+).
+
+    Stored as an asset (``UrgentPresentationAlarmsAsData``) holding a small
+    JSON document, plus a checksum string (``UrgentPresentationAlarmsChecksum``)
+    the schema marks as encrypted. ``person_id`` is per-account and is only
+    available from a reminder where the app itself enabled Urgent.
+    """
+
+    enabled: bool = False
+    person_id: str | None = None
+    modified_on: float | None = None
+    minimum_supported_version: int | None = None
+    checksum: str | None = None
+
+
+class Reminder(MutableServiceModel):
+    """A reminder in a reminders list with metadata and related IDs."""
+
+    id: str
+    list_id: str
+    title: str
+    desc: str = ""
+    completed: bool = False
+    completed_date: datetime | None = None
+    due_date: datetime | None = None
+    start_date: datetime | None = None
+    priority: int = 0
+    flagged: bool = False
+    all_day: bool = False
+    deleted: bool = False
+    time_zone: str | None = None
+    alarm_ids: list[str] = Field(default_factory=list)
+    hashtag_ids: list[str] = Field(default_factory=list)
+    attachment_ids: list[str] = Field(default_factory=list)
+    recurrence_rule_ids: list[str] = Field(default_factory=list)
+    parent_reminder_id: str | None = None
+    early_reminders: tuple[EarlyReminder, ...] = ()
+    urgent: UrgentPresentationAlarms | None = None
+    created: datetime | None = None
+    modified: datetime | None = None
+    record_change_tag: str | None = None
+    # A failed read is not editable empty text. Preserve affected field names
+    # so update can refuse before re-encoding either document.
+    undecodable_text_fields: tuple[str, ...] = ()
+    # Text as last read from (or written to) the server. ``update`` only writes
+    # a text document the caller changed, so a stale object does not revert an
+    # edit made on a device in the meantime. ``None`` means unknown.
+    server_title: str | None = Field(default=None, repr=False)
+    server_desc: str | None = Field(default=None, repr=False)
+    # Account id Apple only reveals inside a stored early-reminder payload.
+    # Kept so set_early_reminders can write a payload the app recognises.
+    early_reminder_account_id: str | None = Field(default=None, repr=False)
+
+
+class ReminderChangeEvent(FrozenServiceModel):
+    """Incremental reminder change event emitted by ``iter_changes()``."""
+
+    type: Literal["updated", "deleted"]
+    reminder_id: str
+    reminder: Reminder | None = None
+
+
+class RemindersList(MutableServiceModel):
+    """A collection of reminders with list metadata."""
+
+    id: str
+    title: str
+    color: str | None = None
+    count: int = 0
+    badge_emblem: str | None = None
+    sorting_style: str | None = None
+    is_group: bool = False
+    deleted: bool = False
+    reminder_ids: list[str] = Field(default_factory=list)
+    guid: str | None = None
+    record_change_tag: str | None = None
+
+
+# --- Alarm records ---
+
+
+class Alarm(MutableServiceModel):
+    """Container for alarm triggers, referenced by Reminder.alarm_ids."""
+
+    id: str
+    alarm_uid: str
+    reminder_id: str
+    trigger_id: str
+    record_change_tag: str | None = None
+
+
+class Proximity(IntEnum):
+    """Geofence proximity direction."""
+
+    ARRIVING = 1
+    LEAVING = 2
+
+
+class LocationTrigger(MutableServiceModel):
+    """Location-based alarm trigger (geofence)."""
+
+    id: str
+    alarm_id: str
+    title: str = ""
+    address: str = ""
+    latitude: float = 0.0
+    longitude: float = 0.0
+    radius: float = Field(default=0.0, ge=0.0)
+    proximity: Proximity = Proximity.ARRIVING
+    location_uid: str = ""
+    record_change_tag: str | None = None
+
+
+class DateComponents(FrozenServiceModel):
+    """Decoded ``NSDateComponents`` carried by a date alarm trigger.
+
+    Apple serialises the trigger as an ``NSKeyedArchiver`` archive of an
+    ``NSDateComponents`` instance (the CloudKit ``DateComponentsData`` field).
+    Every component is optional: an alarm can specify a full timestamp, a
+    time-of-day only, or a date without a time.
+    """
+
+    era: int | None = None
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+    hour: int | None = None
+    minute: int | None = None
+    second: int | None = None
+    nanosecond: int | None = None
+    weekday: int | None = None
+    weekday_ordinal: int | None = None
+    week_of_month: int | None = None
+    week_of_year: int | None = None
+    year_for_week_of_year: int | None = None
+    quarter: int | None = None
+    leap_month: bool | None = None
+    repeated_day: bool | None = None
+    time_zone: str | None = None
+
+
+class DateTrigger(MutableServiceModel):
+    """Date-based (temporal) alarm trigger."""
+
+    id: str
+    alarm_id: str
+    date_components: DateComponents | None = None
+    record_change_tag: str | None = None
+
+
+# --- Attachment records ---
+
+
+class URLAttachment(MutableServiceModel):
+    """URL attachment on a reminder."""
+
+    id: str
+    reminder_id: str
+    url: str = ""
+    uti: str = "public.url"
+    record_change_tag: str | None = None
+
+
+class ImageAttachment(MutableServiceModel):
+    """Image attachment on a reminder."""
+
+    id: str
+    reminder_id: str
+    file_asset_url: str = ""
+    filename: str = ""
+    file_size: int = Field(default=0, ge=0)
+    width: int = Field(default=0, ge=0)
+    height: int = Field(default=0, ge=0)
+    uti: str = "public.jpeg"
+    record_change_tag: str | None = None
+
+
+# --- Hashtag records ---
+
+
+class Hashtag(MutableServiceModel):
+    """Tag associated with a reminder."""
+
+    id: str
+    name: str
+    reminder_id: str
+    created: datetime | None = None
+    record_change_tag: str | None = None
+
+
+# --- Recurrence rules ---
+
+
+class RecurrenceFrequency(IntEnum):
+    """Recurrence frequency type.
+
+    The values mirror Apple's wire encoding in ``RecurrenceRule.Frequency``
+    exactly: the field on the wire is zero-based (``0`` daily ... ``3``
+    yearly), so ``int(frequency)`` is the value to write and the value read
+    back. Earlier releases were one-based and wrote every frequency one step
+    late on the wire (a weekly rule landed as monthly).
+    """
+
+    DAILY = 0
+    WEEKLY = 1
+    MONTHLY = 2
+    YEARLY = 3
+
+
+class RecurrenceRule(MutableServiceModel):
+    """Recurrence rule for a repeating reminder."""
+
+    id: str
+    reminder_id: str
+    frequency: RecurrenceFrequency = RecurrenceFrequency.DAILY
+    interval: int = Field(default=1, ge=1)
+    occurrence_count: int = Field(default=0, ge=0)  # 0 == infinite
+    first_day_of_week: int = Field(default=0, ge=0, le=6)
+    record_change_tag: str | None = None

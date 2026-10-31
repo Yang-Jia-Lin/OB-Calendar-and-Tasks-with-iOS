@@ -1,0 +1,148 @@
+{
+  "run_id": "130e6c",
+  "phase": "controlled_reliability_batch_complete",
+  "checks": [
+    {
+      "name": "复用既有会话",
+      "result": "pass",
+      "evidence": "live_session_validation"
+    },
+    {
+      "name": "模拟断网读取明确失败且不自动重试",
+      "result": "pass",
+      "evidence": "transport_fault_before_network",
+      "error_type": "PyiCloudConnectionException",
+      "matches": 1,
+      "forwarded": 0
+    },
+    {
+      "name": "恢复传输后可重新读回原任务",
+      "result": "pass",
+      "evidence": "live_read_after_fault_removed"
+    },
+    {
+      "name": "模拟 offline 写入失败不冒充成功且云端未变",
+      "result": "pass",
+      "evidence": "before_send_fault_and_live_readback",
+      "error_type": "PyiCloudConnectionException",
+      "matches": 1,
+      "forwarded": 0
+    },
+    {
+      "name": "模拟 timeout_before 写入失败不冒充成功且云端未变",
+      "result": "pass",
+      "evidence": "before_send_fault_and_live_readback",
+      "error_type": "PyiCloudConnectionException",
+      "matches": 1,
+      "forwarded": 0
+    },
+    {
+      "name": "修改响应丢失后确认云端已提交，不重复修改",
+      "result": "pass",
+      "evidence": "live_commit_plus_simulated_response_loss",
+      "error_type": "PyiCloudConnectionException",
+      "matches": 1,
+      "forwarded": 1
+    },
+    {
+      "name": "新建响应丢失后按预存原 ID 确认，不重建",
+      "result": "pass",
+      "evidence": "live_commit_plus_simulated_response_loss",
+      "error_type": "PyiCloudConnectionException",
+      "matches": 1,
+      "forwarded": 1
+    },
+    {
+      "name": "模拟 401 被识别为认证错误并停止",
+      "result": "pass",
+      "evidence": "simulated_cloudkit_401_not_real_session_expiry",
+      "error_type": "RemindersAuthError"
+    },
+    {
+      "name": "模拟失效未破坏真实会话",
+      "result": "pass",
+      "evidence": "live_read_after_simulation"
+    },
+    {
+      "name": "外部版本改变后，探针守卫拒绝覆盖",
+      "result": "pass",
+      "evidence": "two_live_clients_with_precondition_guard"
+    },
+    {
+      "name": "服务端拒绝过期版本写入",
+      "result": "pass",
+      "evidence": "live_stale_record_change_tag",
+      "error_type": "RemindersApiError"
+    },
+    {
+      "name": "外部删除后拒绝编辑且不复活任务",
+      "result": "pass",
+      "evidence": "live_external_client_delete_and_guard"
+    },
+    {
+      "name": "iPad 原生改名按相同 ID 读回",
+      "result": "pass",
+      "evidence": "live_native_ipad_change_after_explicit_user_confirmation"
+    },
+    {
+      "name": "iPad 原生删除可被电脑识别",
+      "result": "pass",
+      "evidence": "live_native_ipad_delete_after_explicit_user_confirmation"
+    },
+    {
+      "name": "iPad 修改后探针拒绝旧快照覆盖",
+      "result": "pass",
+      "evidence": "live_native_change_compared_with_old_title_snapshot"
+    },
+    {
+      "name": "iPad 删除后拒绝编辑且不复活",
+      "result": "pass",
+      "evidence": "live_native_delete_with_probe_guard_no_create"
+    },
+    {
+      "name": "丢响应新建 清理后服务端确认",
+      "result": "pass",
+      "evidence": "owned_id_only_server_delete_readback"
+    },
+    {
+      "name": "iPad修改 清理后服务端确认",
+      "result": "pass",
+      "evidence": "owned_id_only_server_delete_readback"
+    },
+    {
+      "name": "原手工设备验证任务仍保留",
+      "result": "pass",
+      "evidence": "readonly_list_lookup"
+    }
+  ],
+  "cloud_write_api_attempts": 12,
+  "manual_tasks": [
+    {
+      "alias": "iPad修改",
+      "title": "ICT-可靠性-iPad修改-130e6c"
+    },
+    {
+      "alias": "iPad删除",
+      "title": "ICT-可靠性-iPad删除-130e6c"
+    }
+  ],
+  "scope": "dedicated_list_only; simulated_faults_labelled; no_system_network_change",
+  "updated_at": "2026-10-29T03:32:43.286090+00:00",
+  "limitations": [
+    "模拟断网/超时/401，不是物理断网或真实会话过期",
+    "新建幂等依赖探针发送前持久化 wire ID，不能直接套用高层 create API",
+    "产品离线队列与真实插件仍未实现或验收",
+    "隔日会话需要隔日观察"
+  ],
+  "cleanup": "four_owned_samples_server_confirmed_deleted_original_manual_task_retained",
+  "adoption": "核心读写和本轮受控异常验证通过；隔日、复杂字段与产品集成仍待验收",
+  "not_tested": [
+    "隔日会话",
+    "真实认证到期",
+    "物理网络中断",
+    "产品离线队列与升级恢复",
+    "复杂原生字段和重复任务/子任务保护实测",
+    "分页与游标失效",
+    "最终组件打包"
+  ]
+}

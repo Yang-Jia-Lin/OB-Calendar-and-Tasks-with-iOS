@@ -20,7 +20,7 @@ pwsh -NoProfile -File .\Coding\Probes\IcloudReminders\Run.ps1
 pwsh -NoProfile -File .\Coding\Probes\IcloudReminders\Run.ps1 -Browser
 ```
 
-只能在本机终端输入 Apple 账户、密码和验证码，密码不回显；不要通过聊天提供。账户地区在终端选择。若有验证码请求，先核对 Apple 设备上的登录提示。会话和精确对象 ID 保存到 Results 中由当前 Windows 用户与 SYSTEM 访问的 `.private` 目录；该路径由启动脚本先设置 ACL，Results 已忽略提交。脱敏状态保存在 `status.json`。
+只能在本机终端输入 Apple 账户、密码和验证码，密码不回显；不要通过聊天提供。账户地区在终端选择。若有验证码请求，先核对 Apple 设备上的登录提示。会话和精确对象 ID 保存到 Results 中由当前 Windows 用户与 SYSTEM 访问的 `.private` 目录；该路径由启动脚本先设置 ACL，`.private` 已忽略提交，父目录 Results 是否忽略以当前项目规则为准。脱敏状态保存在 `status.json`。
 
 登录后在 iPad 的 **iCloud 提醒事项** 新建名称以 `ICT-Verify-` 开头的普通列表，并手动添加一条 `ICT-设备验证` 任务。终端确认读取后，探针只创建四条专用样例，检查无日期、日期和具体时刻、同标题独立身份、改名、完成／恢复，并提示逐步核对 iPad。现有个人任务不被写入。
 

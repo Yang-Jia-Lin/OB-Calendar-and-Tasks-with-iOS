@@ -1,0 +1,10 @@
+{
+  "cloud_task_writes": 0,
+  "password_login_attempts": 0,
+  "checked_at": "2026-10-31T01:49:48.520065+00:00",
+  "earliest_observation_date_beijing": "2026-10-30",
+  "result": "next_day_cached_session_and_selected_list_read_pass",
+  "selected_list_read": true,
+  "item_count": 1,
+  "limitations": "Read-only observation; no next-day write or real expiry coverage"
+}

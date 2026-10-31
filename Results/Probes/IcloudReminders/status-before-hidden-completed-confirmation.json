@@ -1,0 +1,106 @@
+{
+  "upstream_commit": "af5246511c729eee4d5a95671135ad75fdd77b22",
+  "phase": "stopped_requires_review",
+  "checks": [
+    {
+      "name": "本机账户认证",
+      "result": "pass",
+      "evidence": "authenticated_session"
+    },
+    {
+      "name": "发现真实提醒事项列表",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "读到 iPad 新建的真实任务",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "iPad 确认读到同一任务",
+      "result": "pass",
+      "evidence": "user_observed_on_ipad"
+    },
+    {
+      "name": "A 无日期 创建后服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "B 日期 创建后服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "C 时刻 创建后服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "D 同标题不同身份 创建后服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "同标题任务身份独立",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "无日期语义",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "仅日期语义",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "具体时刻与时区语义",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "电脑新建任务在 iPad 可见且日期正确",
+      "result": "pass",
+      "evidence": "user_observed_on_ipad"
+    },
+    {
+      "name": "任务更新后身份不变",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "更新字段 title 服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "改标题保留日期、备注和优先级",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "任务更新后身份不变",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "更新字段 completed 服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "电脑完成在 iPad 同步",
+      "result": "fail",
+      "evidence": "user_observed_on_ipad"
+    }
+  ],
+  "cloud_write_attempts": 6,
+  "adoption": "未测；不接入插件",
+  "updated_at": "2026-10-29T02:57:38.724046+00:00",
+  "region": "china_mainland",
+  "stop_reason": "电脑完成在 iPad 同步 未通过，停止自动写入。"
+}

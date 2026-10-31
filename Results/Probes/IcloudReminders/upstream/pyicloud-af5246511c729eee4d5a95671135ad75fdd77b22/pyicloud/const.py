@@ -1,0 +1,49 @@
+"""Constants for the PyiCloud API."""
+
+from enum import IntEnum
+
+CONTENT_TYPE = "Content-Type"
+CONTENT_TYPE_JSON = "application/json"
+CONTENT_TYPE_TEXT = "plain/text"
+CONTENT_TYPE_TEXT_JSON = "text/json"
+
+HEADER_DATA: dict[str, str] = {
+    "X-Apple-ID-Account-Country": "account_country",
+    "X-Apple-ID-Session-Id": "session_id",
+    "X-Apple-Auth-Attributes": "auth_attributes",
+    "X-Apple-Session-Token": "session_token",
+    "X-Apple-TwoSV-Trust-Token": "trust_token",
+    "X-Apple-TwoSV-Trust-Eligible": "trust_eligible",
+    "X-Apple-OAuth-Grant-Code": "grant_code",
+    "X-Apple-I-Rscd": "apple_rscd",
+    "X-Apple-I-Ercd": "apple_ercd",
+    "scnt": "scnt",
+}
+
+ACCOUNT_NAME = "accountName"
+
+
+#: Find My's key in the ``apps`` map Apple returns from /validate, and the only
+#: app there flagged ``canLaunchWithOneFactor``. It is *not* ``findme``, which
+#: is this service's key in the ``webservices`` map -- the two maps name the
+#: same service differently, so a lookup under the wrong key finds nothing and
+#: reads as "not eligible".
+FIND_MY_APP_KEY = "find"
+
+
+ERROR_ACCESS_DENIED = "ACCESS_DENIED"
+ERROR_ACCOUNT_LOCKED = -20209
+ERROR_ZONE_NOT_FOUND = "ZONE_NOT_FOUND"
+ERROR_AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED"
+
+
+class AppleAuthError(IntEnum):
+    """Apple auth error codes."""
+
+    SUCCESS = 200
+    FORBIDDEN = 403
+    LOGIN_TOKEN_EXPIRED = 421
+    TWO_FACTOR_REQUIRED = 409
+    REPAIR_REQUIRED = 412
+    FIND_MY_REAUTH_REQUIRED = 450
+    GENERAL_AUTH_ERROR = 500

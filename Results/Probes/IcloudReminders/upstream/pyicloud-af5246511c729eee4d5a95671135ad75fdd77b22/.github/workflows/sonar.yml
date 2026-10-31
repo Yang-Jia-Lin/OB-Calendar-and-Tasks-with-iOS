@@ -1,0 +1,135 @@
+name: SonarQube
+
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+
+jobs:
+  sonarqube:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    env:
+      SONAR_HOST_URL: https://sonarcloud.io
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # workflow_run runs with the base repository's GITHUB_TOKEN, secrets and
+          # runner, so actions/checkout v7 refuses fork PR code by default and the
+          # scan failed for every fork PR. The untrusted surface is bounded below:
+          # scanner config is deleted, the token is not persisted, and the coverage
+          # artifact is size-limited and screened before it is parsed.
+          allow-unsafe-pr-checkout: true
+
+      - name: Require SonarQube credentials
+        if: env.SONAR_TOKEN == ''
+        run: exit 1
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-report
+          path: .coverage
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Remove pull-request-controlled scanner configuration
+        run: rm -f sonar-project.properties
+
+      - name: Validate coverage report
+        run: |
+          set -euo pipefail
+          test -f .coverage/coverage.xml || { echo "Coverage report missing"; exit 1; }
+          # For fork PRs this artifact is uploaded by the triggering run, so it is
+          # untrusted input. Reject entity declarations before parsing: xml.etree
+          # does not resolve external entities but is still exposed to entity
+          # expansion. A plain DOCTYPE is left alone, because the Cobertura
+          # writers have historically emitted one.
+          if grep -qi '<!ENTITY' .coverage/coverage.xml; then
+            echo "Coverage report contains an entity declaration"; exit 1
+          fi
+          test "$(wc -c < .coverage/coverage.xml)" -lt 10000000 || { echo "Coverage report too large"; exit 1; }
+          python3 -c "import sys, xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" .coverage/coverage.xml
+
+      - name: Validate run metadata
+        id: validate
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid HEAD_SHA"; exit 1; }
+          echo "head-sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          if [[ "$RUN_EVENT" != "pull_request" ]]; then
+            exit 0
+          fi
+          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+          if [[ -z "$PR_NUMBER" ]]; then
+            # workflow_run.pull_requests is empty for fork PRs; resolve via the API.
+            PR_FILE="$(mktemp)"
+            gh pr list --state open --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
+            PR_MATCH="$(jq -c ".[] | select(.headRefOid == \"$HEAD_SHA\")" "$PR_FILE" | head -n 1)"
+            if [[ -n "$PR_MATCH" ]]; then
+              PR_NUMBER="$(jq -r '.number' <<< "$PR_MATCH")"
+              HEAD_REF="$(jq -r '.headRefName' <<< "$PR_MATCH")"
+              BASE_REF="$(jq -r '.baseRefName' <<< "$PR_MATCH")"
+            fi
+          else
+            HEAD_REF="${{ github.event.workflow_run.pull_requests[0].head.ref }}"
+            BASE_REF="${{ github.event.workflow_run.pull_requests[0].base.ref }}"
+          fi
+          if [[ -z "$PR_NUMBER" || -z "$HEAD_REF" || -z "$BASE_REF" ]]; then
+            echo "Could not resolve pull request metadata for $HEAD_SHA"; exit 1
+          fi
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid PR number"; exit 1; }
+          [[ "$HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid head branch"; exit 1; }
+          [[ "$BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid base branch"; exit 1; }
+          echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head-ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
+          echo "base-ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+
+      - name: SonarQube Scan (branch)
+        if: github.event.workflow_run.event == 'push'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        with:
+          args: >-
+            -Dsonar.projectKey=timlaing_pyicloud
+            -Dsonar.organization=timlaing
+            -Dsonar.projectName=pyicloud
+            -Dsonar.sources=pyicloud
+            -Dsonar.tests=tests
+            -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
+            -Dsonar.python.version=3.10
+            -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
+            -Dsonar.qualitygate.wait=true
+
+      - name: SonarQube Scan (pull request)
+        if: github.event.workflow_run.event == 'pull_request'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        with:
+          args: >-
+            -Dsonar.projectKey=timlaing_pyicloud
+            -Dsonar.organization=timlaing
+            -Dsonar.projectName=pyicloud
+            -Dsonar.sources=pyicloud
+            -Dsonar.tests=tests
+            -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
+            -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14
+            -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
+            -Dsonar.pullrequest.key=${{ steps.validate.outputs.pr-number }}
+            -Dsonar.pullrequest.branch=${{ steps.validate.outputs.head-ref }}
+            -Dsonar.pullrequest.base=${{ steps.validate.outputs.base-ref }}
+            -Dsonar.pullrequest.provider=github
+            -Dsonar.pullrequest.github.repository=${{ github.repository }}
+            -Dsonar.qualitygate.wait=true

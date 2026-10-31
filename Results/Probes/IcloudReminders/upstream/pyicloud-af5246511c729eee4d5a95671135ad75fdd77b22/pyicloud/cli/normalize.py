@@ -1,0 +1,428 @@
+"""Normalization helpers for CLI payloads."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, cast
+
+from pyicloud.base import PyiCloudService
+from pyicloud.services.account import AccountService
+
+MAX_NOTES_SEARCH_WINDOW = 5_000
+
+
+def normalize_account_summary(
+    api: PyiCloudService, account: AccountService
+) -> dict[str, Any]:
+    """Normalize account summary data."""
+
+    storage = account.storage
+    return {
+        "account_name": api.account_name,
+        "devices_count": len(account.devices),
+        "family_count": len(account.family),
+        "used_storage_bytes": storage.usage.used_storage_in_bytes,
+        "available_storage_bytes": storage.usage.available_storage_in_bytes,
+        "total_storage_bytes": storage.usage.total_storage_in_bytes,
+        "used_storage_percent": storage.usage.used_storage_in_percent,
+        "summary_plan": account.summary_plan,
+    }
+
+
+def normalize_account_device(device: dict[str, Any]) -> dict[str, Any]:
+    """Normalize account device data."""
+
+    return {
+        "id": device.get("id"),
+        "name": device.get("name"),
+        "model_display_name": device.get("modelDisplayName"),
+        "device_class": device.get("deviceClass"),
+    }
+
+
+def normalize_family_member(member: Any) -> dict[str, Any]:
+    """Normalize family member data."""
+
+    return {
+        "full_name": member.full_name,
+        "apple_id": member.apple_id,
+        "dsid": member.dsid,
+        "age_classification": member.age_classification,
+        "has_parental_privileges": member.has_parental_privileges,
+    }
+
+
+def normalize_storage(storage: Any) -> dict[str, Any]:
+    """Normalize storage usage payloads."""
+
+    return {
+        "usage": {
+            "used_storage_in_bytes": storage.usage.used_storage_in_bytes,
+            "available_storage_in_bytes": storage.usage.available_storage_in_bytes,
+            "total_storage_in_bytes": storage.usage.total_storage_in_bytes,
+            "used_storage_in_percent": storage.usage.used_storage_in_percent,
+        },
+        "usages_by_media": {
+            key: {
+                "label": usage.label,
+                "color": usage.color,
+                "usage_in_bytes": usage.usage_in_bytes,
+            }
+            for key, usage in storage.usages_by_media.items()
+        },
+    }
+
+
+def normalize_device_summary(device: Any, *, locate: bool) -> dict[str, Any]:
+    """Normalize a Find My device for summary views."""
+
+    return {
+        "id": getattr(device, "id", None),
+        "name": getattr(device, "name", None),
+        "display_name": getattr(device, "deviceDisplayName", None),
+        "device_class": getattr(device, "deviceClass", None),
+        "device_model": getattr(device, "deviceModel", None),
+        "battery_level": getattr(device, "batteryLevel", None),
+        "battery_status": getattr(device, "batteryStatus", None),
+        "location": getattr(device, "location", None) if locate else None,
+    }
+
+
+def normalize_device_details(device: Any, *, locate: bool) -> dict[str, Any]:
+    """Normalize a Find My device for detailed views."""
+
+    payload = normalize_device_summary(device, locate=locate)
+    payload["raw_data"] = getattr(device, "data", None)
+    return payload
+
+
+def normalize_calendar(calendar: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a calendar entry."""
+
+    return {
+        "guid": calendar.get("guid"),
+        "title": calendar.get("title"),
+        "color": calendar.get("color"),
+        "share_type": calendar.get("shareType"),
+    }
+
+
+def normalize_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a calendar event."""
+
+    return {
+        "guid": event.get("guid"),
+        "calendar_guid": event.get("pGuid"),
+        "title": event.get("title"),
+        "start": event.get("startDate"),
+        "end": event.get("endDate"),
+    }
+
+
+def normalize_contact(contact: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a contact entry."""
+
+    return {
+        "first_name": contact.get("firstName"),
+        "last_name": contact.get("lastName"),
+        "phones": [phone.get("field", "") for phone in contact.get("phones", [])],
+        "emails": [email.get("field", "") for email in contact.get("emails", [])],
+    }
+
+
+def normalize_me(me: Any) -> dict[str, Any]:
+    """Normalize the 'me' contact payload."""
+
+    return {
+        "first_name": me.first_name,
+        "last_name": me.last_name,
+        "photo": me.photo,
+        "raw_data": me.raw_data,
+    }
+
+
+def normalize_drive_node(node: Any) -> dict[str, Any]:
+    """Normalize an iCloud Drive node."""
+
+    return {
+        "name": node.name,
+        "type": node.type,
+        "size": node.size,
+        "modified": node.date_modified,
+    }
+
+
+def normalize_album(album: Any) -> dict[str, Any]:
+    """Normalize a photo album."""
+
+    return {
+        "name": album.name,
+        "full_name": album.fullname,
+        "count": len(album),
+    }
+
+
+def normalize_photo_library(key: str, library: Any) -> dict[str, Any]:
+    """Normalize a photo library."""
+
+    zone_id = getattr(library, "zone_id", None)
+    zone_name = zone_id.get("zoneName") if isinstance(zone_id, dict) else None
+    return {
+        "key": key,
+        "scope": getattr(library, "scope", None),
+        "zone_name": zone_name,
+        "sync_cursor": getattr(library, "current_sync_token", None),
+        "indexing_state": getattr(library, "indexing_state", None),
+    }
+
+
+def normalize_photo(item: Any) -> dict[str, Any]:
+    """Normalize a photo asset."""
+
+    return {
+        "id": item.id,
+        "filename": item.filename,
+        "item_type": item.item_type,
+        "created": item.created,
+        "size": item.size,
+        "liked": getattr(item, "liked", None),
+        "like_count": getattr(item, "like_count", None),
+    }
+
+
+def normalize_photo_details(item: Any) -> dict[str, Any]:
+    """Normalize a detailed photo asset payload."""
+
+    payload = normalize_photo(item)
+    payload.update({
+        "asset_date": getattr(item, "asset_date", None),
+        "added_date": getattr(item, "added_date", None),
+        "dimensions": getattr(item, "dimensions", None),
+        "is_live_photo": getattr(item, "is_live_photo", None),
+        "versions": getattr(item, "versions", None),
+    })
+    return payload
+
+
+def normalize_photo_change(change: Any) -> dict[str, Any]:
+    """Normalize a photo change event."""
+
+    return {
+        "kind": getattr(change, "kind", None),
+        "record_name": getattr(change, "record_name", None),
+        "record_type": getattr(change, "record_type", None),
+        "deleted": getattr(change, "deleted", None),
+        "modified": getattr(change, "modified", None),
+    }
+
+
+def normalize_photo_sync_item(item: Any) -> dict[str, Any]:
+    """Normalize one photo sync action item."""
+
+    return {
+        "asset_id": getattr(item, "asset_id", None),
+        "resource_key": getattr(item, "resource_key", None),
+        "path": getattr(item, "path", None),
+        "action": getattr(item, "action", None),
+        "reason": getattr(item, "reason", None),
+    }
+
+
+def normalize_photo_sync_result(result: Any) -> dict[str, Any]:
+    """Normalize a photo sync result payload."""
+
+    return {
+        "directory": getattr(result, "directory", None),
+        "state_path": getattr(result, "state_path", None),
+        "library": getattr(result, "library", None),
+        "albums": list(getattr(result, "albums", []) or []),
+        "sync_cursor": getattr(result, "sync_cursor", None),
+        "short_circuited": getattr(result, "short_circuited", False),
+        "downloaded_count": getattr(result, "downloaded_count", 0),
+        "skipped_count": getattr(result, "skipped_count", 0),
+        "deleted_count": getattr(result, "deleted_count", 0),
+        "listed_count": getattr(result, "listed_count", 0),
+        "items": [
+            normalize_photo_sync_item(item)
+            for item in getattr(result, "items", []) or []
+        ],
+    }
+
+
+def normalize_sync_cursor(cursor: str, **metadata: Any) -> dict[str, Any]:
+    """Normalize sync cursor command output."""
+
+    payload = dict(metadata)
+    payload["sync_cursor"] = cursor
+    return payload
+
+
+def normalize_alias(alias: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a Hide My Email alias."""
+
+    return {
+        "email": alias.get("hme"),
+        "label": alias.get("label"),
+        "anonymous_id": alias.get("anonymousId"),
+    }
+
+
+def select_recent_notes(
+    notes_service: Any, *, limit: int, include_deleted: bool
+) -> list[Any]:
+    """Return recent notes, excluding deleted notes by default."""
+
+    if limit <= 0:
+        return []
+    if include_deleted:
+        return list(notes_service.recents(limit=limit))
+
+    probe_limit = limit
+    max_probe = min(max(limit, 10) * 8, 500)
+    while True:
+        rows = list(notes_service.recents(limit=probe_limit))
+        filtered = [row for row in rows if not getattr(row, "is_deleted", False)]
+        if (
+            len(filtered) >= limit
+            or len(rows) < probe_limit
+            or probe_limit >= max_probe
+        ):
+            return filtered[:limit]
+        probe_limit = min(probe_limit * 2, max_probe)
+
+
+def search_notes_by_title(  # noqa: S3776
+    notes_service: Any,
+    *,
+    title: str | None = None,
+    title_contains: str | None = None,
+    limit: int,
+) -> list[Any]:
+    """Return title-matched notes using recents-first search with full-scan fallback."""
+
+    if limit <= 0:
+        return []
+
+    exact = (title or "").strip()
+    contains = (title_contains or "").strip().lower()
+    if not exact and not contains:
+        return []
+
+    def matches(note_title: str | None) -> bool:
+        if not note_title:
+            return False
+        if exact and note_title == exact:
+            return True
+        return bool(contains and contains in note_title.lower())
+
+    def dedupe_key(item: Any) -> Any:
+        return getattr(item, "id", None) or id(item)
+
+    candidates: list[Any] = []
+    seen: set[Any] = set()
+    window = min(MAX_NOTES_SEARCH_WINDOW, max(500, limit * 50))
+
+    for note in notes_service.recents(limit=window):
+        if not matches(getattr(note, "title", None)):
+            continue
+        key = dedupe_key(note)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(note)
+        if len(candidates) >= limit:
+            break
+
+    if len(candidates) < limit:
+        for note in notes_service.iter_all():
+            if not matches(getattr(note, "title", None)):
+                continue
+            key = dedupe_key(note)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(note)
+            if len(candidates) >= limit:
+                break
+
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+    def sort_key(item: Any) -> datetime:
+        modified_at = getattr(item, "modified_at", None)
+        if modified_at is None:
+            return epoch
+        if modified_at.tzinfo is None:
+            return cast(datetime, modified_at.replace(tzinfo=timezone.utc))
+        return cast(datetime, modified_at)
+
+    candidates.sort(key=sort_key, reverse=True)
+    return candidates[:limit]
+
+
+def normalize_invite_event(event: Any) -> dict[str, Any]:
+    """Normalize one Invites event for listing."""
+
+    time = getattr(event, "time", None)
+    place = getattr(event, "place", None)
+    return {
+        "event_id": event.event_id,
+        "scope": event.scope.value,
+        "title": event.title,
+        "host_display_name": event.host_display_name,
+        "starts_at": getattr(time, "start", None),
+        "ends_at": getattr(time, "end", None),
+        "is_all_day": getattr(time, "is_all_day", None),
+        "location": getattr(place, "title", None),
+        "is_cancelled": event.is_cancelled,
+    }
+
+
+def normalize_invite_event_details(event: Any) -> dict[str, Any]:
+    """Normalize one Invites event with its share, for a single-event view."""
+
+    share = getattr(event, "share", None)
+    place = getattr(event, "place", None)
+    payload = normalize_invite_event(event)
+    payload.update({
+        "notes": event.notes,
+        "is_published": event.is_published,
+        "is_private": event.is_private,
+        "block_new_rsvps": event.block_new_rsvps,
+        "max_attendees": event.max_attendees,
+        "city": getattr(place, "city", None),
+        "share_short_guid": getattr(share, "short_guid", None),
+        "share_url": getattr(share, "url", None),
+        "participant_count": len(getattr(share, "participants", ()) or ()),
+    })
+    return payload
+
+
+def normalize_invite_rsvp(rsvp: Any) -> dict[str, Any]:
+    """Normalize one Invites RSVP."""
+
+    return {
+        "participant_id": rsvp.participant_id,
+        "name": rsvp.name,
+        "status": rsvp.status.name,
+        "message": rsvp.message,
+        "additional_adults": rsvp.num_additional_adults,
+        "additional_kids": rsvp.num_additional_kids,
+    }
+
+
+def normalize_invite_share(share: Any) -> dict[str, Any]:
+    """Normalize a resolved invite link.
+
+    ``participant_status`` and friends are plain strings from Apple here,
+    unlike the enums used elsewhere in the Invites service.
+    """
+
+    return {
+        "short_guid": share.short_guid,
+        "event_id": share.event_id,
+        "owner_given_name": share.owner_given_name,
+        "owner_family_name": share.owner_family_name,
+        "participant_status": share.participant_status,
+        "participant_type": share.participant_type,
+        "participant_permission": share.participant_permission,
+    }

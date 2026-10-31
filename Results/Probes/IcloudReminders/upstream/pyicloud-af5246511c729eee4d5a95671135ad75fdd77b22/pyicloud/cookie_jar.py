@@ -1,0 +1,83 @@
+"""Cookie jar with persistence support."""
+
+from collections.abc import Iterator
+from http.cookiejar import Cookie, LWPCookieJar
+
+from requests.cookies import RequestsCookieJar
+
+_FMIP_AUTH_COOKIE_NAME: str = "X-APPLE-WEBAUTH-FMIP"
+
+
+class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
+    """Mix the Requests CookieJar with the LWPCookieJar to allow persistence"""
+
+    def __init__(self, filename: str | None = None) -> None:
+        """Initialise both bases; do not pass filename positionally to
+        RequestsCookieJar."""
+        RequestsCookieJar.__init__(self)
+        LWPCookieJar.__init__(self, filename=filename)
+
+    def __iter__(self) -> Iterator[Cookie]:  # type: ignore[override]  # pylint: disable=useless-parent-delegation
+        """Yield the cookies; delegates to the base CookieJar chain.
+
+        CookieJar.__iter__ yields Cookie objects while the RequestsCookieJar
+        MutableMapping base declares Iterator[str]; same conflict as upstream
+        requests, which ignores it identically.
+        """
+        return super().__iter__()
+
+    def _resolve_filename(self, filename: str | None) -> str | None:
+        resolved: str | None = filename or getattr(self, "filename", None)
+        if not resolved:
+            return None  # No-op if no filename is bound
+        return resolved
+
+    def copy(self) -> "PyiCloudCookieJar":
+        """Create a copy of this cookie jar."""
+        new_jar: PyiCloudCookieJar = PyiCloudCookieJar(filename=self.filename)
+        new_jar.set_policy(self.get_policy())
+        new_jar.update(self)
+        return new_jar
+
+    def load(
+        self,
+        filename: str | None = None,
+        ignore_discard: bool = True,
+        ignore_expires: bool = False,
+    ) -> None:
+        """Load cookies from file."""
+        resolved: str | None = self._resolve_filename(filename)
+        if not resolved:
+            return  # No-op if no filename is bound
+        super().load(
+            filename=resolved,
+            ignore_discard=ignore_discard,
+            ignore_expires=ignore_expires,
+        )
+        # Account validation and Find My use distinct credentials. Removing
+        # the Find My cookie here breaks reuse even when account validation
+        # succeeds; retain it until the service itself rejects it.
+
+    def save(
+        self,
+        filename: str | None = None,
+        ignore_discard: bool = True,
+        ignore_expires: bool = False,
+    ) -> None:
+        """Save cookies to file."""
+        resolved: str | None = self._resolve_filename(filename)
+        if not resolved:
+            return  # No-op if no filename is bound
+        # Copy cookies to avoid "dictionary changed size during iteration"
+        # when concurrent HTTP responses modify the cookie jar
+        try:
+            temp_jar: PyiCloudCookieJar = self.copy()
+            LWPCookieJar.save(
+                temp_jar,
+                filename=resolved,
+                ignore_discard=ignore_discard,
+                ignore_expires=ignore_expires,
+            )
+        except RuntimeError:
+            # If we still hit a race, silently skip this save
+            pass

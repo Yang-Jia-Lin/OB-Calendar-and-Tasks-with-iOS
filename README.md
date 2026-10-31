@@ -1,5 +1,7 @@
 # 日历与待办计时
 
+AI 开发入口：[Agents/AGENTS.md](Agents/AGENTS.md)。检查产物集中在 Agents/Tests，不属于插件交付内容。
+
 面向电脑主力记录的日历／待办工作台，结合 OB 科研执行入口与 iPad 原生应用。**目标业务数据统一使用 iCloud：日历保存安排和实际记录，提醒事项保存行动任务。**
 
 当前已交付的是 Obsidian 插件 `calendar-task-timer` **0.2.11**：Markdown 待办、计时和可编辑时间轴，日历通过 FCR 访问。独立桌面 APP、Components 按钮、双日期和提醒事项产品接入都尚未完成，不将目标设计写成已实现。
@@ -61,17 +63,20 @@ Coding/
   Preview/ Tests/     独立示例与回归测试
   Probes/             独立提醒事项验证工具，不进入插件包
 Notes/                当前架构、工程约定与验证记录
+Agents/
+  AGENTS.md           AI 开发约定
+  Tests/              检查报告、编译测试与 Visuals 截图（可重建）
+  Backups/            有变更时的安装前备份（按需生成）
 Results/
   Release/
     V<版本>_calendar-task-timer/  三个插件文件
     Preview/                    可重建交互预览
-  Tests/ Visuals/     检查结果与必要界面证据
-  Probes/ Archive/    本机探针环境、会话与回退资料（忽略提交）
+  Probes/             现有本机探针环境与会话
 ```
 
 文档：[开发约定](Notes/0-开发约定.md)、[产品需求](Notes/1-产品需求.md)、[架构设计](Notes/2-架构设计.md)、[开发日志](Notes/开发日志.md)。版本变化、验收标准和提醒事项实测已统一归入开发日志，按新到旧排列；后续每次开发或验证更新该日志。探针运行方法见[探针说明](Coding/Probes/IcloudReminders/README.md)。
 
-完成重大功能、重要可靠性修复或实质架构变更并通过相关检查后，自动提交并正常推送远程；文档、微小 UI、产物整理不自动提交，用户明确要求提交时执行。具体边界见开发约定和 [AGENTS.md](AGENTS.md)。
+完成重大功能、重要可靠性修复或实质架构变更并通过相关检查后，自动提交并正常推送远程；文档、微小 UI、产物整理不自动提交，用户明确要求提交时执行。具体边界见开发约定和 [Agents/AGENTS.md](Agents/AGENTS.md)。
 
 ## 边界与来源
 

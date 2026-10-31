@@ -116,7 +116,7 @@ test("legacy import refuses enabled plugin, active sessions and overwriting new 
 });
 test("journal rejects invalid versions and broken intervals", () => { assert.throws(() => validateJournal({ version: 9, records: [] })); assert.throws(() => validateJournal({ version: 1, active: { id: "x" }, records: [] })); });
 test("atomic journal recovers valid previous data without destroying damaged file", async () => {
-  const dir = await mkdtemp(path.resolve("../Results/Tests/ctt-test-"));
+  const dir = await mkdtemp(path.resolve("../Agents/Tests/ctt-test-"));
   try { const file = path.join(dir, "sessions.json"), store = new JournalStore(file); await store.load(); await store.save(blankJournal()); await store.save(blankJournal()); await writeFile(file, "broken"); const restored = await new JournalStore(file).load(); assert.equal(restored.version, 2); assert.ok((await readdir(dir)).some(f => f.includes("damaged"))); assert.equal(await readFile(file, "utf8"), "broken"); }
   finally { await rm(dir, { recursive: true }); }
 });

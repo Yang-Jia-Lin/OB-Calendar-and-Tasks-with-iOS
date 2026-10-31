@@ -1,6 +1,8 @@
 Coding/node_modules/
-Results/
+# Results/
 Plugin/
+Agents/Tests/
+Agents/Backups/
 *.log
 __pycache__/
 *.pyc

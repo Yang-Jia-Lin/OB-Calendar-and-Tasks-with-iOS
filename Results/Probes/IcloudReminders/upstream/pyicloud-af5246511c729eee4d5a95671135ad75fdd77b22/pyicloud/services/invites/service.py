@@ -1,0 +1,1394 @@
+"""High-level Invites service built on top of the iCloud Events CloudKit API.
+
+Public API:
+
+Read (Phase 1):
+  - ``InvitesService.events()`` -> ``list[Event]``
+  - ``InvitesService.event(event_id)`` -> ``Event``
+  - ``InvitesService.rsvps(event)`` -> ``list[Rsvp]``
+  - ``InvitesService.rsvp_image(rsvp)`` -> ``bytes | None``
+  - ``InvitesService.resolve(short_guid)`` -> ``ResolvedShare``
+  - ``InvitesService.accept(short_guid)`` -> ``Event``
+  - ``InvitesService.raw`` -> ``CloudKitInvitesClient``
+
+Write (Phase 2):
+  - ``InvitesService.rsvp(event, status, ...)`` -> ``Rsvp``
+  - ``InvitesService.cancel(event, ...)`` -> ``Event``
+  - ``InvitesService.invite_via_link(event, ...)`` -> ``OneTimeLinkInvitation``
+  - ``InvitesService.publish(event, ...)`` -> ``Event``
+  - ``InvitesService.create_event(title, time, ...)`` -> ``Event``
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from datetime import datetime, timezone
+import json
+import logging
+from typing import Any, Literal, cast
+from urllib.parse import urlparse
+from uuid import uuid4
+
+from pyicloud.common.cloudkit import (
+    CKErrorItem,
+    CKLookupResponse,
+    CKModifyOperation,
+    CKModifyResponse,
+    CKQueryObject,
+    CKQueryResponse,
+    CKRecord,
+    CKTombstoneRecord,
+    CKWriteFields,
+    CKWriteRecord,
+    CKZoneChangesZoneReq,
+    CKZoneID,
+    CKZoneIDReq,
+    CKZoneListZone,
+    CKZoneModifyOperation,
+)
+from pyicloud.common.cloudkit.base import CloudKitExtraMode
+from pyicloud.services.base import BaseService
+
+from ._constants import (
+    CONTAINER,
+    ENV,
+    EVENT_DETAILS_RECORD_NAME_PREFIX,
+    ONE_TIME_LINK_RECORD_NAME_SUFFIX,
+    RSVP_RECORD_NAME_SUFFIX,
+    SHARE_RECORD_NAME,
+)
+from ._creation import creation_fields
+from ._invitations import (
+    invitation_contacts,
+    invitation_operations,
+    invitation_records,
+    owner_share,
+)
+from .client import (
+    CloudKitInvitesClient,
+    InvitesApiError,
+    InvitesCreationError,
+    InvitesEntitlementError,
+    InvitesError,
+    InvitesInvitationError,
+    ScopeLiteral,
+)
+from .codecs import decode_integrations, decode_json_bytes
+from .entitlement import CREATE_EVENT_FEATURE, FeatureAccess
+from .models.constants import (
+    EventDetailsField,
+    InvitesRecordType,
+    OneTimeLinkField,
+    RsvpField,
+)
+from .models.dto import (
+    AcceptanceStatus,
+    Event,
+    EventPlace,
+    EventScope,
+    EventShare,
+    EventTime,
+    OneTimeLinkGuest,
+    OneTimeLinkInvitation,
+    Participant,
+    ParticipantType,
+    ResolvedShare,
+    Rsvp,
+    RsvpStatus,
+)
+
+LOGGER = logging.getLogger(__name__)
+
+
+class EventNotFound(InvitesError):
+    """Raised when a requested event ID is not present in any scope."""
+
+
+class InvitesService(BaseService):
+    """Typed Invites API.
+
+    Reads cover event listing, single-event lookup, RSVP listing, guest photo
+    download (``rsvp_image``), and public share resolution (``resolve`` /
+    ``accept``); writes cover ``rsvp()``, ``cancel()``, ``publish()``,
+    ``create_event()``, and ``invite_via_link()``.
+    """
+
+    _CONTAINER = CONTAINER
+    _ENV = ENV
+
+    def __init__(
+        self,
+        service_root: str,
+        session: Any,
+        params: dict[str, str],
+        *,
+        cloudkit_validation_extra: CloudKitExtraMode | None = None,
+    ) -> None:
+        super().__init__(service_root=service_root, session=session, params=params)
+        env_base_url = f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}"
+        base_params = {
+            "remapEnums": True,
+            "getCurrentSyncToken": True,
+            **(params or {}),
+        }
+        self._raw = CloudKitInvitesClient(
+            env_base_url,
+            session,
+            base_params,
+            validation_extra=cloudkit_validation_extra,
+        )
+        self._feature_access: FeatureAccess | None = None
+
+    @property
+    def raw(self) -> CloudKitInvitesClient:
+        """Escape hatch for advanced/unsupported CloudKit workflows."""
+        return self._raw
+
+    # ------------------------------------------------------------------
+    # Public reads
+    # ------------------------------------------------------------------
+
+    def events(self) -> list[Event]:
+        """Return all events visible to the current user (private + shared).
+
+        Each event is populated only from its ``EventDetails`` record; the
+        share and RSVPs are ``None`` / empty here. Call :meth:`event` for a
+        fully-hydrated view.
+        """
+        out: list[Event] = []
+        seen: set[tuple[EventScope, str]] = set()
+        for scope in (EventScope.PRIVATE, EventScope.SHARED):
+            for record in self._iter_event_details(scope):
+                event_id = self._event_id_from_record_name(record.recordName)
+                key = (scope, event_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(self._event_from_record(record, scope=scope))
+        return out
+
+    def event(self, event_id: str) -> Event:
+        """Return a fully-hydrated event by ID (zoneName / UUID).
+
+        Looks up the event in the private scope first, then shared. Raises
+        :class:`EventNotFound` if no scope has the event.
+        """
+        for scope in (EventScope.PRIVATE, EventScope.SHARED):
+            event = self._fetch_event_full(event_id, scope)
+            if event is not None:
+                return event
+        raise EventNotFound(f"Event not found: {event_id!r}")
+
+    def rsvps(self, event: Event) -> list[Rsvp]:
+        """Return the list of RSVPs in an event's zone."""
+        # A zone's changes feed can report a record more than once, or report a
+        # tombstone for one it reported earlier; keep the surviving latest state.
+        latest: dict[str, CKRecord] = {}
+        for record in self._zone_records(
+            self._scope_str(event.scope),
+            self._zone_id_req(event.event_id, event.scope),
+            InvitesRecordType.Rsvp.value,
+        ):
+            if isinstance(record, CKTombstoneRecord):
+                latest.pop(record.recordName, None)
+            else:
+                latest[record.recordName] = record
+        return [self._rsvp_from_record(record) for record in latest.values()]
+
+    def _zone_records(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq, *record_types: str
+    ) -> Iterator[CKRecord | CKTombstoneRecord]:
+        """Yield a zone's changes for the given record types.
+
+        Not by querying it: an event's own zone rejects ``records/query`` with
+        "syncToken operations supported only in SyncZone", so a per-zone query
+        works only for events shared with you. The changes feed reads any zone.
+
+        ``desiredRecordTypes`` asks Apple for those records alone; the filter is
+        kept because that projection is a request, not a guarantee. Tombstones
+        are yielded too, unfiltered because they carry no ``recordType``, so
+        callers reconcile by ``recordName``: keep the latest live record, and
+        drop the name on a tombstone.
+        """
+
+        wanted = frozenset(record_types)
+        zone_req = CKZoneChangesZoneReq(
+            zoneID=CKZoneID(**zone_id.model_dump(exclude_none=True)),
+            desiredRecordTypes=list(record_types),
+        )
+        for page in self._raw.iter_changes(scope_str, zone_req=zone_req):
+            for record in page.records:
+                if isinstance(record, CKTombstoneRecord) or (
+                    isinstance(record, CKRecord) and record.recordType in wanted
+                ):
+                    yield record
+
+    def _zone_rsvps_and_links(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq
+    ) -> tuple[tuple[Rsvp, ...], tuple[OneTimeLinkGuest, ...]]:
+        """Read a zone's RSVPs and one-time links in one changes-feed pass.
+
+        Both record types live in the event's zone, and the changes feed is the
+        only read an event you own supports. Records are reconciled by
+        ``recordName`` (the feed can repeat one, and a tombstone deletes one),
+        and records read before a mid-feed failure are kept: hydration is
+        best-effort, and partial data beats none.
+        """
+
+        rsvps: dict[str, Rsvp] = {}
+        links: dict[str, OneTimeLinkGuest] = {}
+        try:
+            for record in self._zone_records(
+                scope_str,
+                zone_id,
+                InvitesRecordType.Rsvp.value,
+                InvitesRecordType.OneTimeLinkGuestInfo.value,
+            ):
+                if isinstance(record, CKTombstoneRecord):
+                    rsvps.pop(record.recordName, None)
+                    links.pop(record.recordName, None)
+                elif record.recordType == InvitesRecordType.Rsvp.value:
+                    rsvps[record.recordName] = self._rsvp_from_record(record)
+                else:
+                    links[record.recordName] = self._one_time_link_from_record(record)
+        except InvitesError:
+            LOGGER.debug(
+                "invites.event.zone_read_failed zone=%s",
+                zone_id.zoneName,
+                exc_info=True,
+            )
+        return tuple(rsvps.values()), tuple(links.values())
+
+    def rsvp_image(self, rsvp: Rsvp) -> bytes | None:
+        """Return the image a guest attached to their RSVP.
+
+        ``None`` when they attached none, which is the common case: the field
+        is optional and most responses carry only a monogram.
+
+        The download goes through the private container's HTTP wrapper, which
+        only supplies the session and timeouts -- the asset URL Apple returns
+        is absolute and carries its own token, so an RSVP in a shared event
+        downloads the same way as one in your own.
+        """
+
+        url = rsvp.image_download_url
+        if not url:
+            return None
+        # The download uses the authenticated session, so an attacker-supplied
+        # scheme would put iCloud credentials on the wire in the clear. Guarded
+        # the same way PhotosUploader.send_bytes guards the upload URL Apple
+        # echoes back to it, plus a real host check so a URL without a host,
+        # such as ``https:example.com/a`` or ``https://@/a``, cannot slip
+        # through.
+        try:
+            parsed = urlparse(url)
+        except ValueError as exc:
+            raise InvitesApiError(
+                f"RSVP image URL is malformed; refusing to fetch it: {url!r}"
+            ) from exc
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise InvitesApiError(
+                "RSVP image URL is not an absolute HTTPS URL; refusing to "
+                f"fetch it: {url!r}"
+            )
+        return self._raw.download_asset_bytes(url)
+
+    def resolve(self, short_guid: str) -> ResolvedShare:
+        """Preview a share without joining it."""
+        data = self._raw.resolve([short_guid])
+        result = self._first_resolve_result(data)
+        return self._resolved_share_from_result(result)
+
+    def accept(self, short_guid: str) -> Event:
+        """Accept a share invite. Returns the joined event (now in SHARED)."""
+        data = self._raw.accept([short_guid])
+        result = self._first_resolve_result(data)
+        zone = result.get("zoneID") or {}
+        event_id = zone.get("zoneName")
+        if not isinstance(event_id, str):
+            raise InvitesApiError(
+                "Accept response missing zoneID.zoneName",
+                payload=data,
+            )
+        scope = self._scope_from_db_scope(result.get("databaseScope"))
+        event = self._fetch_event_full(event_id, scope)
+        if event is None:
+            # Fall back to the other scope in case of routing quirks.
+            other = (
+                EventScope.PRIVATE if scope == EventScope.SHARED else EventScope.SHARED
+            )
+            event = self._fetch_event_full(event_id, other)
+        if event is None:
+            raise EventNotFound(
+                f"Accepted event {event_id!r} not visible in either scope"
+            )
+        return event
+
+    # ------------------------------------------------------------------
+    # Public writes
+    # ------------------------------------------------------------------
+
+    def create_event(
+        self,
+        title: str,
+        time: EventTime,
+        *,
+        place: EventPlace | None = None,
+        notes: str = "",
+        max_attendees: int | None = None,
+        max_additional_guests_per_rsvp: int = 0,
+        is_private: bool = False,
+    ) -> Event:
+        """Create an unpublished hosted event with a share, but no guests.
+
+        Dates must be timezone-aware. Entitlement is checked before creating a
+        zone. After a confirmed zone creation, subsequent failures trigger a
+        best-effort deletion of that new zone only. InvitesCreationError retains
+        its ID, cleanup outcome, and the original failure as its cause. An
+        unconfirmed zone creation is not automatically deleted or retried. The
+        created share may not identify the current user as a participant yet;
+        refetch via ``event()`` before ``rsvp()``.
+        """
+        fields, preview = creation_fields(
+            title,
+            time,
+            place=place,
+            notes=notes,
+            max_attendees=max_attendees,
+            max_additional_guests_per_rsvp=max_additional_guests_per_rsvp,
+            is_private=is_private,
+        )
+        fields[EventDetailsField.HINT.value] = {
+            "type": "STRING",
+            "value": json.dumps({"subscriptionAccessToken": self._entitlement_token()}),
+        }
+        event_id = str(uuid4()).upper()
+        zone_id = CKZoneIDReq(zoneName=event_id)
+        zone_created = False
+        try:
+            self._modify_new_zone(event_id, "create")
+            zone_created = True
+            record_name = f"{EVENT_DETAILS_RECORD_NAME_PREFIX}{event_id}"
+            response = self._raw.modify(
+                "private",
+                zone_id=zone_id,
+                atomic=True,
+                operations=[
+                    CKModifyOperation(
+                        operationType="create",
+                        record=CKWriteRecord(
+                            recordName=record_name,
+                            recordType=InvitesRecordType.EventDetails.value,
+                            fields=fields,
+                        ),
+                    )
+                ],
+            )
+            event = self._event_from_modify_response(
+                response, record_name, EventScope.PRIVATE
+            )
+            if not event.record_change_tag:
+                raise InvitesApiError("Created event response has no change tag")
+            share_response = self._raw.modify(
+                "private",
+                zone_id=zone_id,
+                atomic=True,
+                operations=[
+                    CKModifyOperation(
+                        operationType="create",
+                        record=CKWriteRecord.model_validate({
+                            "recordName": SHARE_RECORD_NAME,
+                            "recordType": InvitesRecordType.Share.value,
+                            "fields": preview,
+                            "participants": [],
+                            "requesters": [],
+                            "blocked": [],
+                            "publicPermission": "NONE",
+                            "denyAccessRequests": True,
+                        }),
+                    )
+                ],
+            )
+            for record in self._records_of(share_response):
+                if (
+                    record.recordName == SHARE_RECORD_NAME
+                    and record.recordType == InvitesRecordType.Share.value
+                ):
+                    share = self._share_from_record(record)
+                    if share.short_guid:
+                        return event.model_copy(update={"share": share})
+            raise InvitesApiError("Created share response has no usable shortGUID")
+        except Exception as exc:
+            cleanup: bool | None = None
+            cleanup_error: Exception | None = None
+            if zone_created:
+                try:
+                    self._modify_new_zone(event_id, "delete")
+                    cleanup = True
+                except Exception as cleanup_exc:
+                    cleanup = False
+                    cleanup_error = cleanup_exc
+            raise InvitesCreationError(
+                event_id, cleanup_succeeded=cleanup, cleanup_error=cleanup_error
+            ) from exc
+
+    def _modify_new_zone(
+        self, event_id: str, operation: Literal["create", "delete"]
+    ) -> None:
+        response = self._raw.zones_modify([
+            CKZoneModifyOperation(
+                operationType=operation,
+                zone=CKZoneListZone(zoneID=CKZoneID(zoneName=event_id)),
+            )
+        ])
+        if not any(
+            zone.zoneID.zoneName == event_id
+            and bool(zone.deleted) == (operation == "delete")
+            for zone in response.zones
+        ):
+            raise InvitesApiError("Zone modification was not confirmed")
+
+    def invite_via_link(
+        self,
+        event: Event,
+        *,
+        emails: Sequence[str] = (),
+        phone_numbers: Sequence[str] = (),
+        name: str = "",
+    ) -> OneTimeLinkInvitation:
+        """Create a participant-specific invitation for an event you host.
+
+        Experimental: verified for email invitations on a controlled account;
+        push notifications occurred during live tests. Email delivery and
+        phone-only invitations remain unverified.
+        Contacts are guest metadata, not an account lookup or an email-send API.
+        Dates and publication are not modified. The latest owner share is read
+        before an atomic guest-info create/share update. There are no retries.
+
+        A failure after submission raises InvitesInvitationError with the event
+        and participant IDs and the original cause. Inspect those records before
+        retrying: a missing or malformed response does not imply rollback.
+        """
+        if event.scope is not EventScope.PRIVATE:
+            raise InvitesApiError("Only hosted events can receive guest invitations")
+        contacts = invitation_contacts(name, emails, phone_numbers)
+        zone_id = self._zone_id_req(event.event_id, event.scope)
+        share = owner_share(
+            self._raw.lookup("private", [SHARE_RECORD_NAME], zone_id=zone_id)
+        )
+        participant_id = str(uuid4())
+        guest = OneTimeLinkGuest(
+            record_name=f"{participant_id}{ONE_TIME_LINK_RECORD_NAME_SUFFIX}",
+            participant_id=participant_id,
+            name=contacts.name,
+            emails=contacts.emails,
+            phone_numbers=contacts.phone_numbers,
+        )
+        operations = invitation_operations(share, guest)
+        try:
+            response = self._raw.modify(
+                "private", operations=operations, zone_id=zone_id, atomic=True
+            )
+            guest_record, updated_share, token = invitation_records(
+                response, share, guest
+            )
+            return OneTimeLinkInvitation(
+                **self._one_time_link_from_record(guest_record).model_dump(),
+                short_guid=token,
+                record_change_tag=cast(str, guest_record.recordChangeTag),
+                share_record_change_tag=cast(str, updated_share.recordChangeTag),
+            )
+        except Exception as exc:
+            raise InvitesInvitationError(event.event_id, participant_id) from exc
+
+    def rsvp(
+        self,
+        event: Event,
+        status: RsvpStatus,
+        *,
+        name: str | None = None,
+        message: str | None = None,
+        plus_one_adults: int = 0,
+        plus_one_kids: int = 0,
+    ) -> Rsvp:
+        """Submit or update the current user's RSVP for ``event``.
+
+        Dispatches to ``private`` if the current user owns the event, or
+        ``shared`` if they're a guest (per ``event.scope``). Creates the RSVP
+        record on first response and updates it on subsequent calls.
+
+        For :attr:`RsvpStatus.NOT_GOING`, plus-one counts are zeroed to mirror
+        the iCloud web UI behavior; the ``plus_one_*`` kwargs are ignored in
+        that case.
+
+        Returns the freshly written :class:`Rsvp` (including the new
+        ``record_change_tag``).
+        """
+        if plus_one_adults < 0 or plus_one_kids < 0:
+            raise InvitesApiError(
+                "plus_one_adults and plus_one_kids must be non-negative; "
+                f"got plus_one_adults={plus_one_adults!r}, "
+                f"plus_one_kids={plus_one_kids!r}"
+            )
+
+        participant_id = self._current_participant_id(event)
+        record_name = f"{participant_id}{RSVP_RECORD_NAME_SUFFIX}"
+        existing = self._find_existing_rsvp(event, record_name)
+
+        if status == RsvpStatus.NOT_GOING:
+            plus_one_adults = 0
+            plus_one_kids = 0
+
+        fields: dict[str, Any] = {
+            RsvpField.STATUS.value: {
+                "type": "INT64",
+                "value": status.value,
+                "isEncrypted": True,
+            },
+            RsvpField.NUM_ADDITIONAL_ADULTS.value: {
+                "type": "INT64",
+                "value": plus_one_adults,
+                "isEncrypted": True,
+            },
+            RsvpField.NUM_ADDITIONAL_KIDS.value: {
+                "type": "INT64",
+                "value": plus_one_kids,
+                "isEncrypted": True,
+            },
+            RsvpField.NUM_ADDITIONAL_GUESTS.value: {
+                "type": "INT64",
+                "value": plus_one_adults + plus_one_kids,
+                "isEncrypted": True,
+            },
+        }
+        if name is not None:
+            fields[RsvpField.NAME.value] = {
+                "type": "STRING",
+                "value": name,
+                "isEncrypted": True,
+            }
+        if message is not None:
+            fields[RsvpField.MESSAGE.value] = {
+                "type": "STRING",
+                "value": message,
+                "isEncrypted": True,
+            }
+
+        record_change_tag = existing.record_change_tag if existing else None
+        op = CKModifyOperation(
+            operationType="update" if existing else "create",
+            record=CKWriteRecord(
+                recordName=record_name,
+                recordType=InvitesRecordType.Rsvp.value,
+                recordChangeTag=record_change_tag,
+                fields=cast(CKWriteFields, fields),
+            ),
+        )
+
+        scope_str = self._scope_str(event.scope)
+        zone_id = self._zone_id_req(event.event_id, event.scope)
+        response: CKModifyResponse = self._raw.modify(
+            scope_str,
+            operations=[op],
+            zone_id=zone_id,
+            atomic=True,
+        )
+        return self._rsvp_from_modify_response(response, record_name)
+
+    def cancel(self, event: Event, *, cancelled: bool = True) -> Event:
+        """Cancel an event you host, or reinstate one you cancelled.
+
+        Apple accepts both directions, so this is a symmetric switch rather
+        than a one-way verb -- an accidental cancel is recoverable.
+
+        ``event`` must carry a current record change tag, so pass one from
+        ``event()`` or from a previous write rather than reusing a stale
+        object: Apple rejects a stale tag with an opaque ``502``.
+        """
+
+        return self._set_event_flag(event, EventDetailsField.IS_CANCELLED, cancelled)
+
+    def publish(self, event: Event, *, published: bool = True) -> Event:
+        """Publish an event you host, or return it to an unpublished state.
+
+        Pass an event with a current record change tag from ``event()`` or a
+        previous write. Both EventDetails and its share are updated atomically;
+        no modify is sent unless the share's current tag could be read. A share
+        with no readable tag raises, and a failed lookup surfaces its own error
+        rather than a generic refusal. The returned event carries the new tag,
+        but is not rehydrated with share/RSVP data.
+        """
+        if event.scope is not EventScope.PRIVATE:
+            raise InvitesApiError("Only events you host can be published.")
+        return self._set_event_flag(event, EventDetailsField.IS_PUBLISHED, published)
+
+    # ------------------------------------------------------------------
+    # Internal: write helpers
+    # ------------------------------------------------------------------
+
+    def _entitlement_token(self) -> str:
+        """Return a token proving this account may edit events.
+
+        Cached until shortly before Apple's own ``cacheTill``: the grant lasts
+        a week, and fetching one per write would add a round trip for nothing.
+        """
+
+        now = datetime.now(timezone.utc)
+        cached = self._feature_access
+        if cached is not None and cached.usable_at(now):
+            return cast(str, cached.access_token)
+
+        access = self._raw.feature_access(CREATE_EVENT_FEATURE)
+        if not access.can_use or not access.access_token:
+            raise InvitesEntitlementError(
+                "This account cannot edit events. Apple gates them behind a "
+                f"subscription feature ({CREATE_EVENT_FEATURE}) and reports "
+                "it as unavailable here."
+            )
+        self._feature_access = access
+        return access.access_token
+
+    def _set_event_flag(
+        self, event: Event, field: EventDetailsField, value: bool
+    ) -> Event:
+        """Set one boolean flag on an event, and on its share.
+
+        Two operations in one atomic modify, because the share record keeps its
+        own copies of these flags and does **not** follow the event: cancelling
+        only the event leaves the share reading as live to guests.
+
+        The ``hint`` field carries the entitlement token. Without it Apple
+        answers ``502 INTERNAL_ERROR`` with no explanation at all.
+
+        With ``remapEnums=true``, publication uses an ``INT64`` carrying
+        ``isEncrypted: true`` on EventDetails and a plain ``INT64`` on the share.
+        Omitting the marker causes ``expected type ENCRYPTED_NUMBER_INT64``;
+        client-side ciphertext is not required. Cancellation remains plain.
+
+        Publication reads the share's tag strictly: a failed lookup propagates
+        its own error, and a share carrying no tag refuses the write outright,
+        whereas cancellation keeps its event-only fallback.
+        """
+
+        if not event.record_change_tag:
+            raise InvitesApiError(
+                f"Event {event.event_id!r} has no record change tag; fetch it "
+                "via InvitesService.event(...) before writing to it."
+            )
+
+        hint = json.dumps({"subscriptionAccessToken": self._entitlement_token()})
+        publishing = field is EventDetailsField.IS_PUBLISHED
+        flag: dict[str, Any] = {"type": "INT64", "value": int(value)}
+        event_flag = dict(flag)
+        if publishing:
+            event_flag["isEncrypted"] = True
+        scope_str = self._scope_str(event.scope)
+        zone_id = self._zone_id_req(event.event_id, event.scope)
+
+        operations = [
+            CKModifyOperation(
+                operationType="update",
+                record=CKWriteRecord(
+                    recordName=(f"{EVENT_DETAILS_RECORD_NAME_PREFIX}{event.event_id}"),
+                    recordType=InvitesRecordType.EventDetails.value,
+                    recordChangeTag=event.record_change_tag,
+                    fields=cast(
+                        CKWriteFields,
+                        {
+                            field.value: event_flag,
+                            EventDetailsField.HINT.value: {
+                                "type": "STRING",
+                                "value": hint,
+                            },
+                        },
+                    ),
+                ),
+            )
+        ]
+
+        share_tag = self._share_change_tag(scope_str, zone_id, strict=publishing)
+        if publishing and not share_tag:
+            raise InvitesApiError(
+                "Cannot publish an event without its share's current change tag; "
+                "no changes were sent."
+            )
+        if share_tag is not None:
+            operations.append(
+                CKModifyOperation(
+                    operationType="update",
+                    record=CKWriteRecord(
+                        recordName=SHARE_RECORD_NAME,
+                        recordType=InvitesRecordType.Share.value,
+                        recordChangeTag=share_tag,
+                        fields=cast(CKWriteFields, {field.value: flag}),
+                    ),
+                )
+            )
+
+        response: CKModifyResponse = self._raw.modify(
+            scope_str, operations=operations, zone_id=zone_id, atomic=True
+        )
+        return self._event_from_modify_response(
+            response,
+            f"{EVENT_DETAILS_RECORD_NAME_PREFIX}{event.event_id}",
+            event.scope,
+        )
+
+    def _share_change_tag(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq, *, strict: bool = False
+    ) -> str | None:
+        """Return the share record's own change tag, or None if unreadable.
+
+        ``EventShare`` does not carry it and an update needs it, so read it
+        back from the same lookup ``event()`` already uses. An API error
+        reading the share still gets its event updated rather than nothing;
+        auth and rate-limit failures propagate instead, because the write that
+        follows would hit the same wall.
+
+        ``strict`` is for publication, which refuses to write without the tag:
+        the lookup's own failure then propagates with its message and payload
+        instead of degrading to ``None``, so callers can tell a failed read
+        apart from a share that carries no tag. A per-record error item in the
+        lookup answer (anything but ``NOT_FOUND``, which only means the share
+        is absent) is treated the same way in strict mode; ``NOT_FOUND`` is
+        reported by the caller's missing-tag refusal instead.
+        """
+
+        try:
+            resp = self._raw.lookup(scope_str, [SHARE_RECORD_NAME], zone_id=zone_id)
+        except InvitesApiError:
+            if strict:
+                raise
+            LOGGER.debug("invites.share_change_tag_failed", exc_info=True)
+            return None
+        error = next(
+            (
+                item
+                for item in resp.records
+                if isinstance(item, CKErrorItem) and item.serverErrorCode != "NOT_FOUND"
+            ),
+            None,
+        )
+        if error is not None:
+            message = f"Share lookup failed: {error.serverErrorCode}"
+            if error.reason:
+                message = f"{message} ({error.reason})"
+            if strict:
+                raise InvitesApiError(
+                    message,
+                    payload=error.model_dump(mode="json", exclude_none=True),
+                )
+            LOGGER.debug("invites.share_lookup_error code=%s", error.serverErrorCode)
+            return None
+        for record in self._records_of(resp):
+            if record.recordName == SHARE_RECORD_NAME:
+                return record.recordChangeTag
+        return None
+
+    def _event_from_modify_response(
+        self, response: CKModifyResponse, record_name: str, scope: EventScope
+    ) -> Event:
+        """Pick the event record out of a modify response and convert it.
+
+        Carries the new change tag so writes can be chained. ``share`` and
+        ``rsvps`` are unset, as in ``events()``.
+        """
+
+        for record in response.records:
+            if (
+                isinstance(record, CKRecord)
+                and record.recordName == record_name
+                and record.recordType == InvitesRecordType.EventDetails.value
+            ):
+                return self._event_from_record(record, scope=scope)
+        raise InvitesApiError(
+            f"Modify response did not return {record_name!r}",
+            payload=response.model_dump(mode="json"),
+        )
+
+    @staticmethod
+    def _current_participant_id(event: Event) -> str:
+        """Return the current user's participant_id on ``event``'s share."""
+        if event.share is None:
+            raise InvitesApiError(
+                f"Event {event.event_id!r} has no loaded share; "
+                "fetch the event via InvitesService.event(...) first."
+            )
+        participant_id = event.share.current_user_participant_id
+        if not participant_id:
+            raise InvitesApiError(
+                f"Event {event.event_id!r} share has no currentUserParticipant; "
+                "the user may not be a participant on this event."
+            )
+        return participant_id
+
+    @staticmethod
+    def _find_existing_rsvp(event: Event, record_name: str) -> Rsvp | None:
+        """Find the user's RSVP in ``event.rsvps`` matching ``record_name``."""
+        for rsvp in event.rsvps:  # noqa: S3862
+            if rsvp.record_name == record_name:
+                return rsvp
+        return None
+
+    def _rsvp_from_modify_response(
+        self, response: CKModifyResponse, record_name: str
+    ) -> Rsvp:
+        """Pick the RSVP record from a modify response and convert to DTO."""
+        for record in response.records:
+            if (
+                isinstance(record, CKRecord)
+                and record.recordName == record_name
+                and record.recordType == InvitesRecordType.Rsvp.value
+            ):
+                return self._rsvp_from_record(record)
+        raise InvitesApiError(
+            f"RSVP modify response missing record {record_name!r}",
+            payload=response.model_dump(mode="json", exclude_none=True),
+        )
+
+    # ------------------------------------------------------------------
+    # Internal: zone-level helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _scope_str(scope: EventScope) -> ScopeLiteral:
+        return "private" if scope == EventScope.PRIVATE else "shared"
+
+    @staticmethod
+    def _scope_from_db_scope(db_scope: str | None) -> EventScope:
+        if isinstance(db_scope, str) and db_scope.upper() == "SHARED":
+            return EventScope.SHARED
+        return EventScope.PRIVATE
+
+    @staticmethod
+    def _event_id_from_record_name(record_name: str) -> str:
+        if record_name.startswith(EVENT_DETAILS_RECORD_NAME_PREFIX):
+            return record_name[len(EVENT_DETAILS_RECORD_NAME_PREFIX) :]
+        return record_name
+
+    def _zone_id_req(self, event_id: str, scope: EventScope) -> CKZoneIDReq:
+        """Build the zone reference for an event.
+
+        A shared zone is only addressable with its original owner, so without
+        ownerRecordName a shared lookup finds nothing and the caller sees
+        EventNotFound for an event ``events()`` just returned. The owner comes
+        from the shared /zones/list entry whose zoneName is the event id.
+        """
+
+        owner = (
+            self._shared_zone_owner(event_id) if scope is EventScope.SHARED else None
+        )
+        return CKZoneIDReq(
+            zoneName=event_id,
+            zoneType="REGULAR_CUSTOM_ZONE",
+            ownerRecordName=owner,
+        )
+
+    def _shared_zone_owner(self, event_id: str) -> str | None:
+        """Return the owner of the shared zone holding ``event_id``, if any."""
+
+        try:
+            zones = self._raw.zones_list(self._scope_str(EventScope.SHARED)).zones or []
+        except InvitesError:
+            LOGGER.debug("invites.shared_zone_owner_failed", exc_info=True)
+            return None
+        for zone in zones:
+            if zone.zoneID.zoneName == event_id:
+                return zone.zoneID.ownerRecordName
+        return None
+
+    @staticmethod
+    def _records_of(
+        resp: CKQueryResponse | CKLookupResponse | CKModifyResponse,
+    ) -> list[CKRecord]:
+        return [r for r in resp.records if isinstance(r, CKRecord)]
+
+    def _iter_event_details(self, scope: EventScope) -> Iterable[CKRecord]:
+        if scope is EventScope.SHARED:
+            return self._shared_event_details()
+
+        try:
+            resp = self._raw.query(
+                self._scope_str(scope),
+                query=CKQueryObject(
+                    recordType=InvitesRecordType.EventDetails.value,
+                ),
+                zone_wide=True,
+            )
+        except InvitesError:
+            LOGGER.debug(
+                "invites.events.query_failed scope=%s", scope.value, exc_info=True
+            )
+            return []
+        return self._records_of(resp)
+
+    def _shared_event_details(self) -> list[CKRecord]:
+        """Enumerate shared events one zone at a time.
+
+        CloudKit refuses a zone-wide query against the shared database --
+        "SharedDB does not support Zone Wide queries" -- so the shared scope is
+        read by listing the zones shared with this account and taking the
+        records of each. A zone that fails is skipped rather than failing the
+        whole call, since one unreadable share should not hide the others.
+        """
+
+        scope_str = self._scope_str(EventScope.SHARED)
+        try:
+            zones = self._raw.zones_list(scope_str).zones or []
+        except InvitesError:
+            LOGGER.debug("invites.events.zones_list_failed", exc_info=True)
+            return []
+
+        wanted = InvitesRecordType.EventDetails.value
+        records: list[CKRecord] = []
+        for zone in zones:
+            try:
+                # Every page, not just the first: a zone with more behind it
+                # would otherwise drop events with no sign anything was lost.
+                pages = list(
+                    self._raw.iter_changes(
+                        scope_str,
+                        zone_req=CKZoneChangesZoneReq(zoneID=zone.zoneID),
+                    )
+                )
+            except InvitesError:
+                LOGGER.debug(
+                    "invites.events.zone_changes_failed zone=%s",
+                    zone.zoneID.zoneName,
+                    exc_info=True,
+                )
+                continue
+            records.extend(
+                record
+                for page in pages
+                for record in page.records
+                if isinstance(record, CKRecord) and record.recordType == wanted
+            )
+        return records
+
+    def _fetch_event_full(self, event_id: str, scope: EventScope) -> Event | None:
+        zone_id = self._zone_id_req(event_id, scope)
+        scope_str = self._scope_str(scope)
+        try:
+            resp = self._raw.lookup(
+                scope_str,
+                [
+                    f"{EVENT_DETAILS_RECORD_NAME_PREFIX}{event_id}",
+                    SHARE_RECORD_NAME,
+                ],
+                zone_id=zone_id,
+            )
+        except InvitesError:
+            LOGGER.debug(
+                "invites.event.lookup_failed event_id=%s scope=%s",
+                event_id,
+                scope.value,
+                exc_info=True,
+            )
+            return None
+
+        event_record: CKRecord | None = None
+        share_record: CKRecord | None = None
+        for record in self._records_of(resp):
+            if record.recordType == InvitesRecordType.EventDetails.value:
+                event_record = record
+            elif record.recordType == InvitesRecordType.Share.value:
+                share_record = record
+        if event_record is None:
+            return None
+
+        share = self._share_from_record(share_record) if share_record else None
+
+        rsvps, otl_guests = self._zone_rsvps_and_links(scope_str, zone_id)
+
+        if share is not None and otl_guests:
+            share = share.model_copy(update={"one_time_links": otl_guests})
+
+        return self._event_from_record(
+            event_record, scope=scope, share=share, rsvps=rsvps
+        )
+
+    # ------------------------------------------------------------------
+    # Internal: record -> DTO mapping
+    # ------------------------------------------------------------------
+
+    def _event_from_record(
+        self,
+        record: CKRecord,
+        *,
+        scope: EventScope,
+        share: EventShare | None = None,
+        rsvps: tuple[Rsvp, ...] = (),
+    ) -> Event:
+        event_id = self._event_id_from_record_name(record.recordName)
+        fields = record.fields
+
+        title = self._field_str(fields, EventDetailsField.TITLE.value, default="") or ""
+        notes = self._field_str(fields, EventDetailsField.NOTES.value, default="") or ""
+        host_display_name = (
+            self._field_str(
+                fields, EventDetailsField.HOST_DISPLAY_NAME.value, default=""
+            )
+            or ""
+        )
+
+        is_published = self._field_bool(fields, EventDetailsField.IS_PUBLISHED.value)
+        is_private = self._field_bool(fields, EventDetailsField.IS_PRIVATE.value)
+        is_cancelled = self._field_bool(fields, EventDetailsField.IS_CANCELLED.value)
+        block_new_rsvps = self._field_bool(
+            fields, EventDetailsField.BLOCK_NEW_RSVPS.value
+        )
+
+        max_attendees = self._field_int(fields, EventDetailsField.MAX_ATTENDEES.value)
+        max_additional = (
+            self._field_int(
+                fields, EventDetailsField.MAX_ADDITIONAL_GUESTS_PER_RSVP.value
+            )
+            or 0
+        )
+
+        time_obj = self._decode_time(fields)
+        place_obj = self._decode_place(fields)
+        background = self._decode_json(fields, EventDetailsField.BACKGROUND.value) or {}
+        style = self._decode_json(fields, EventDetailsField.STYLE.value) or {}
+        integrations_blob = self._decode_json(
+            fields, EventDetailsField.INTEGRATIONS.value
+        )
+        integrations = decode_integrations(integrations_blob)
+
+        created_ts = record.created.timestamp if record.created else None
+        modified_ts = record.modified.timestamp if record.modified else None
+
+        return Event(
+            event_id=event_id,
+            scope=scope,
+            record_change_tag=record.recordChangeTag,
+            title=title,
+            notes=notes,
+            host_display_name=host_display_name,
+            is_published=is_published,
+            is_private=is_private,
+            is_cancelled=is_cancelled,
+            block_new_rsvps=block_new_rsvps,
+            max_attendees=max_attendees,
+            max_additional_guests_per_rsvp=max_additional,
+            time=time_obj,
+            place=place_obj,
+            background=background if isinstance(background, dict) else {},
+            style=style if isinstance(style, dict) else {},
+            integrations=integrations,
+            created_timestamp=created_ts,
+            modified_timestamp=modified_ts,
+            share=share,
+            rsvps=rsvps,
+        )
+
+    def _share_from_record(self, record: CKRecord) -> EventShare:
+        short_guid = record.shortGUID or ""
+        public_permission = record.publicPermission or "NONE"
+        participants = tuple(
+            self._participant_from_ck(p) for p in (record.participants or [])
+        )
+        current_user_participant_id: str | None = None
+        current = getattr(record, "currentUserParticipant", None)
+        if current is not None:
+            current_user_participant_id = getattr(current, "participantId", None)
+        return EventShare(
+            short_guid=short_guid,
+            public_permission=public_permission,
+            participants=participants,
+            one_time_links=(),
+            current_user_participant_id=current_user_participant_id,
+        )
+
+    @staticmethod
+    def _participant_from_ck(p: Any) -> Participant:
+        identity = getattr(p, "userIdentity", None)
+        name_components = (
+            getattr(identity, "nameComponents", None) if identity else None
+        )
+        lookup_info = getattr(identity, "lookupInfo", None) if identity else None
+        return Participant(
+            participant_id=getattr(p, "participantId", "") or "",
+            user_record_name=(
+                getattr(identity, "userRecordName", None) if identity else None
+            ),
+            given_name=(
+                getattr(name_components, "givenName", None) if name_components else None
+            ),
+            family_name=(
+                getattr(name_components, "familyName", None)
+                if name_components
+                else None
+            ),
+            email=(getattr(lookup_info, "emailAddress", None) if lookup_info else None),
+            type=InvitesService._safe_participant_type(getattr(p, "type", None)),
+            acceptance_status=InvitesService._safe_acceptance_status(
+                getattr(p, "acceptanceStatus", None)
+            ),
+            permission=getattr(p, "permission", "READ_ONLY") or "READ_ONLY",
+        )
+
+    @staticmethod
+    def _safe_participant_type(value: Any) -> ParticipantType:
+        """Map a wire participant ``type`` to the enum, defaulting on unknowns."""
+        try:
+            return ParticipantType(str(value or "USER"))
+        except ValueError:
+            LOGGER.debug("invites.participant.unknown_type %r", value)
+            return ParticipantType.USER
+
+    @staticmethod
+    def _safe_acceptance_status(value: Any) -> AcceptanceStatus:
+        """Map a wire ``acceptanceStatus`` to the enum, defaulting on unknowns."""
+        try:
+            return AcceptanceStatus(str(value or "INVITED"))
+        except ValueError:
+            LOGGER.debug("invites.participant.unknown_acceptance %r", value)
+            return AcceptanceStatus.INVITED
+
+    def _rsvp_from_record(self, record: CKRecord) -> Rsvp:
+        record_name = record.recordName
+        suffix = "_rsvp"
+        participant_id = (
+            record_name[: -len(suffix)] if record_name.endswith(suffix) else record_name
+        )
+        fields = record.fields
+        status_int = self._field_int(fields, RsvpField.STATUS.value) or 0
+        try:
+            status = RsvpStatus(status_int)
+        except ValueError:
+            status = RsvpStatus.NO_RESPONSE
+        image_url = self._asset_download_url(fields, RsvpField.IMAGE.value)
+        return Rsvp(
+            record_name=record_name,
+            participant_id=participant_id,
+            name=self._field_str(fields, RsvpField.NAME.value, default="") or "",
+            status=status,
+            message=self._field_str(fields, RsvpField.MESSAGE.value, default=None),
+            num_additional_adults=(
+                self._field_int(fields, RsvpField.NUM_ADDITIONAL_ADULTS.value) or 0
+            ),
+            num_additional_kids=(
+                self._field_int(fields, RsvpField.NUM_ADDITIONAL_KIDS.value) or 0
+            ),
+            image_download_url=image_url,
+            record_change_tag=record.recordChangeTag,
+        )
+
+    def _one_time_link_from_record(self, record: CKRecord) -> OneTimeLinkGuest:
+        record_name = record.recordName
+        suffix = "_otl"
+        participant_id = (
+            record_name[: -len(suffix)] if record_name.endswith(suffix) else record_name
+        )
+        fields = record.fields
+        emails_raw = self._field_value(fields, OneTimeLinkField.EMAILS.value)
+        phones_raw = self._field_value(fields, OneTimeLinkField.PHONE_NUMBERS.value)
+        return OneTimeLinkGuest(
+            record_name=record_name,
+            participant_id=participant_id,
+            name=self._field_str(fields, OneTimeLinkField.NAME.value, default="") or "",
+            emails=tuple(emails_raw) if isinstance(emails_raw, list) else (),
+            phone_numbers=tuple(phones_raw) if isinstance(phones_raw, list) else (),
+        )
+
+    # ------------------------------------------------------------------
+    # Internal: resolve/accept response parsing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _first_resolve_result(data: Mapping[str, Any]) -> dict[str, Any]:
+        results = data.get("results")
+        if not isinstance(results, list) or not results:
+            raise InvitesApiError(
+                "Resolve/accept response missing results",
+                payload=data,
+            )
+        first = results[0]
+        if not isinstance(first, dict):
+            raise InvitesApiError(
+                "Resolve/accept response result not a dict",
+                payload=data,
+            )
+        return first
+
+    def _resolved_share_from_result(  # noqa: S3776
+        self, result: Mapping[str, Any]
+    ) -> ResolvedShare:
+        short = result.get("shortGUID") or {}
+        short_guid = short.get("value") if isinstance(short, dict) else None
+        if not isinstance(short_guid, str):
+            raise InvitesApiError(
+                "Resolve response missing shortGUID.value", payload=dict(result)
+            )
+        zone = result.get("zoneID") or {}
+        event_id = zone.get("zoneName") if isinstance(zone, dict) else None
+        if not isinstance(event_id, str):
+            raise InvitesApiError(
+                "Resolve response missing zoneID.zoneName", payload=dict(result)
+            )
+
+        owner_identity = result.get("ownerIdentity") or {}
+        owner_name_components = (
+            owner_identity.get("nameComponents")
+            if isinstance(owner_identity, dict)
+            else None
+        )
+        owner_lookup_info = (
+            owner_identity.get("lookupInfo")
+            if isinstance(owner_identity, dict)
+            else None
+        )
+
+        share_raw = result.get("share") or {}
+        if isinstance(share_raw, dict):
+            try:
+                share_record = CKRecord.model_validate(share_raw)
+                share = self._share_from_record(share_record)
+            except Exception:
+                share = EventShare(
+                    short_guid=short_guid,
+                    public_permission="NONE",
+                )
+        else:
+            share = EventShare(short_guid=short_guid, public_permission="NONE")
+
+        return ResolvedShare(
+            short_guid=short_guid,
+            event_id=event_id,
+            owner_record_name=(
+                owner_identity.get("userRecordName")
+                if isinstance(owner_identity, dict)
+                else None
+            ),
+            owner_email=(
+                owner_lookup_info.get("emailAddress")
+                if isinstance(owner_lookup_info, dict)
+                else None
+            ),
+            owner_given_name=(
+                owner_name_components.get("givenName")
+                if isinstance(owner_name_components, dict)
+                else None
+            ),
+            owner_family_name=(
+                owner_name_components.get("familyName")
+                if isinstance(owner_name_components, dict)
+                else None
+            ),
+            participant_status=str(result.get("participantStatus") or ""),
+            participant_type=str(result.get("participantType") or ""),
+            participant_permission=str(result.get("participantPermission") or ""),
+            share=share,
+        )
+
+    # ------------------------------------------------------------------
+    # Internal: field-extraction helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _field_value(fields: Any, key: str) -> Any:
+        if hasattr(fields, "get_value"):
+            return fields.get_value(key)
+        if hasattr(fields, "get"):
+            wrapper = fields.get(key)
+            return getattr(wrapper, "value", None)
+        return None
+
+    def _field_str(self, fields: Any, key: str, *, default: str | None) -> str | None:
+        value = self._field_value(fields, key)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bytes):
+            try:
+                return value.decode("utf-8")
+            except UnicodeDecodeError:
+                return default
+        return default
+
+    def _field_int(self, fields: Any, key: str) -> int | None:
+        value = self._field_value(fields, key)
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value
+        return None
+
+    def _field_bool(self, fields: Any, key: str) -> bool:
+        value = self._field_value(fields, key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value != 0
+        return False
+
+    def _decode_json(self, fields: Any, key: str) -> Any:
+        value = self._field_value(fields, key)
+        return decode_json_bytes(value)
+
+    def _decode_time(self, fields: Any) -> EventTime | None:
+        blob = self._decode_json(fields, EventDetailsField.TIME.value)
+        if not isinstance(blob, Mapping):
+            return None
+        start_ms = blob.get("startSince1970")
+        if not isinstance(start_ms, (int, float)):
+            return None
+        try:
+            start = datetime.fromtimestamp(start_ms / 1000.0, tz=timezone.utc)
+        except (OSError, ValueError, OverflowError):
+            return None
+        end: datetime | None = None
+        end_ms = blob.get("endSince1970")
+        if isinstance(end_ms, (int, float)):
+            try:
+                end = datetime.fromtimestamp(end_ms / 1000.0, tz=timezone.utc)
+            except (OSError, ValueError, OverflowError):
+                end = None
+        return EventTime(
+            start=start,
+            end=end,
+            is_all_day=bool(blob.get("isAllDay", False)),
+            is_open_ended=bool(blob.get("isOpenEnded", False)),
+        )
+
+    def _decode_place(self, fields: Any) -> EventPlace | None:
+        blob = self._decode_json(fields, EventDetailsField.PLACE.value)
+        if not isinstance(blob, Mapping):
+            return None
+        return EventPlace(
+            title=blob.get("title") if isinstance(blob.get("title"), str) else None,
+            subtitle=(
+                blob.get("subtitle") if isinstance(blob.get("subtitle"), str) else None
+            ),
+            city=blob.get("city") if isinstance(blob.get("city"), str) else None,
+            time_zone_identifier=(
+                blob.get("timeZoneIdentifier")
+                if isinstance(blob.get("timeZoneIdentifier"), str)
+                else None
+            ),
+            latitude=(
+                float(blob["latitude"])
+                if isinstance(blob.get("latitude"), (int, float))
+                else None
+            ),
+            longitude=(
+                float(blob["longitude"])
+                if isinstance(blob.get("longitude"), (int, float))
+                else None
+            ),
+            url=blob.get("url") if isinstance(blob.get("url"), str) else None,
+        )
+
+    @staticmethod
+    def _asset_download_url(fields: Any, key: str) -> str | None:
+        value = InvitesService._field_value(fields, key)
+        if value is None:
+            return None
+        url = getattr(value, "downloadURL", None)
+        if isinstance(url, str):
+            return url
+        if isinstance(value, Mapping):
+            maybe = value.get("downloadURL")
+            return maybe if isinstance(maybe, str) else None
+        return None

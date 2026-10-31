@@ -1,0 +1,186 @@
+{
+  "upstream_commit": "af5246511c729eee4d5a95671135ad75fdd77b22",
+  "phase": "core_roundtrip_complete_not_full_acceptance",
+  "checks": [
+    {
+      "name": "本机账户认证",
+      "result": "pass",
+      "evidence": "authenticated_session"
+    },
+    {
+      "name": "发现真实提醒事项列表",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "读到 iPad 新建的真实任务",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "iPad 确认读到同一任务",
+      "result": "pass",
+      "evidence": "user_observed_on_ipad"
+    },
+    {
+      "name": "A 无日期 创建后服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "B 日期 创建后服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "C 时刻 创建后服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "D 同标题不同身份 创建后服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "同标题任务身份独立",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "无日期语义",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "仅日期语义",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "具体时刻与时区语义",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "电脑新建任务在 iPad 可见且日期正确",
+      "result": "pass",
+      "evidence": "user_observed_on_ipad"
+    },
+    {
+      "name": "任务更新后身份不变",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "更新字段 title 服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "改标题保留日期、备注和优先级",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "任务更新后身份不变",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "更新字段 completed 服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "电脑完成在 iPad 同步",
+      "result": "fail",
+      "evidence": "user_observed_on_ipad",
+      "resolved": true,
+      "resolution": "user_confirmed_completed_item_was_hidden"
+    },
+    {
+      "name": "新进程复用既有可信会话",
+      "result": "pass",
+      "evidence": "cached_session_no_password_login"
+    },
+    {
+      "name": "电脑完成在 iPad 同步（核查更正）",
+      "result": "pass",
+      "evidence": "explicit_user_chat_confirmation_checked_circle_after_show_completed"
+    },
+    {
+      "name": "重新读取原样例仍为已完成",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "任务更新后身份不变",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "更新字段 completed 服务端重读",
+      "result": "pass",
+      "evidence": "server_readback"
+    },
+    {
+      "name": "电脑恢复在 iPad 同步",
+      "result": "pass",
+      "evidence": "user_observed_on_ipad"
+    },
+    {
+      "name": "iPad 执行反向修改",
+      "result": "pass",
+      "evidence": "user_observed_on_ipad"
+    },
+    {
+      "name": "iPad 改名与完成可读回电脑",
+      "result": "fail",
+      "evidence": "server_readback",
+      "resolved": true,
+      "resolution": "user_confirmed_deliberate_title_separator_difference"
+    },
+    {
+      "name": "iPad 实际改名与完成读回（核对更正）",
+      "result": "pass",
+      "evidence": "server_readback_and_explicit_user_title_format_confirmation"
+    },
+    {
+      "name": "A 无日期 删除后服务端核对",
+      "result": "pass",
+      "evidence": "server_readback_deleted_or_exact_record_not_found"
+    },
+    {
+      "name": "B 日期 删除后服务端核对",
+      "result": "pass",
+      "evidence": "server_readback_deleted_or_exact_record_not_found"
+    },
+    {
+      "name": "C 时刻 删除后服务端核对",
+      "result": "pass",
+      "evidence": "server_readback_deleted_or_exact_record_not_found"
+    },
+    {
+      "name": "D 同标题不同身份 删除后服务端核对",
+      "result": "pass",
+      "evidence": "server_readback_deleted_or_exact_record_not_found"
+    },
+    {
+      "name": "手工设备验证任务仍保留",
+      "result": "pass",
+      "evidence": "readonly_list_lookup"
+    },
+    {
+      "name": "电脑删除在 iPad 同步",
+      "result": "pass",
+      "evidence": "explicit_user_chat_confirmation_four_samples_gone_manual_task_retained"
+    }
+  ],
+  "cloud_write_attempts": 11,
+  "adoption": "真正 iCloud 提醒事项核心双向往返初步可行；隔日、异常、复杂字段和产品交付待验收",
+  "updated_at": "2026-10-29T03:22:28.3128906+00:00",
+  "region": "china_mainland",
+  "continuation": "same_owned_samples_no_new_create",
+  "cleanup": "four_owned_samples_deleted_server_and_ipad_confirmed_manual_task_and_list_retained"
+}
