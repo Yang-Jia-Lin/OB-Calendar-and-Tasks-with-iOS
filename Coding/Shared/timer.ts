@@ -99,8 +99,10 @@ export class TimerController {
       startedAt: now, runningSince: now, lastHeartbeat: now, segments: [] };
     await this.commit({ ...this.state, active });
   }); }
-  pause() { return this.lock(() => this.commit({ ...this.state, active: pauseSession(this.state.active, this.now()) })); }
-  resume() { return this.lock(async () => {
+  private checkSession(expectedId?: string) { if (expectedId !== undefined && this.state.active?.id !== expectedId) throw new Error("当前计时已变化，请重新打开。"); }
+  pause(expectedId?: string) { return this.lock(() => { this.checkSession(expectedId); return this.commit({ ...this.state, active: pauseSession(this.state.active, this.now()) }); }); }
+  resume(expectedId?: string) { return this.lock(async () => {
+    this.checkSession(expectedId);
     const s = this.state.active, now = this.now();
     if (!s || s.runningSince != null) throw new Error("当前状态不能继续。");
     if (now < (s.segments.at(-1)?.end ?? s.startedAt)) throw new Error("系统时间倒退，请检查时间。");
@@ -122,7 +124,8 @@ export class TimerController {
     }
     await this.commit({ ...this.state, active: s });
   }); }
-  finish(completeTask = true) { return this.lock(async () => {
+  finish(completeTask = true, expectedId?: string) { return this.lock(async () => {
+    this.checkSession(expectedId);
     const now = this.now(), s = pauseSession(this.state.active, now);
     const segments = s.segments.filter(p => p.end - p.start >= 1000).map((p, i) => ({ ...p, uid: `simple-task-timer-${s.id}-${i}`, saved: false }));
     validateSegments(segments, now);

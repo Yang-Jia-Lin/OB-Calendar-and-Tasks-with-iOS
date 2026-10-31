@@ -136,6 +136,192 @@
     return value?.status === 404 || value?.status === 410 || /\bHTTP\s+(?:404|410)\b/i.test(typeof error2 === "string" ? error2 : value?.message || "");
   }
 
+  // Clients/Obsidian/api.ts
+  var EntryError = class extends Error {
+    constructor(code, message) {
+      super(message);
+      this.code = code;
+    }
+    code;
+  };
+  var taskRef = (task) => ({ kind: "local", path: task.path || "", id: task.id });
+  var sameTask = (task, ref) => task.kind === ref.kind && task.path === ref.path && task.id === ref.id;
+  var TimerApi = class {
+    constructor(host2) {
+      this.host = host2;
+    }
+    host;
+    version = 1;
+    listeners = /* @__PURE__ */ new Set();
+    serial = Promise.resolve();
+    disposed = false;
+    getState() {
+      return clone({ ...this.host.state(), available: !this.disposed });
+    }
+    subscribe(listener) {
+      if (this.disposed) {
+        listener(this.getState());
+        return () => {
+        };
+      }
+      this.listeners.add(listener);
+      try {
+        listener(this.getState());
+      } catch {
+        this.listeners.delete(listener);
+      }
+      return () => {
+        this.listeners.delete(listener);
+      };
+    }
+    notify() {
+      for (const listener of this.listeners) {
+        try {
+          listener(this.getState());
+        } catch {
+        }
+      }
+    }
+    dispose() {
+      this.disposed = true;
+      this.notify();
+      this.listeners.clear();
+    }
+    action(fn) {
+      const result = this.serial.then(async () => {
+        if (this.disposed) return { ok: false, code: "unavailable", message: "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u3002" };
+        try {
+          return await this.host.execute(fn);
+        } catch (e) {
+          return { ok: false, code: e instanceof EntryError ? e.code : "action-error", message: e.message || String(e), sessionId: this.host.controller.state.active?.id };
+        }
+      });
+      this.serial = result;
+      return result;
+    }
+    start(ref, _context) {
+      return this.action(async () => {
+        if (!ref || ref.kind !== "local" || !ref.id || !ref.path) throw new EntryError("invalid-task", "\u8BF7\u63D0\u4F9B\u5F85\u529E\u6587\u4EF6\u8DEF\u5F84\u548C\u7A33\u5B9A\u4EFB\u52A1 ID\u3002");
+        const current = await this.host.resolve(ref);
+        if (current.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
+        const active = this.host.controller.state.active;
+        if (active) {
+          if (sameTask(active.task, ref)) return { ok: true, sessionId: active.id };
+          throw new EntryError("active-session", `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u660E\u786E\u7ED3\u675F\u8BE5\u4F1A\u8BDD\u518D\u5207\u6362\u4EFB\u52A1\u3002`);
+        }
+        const task = await this.host.prepare(current);
+        if (task.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
+        await this.host.controller.start(task, task.calendarId);
+        return { ok: true, sessionId: this.host.controller.state.active.id };
+      });
+    }
+    session(id) {
+      if (!id || this.host.controller.state.active?.id !== id) throw new EntryError("stale-session", "\u6B64\u4F1A\u8BDD\u5DF2\u7ED3\u675F\u6216\u5207\u6362\uFF0C\u8BF7\u4F7F\u7528\u5F53\u524D\u72B6\u6001\u91CD\u8BD5\u3002");
+    }
+    pause(sessionId) {
+      return this.action(async () => {
+        this.session(sessionId);
+        await this.host.controller.pause(sessionId);
+        return { ok: true, sessionId };
+      });
+    }
+    resume(sessionId) {
+      return this.action(async () => {
+        this.session(sessionId);
+        if (this.host.controller.state.active.runningSince == null) await this.host.controller.resume(sessionId);
+        return { ok: true, sessionId };
+      });
+    }
+    finish(sessionId, completeTask = false) {
+      return this.action(async () => {
+        this.session(sessionId);
+        const record = await this.host.controller.finish(completeTask === true, sessionId);
+        let warning = record.error;
+        try {
+          await this.host.refresh();
+        } catch (e) {
+          warning ||= e.message;
+        }
+        return { ok: true, sessionId, recordId: record.id, pending: record.status === "pending", warning };
+      });
+    }
+  };
+
+  // Clients/Obsidian/card.ts
+  init_time();
+  function mountTaskCard(root, api2, ref, context) {
+    const doc = root.ownerDocument;
+    root.classList.add("ctt-card");
+    const title = doc.createElement("div"), status = doc.createElement("div"), controls = doc.createElement("div"), message = doc.createElement("div");
+    title.textContent = "\u4EFB\u52A1\u8BA1\u65F6";
+    title.className = "ctt-card-title";
+    status.setAttribute("role", "status");
+    status.className = "ctt-card-status";
+    controls.className = "ctt-card-controls";
+    message.className = "ctt-card-message";
+    message.setAttribute("role", "status");
+    root.replaceChildren(title, status, controls, message);
+    const stop = (e) => e.stopPropagation();
+    for (const event of ["click", "dblclick", "pointerdown", "keydown"]) root.addEventListener(event, stop);
+    let disposed = false, working = false, state = api2.getState(), controlKey = "";
+    const run2 = async (action) => {
+      if (disposed || working) return;
+      working = true;
+      message.textContent = "";
+      render2();
+      try {
+        const result = await action();
+        if (!disposed) message.textContent = result.ok ? result.recordId ? result.warning || "\u5DE5\u65F6\u5DF2\u4FDD\u5B58\u5728\u672C\u673A\uFF0C\u540E\u53F0\u540C\u6B65\u4E2D\u3002" : "" : result.message;
+      } catch (e) {
+        if (!disposed) message.textContent = e.message;
+      } finally {
+        working = false;
+        if (!disposed) render2();
+      }
+    };
+    const add = (label, action) => {
+      const button2 = doc.createElement("button");
+      button2.type = "button";
+      button2.textContent = label;
+      button2.disabled = working || !state.available;
+      button2.onclick = () => {
+        void run2(action);
+      };
+      controls.append(button2);
+    };
+    function render2() {
+      if (disposed) return;
+      const active = state.active, own = active && sameTask(active.task, ref);
+      const task = state.tasks.find((t) => sameTask(t, ref));
+      title.textContent = own ? active.title : task?.title || "\u4EFB\u52A1\u8BA1\u65F6";
+      status.textContent = !state.available ? "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D" : own ? `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8FDB\u884C\u4E2D"} \xB7 ${secondsText(elapsed(active))}` : active ? `\u6B63\u5728\u8BA1\u65F6\uFF1A${active.title}\uFF1B\u8BF7\u5148\u7ED3\u675F\u540E\u5207\u6362` : task?.completed ? "\u4EFB\u52A1\u5DF2\u5B8C\u6210" : `\u5C1A\u672A\u5F00\u59CB${state.pending ? ` \xB7 ${state.pending} \u9879\u5F85\u540C\u6B65` : ""}`;
+      const key2 = JSON.stringify([active?.id, active?.runningSince == null, working, state.available, task?.completed]);
+      if (key2 === controlKey) return;
+      controlKey = key2;
+      controls.replaceChildren();
+      if (own) {
+        const id = active.id;
+        add(active.runningSince == null ? "\u7EE7\u7EED" : "\u6682\u505C", () => active.runningSince == null ? api2.resume(id) : api2.pause(id));
+        add("\u7ED3\u675F\u53EA\u8BB0\u65F6\u95F4", () => api2.finish(id, false));
+        add("\u7ED3\u675F\u5E76\u5B8C\u6210", () => api2.finish(id, true));
+      } else {
+        add("\u5F00\u59CB\u4EFB\u52A1", () => api2.start(ref, context));
+        if (active || task?.completed) controls.firstElementChild.disabled = true;
+      }
+    }
+    const unsubscribe = api2.subscribe((next) => {
+      state = next;
+      render2();
+    });
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      unsubscribe();
+      for (const event of ["click", "dblclick", "pointerdown", "keydown"]) root.removeEventListener(event, stop);
+      controls.replaceChildren();
+    };
+  }
+
   // Providers/Fcr/bridge.ts
   init_time();
   function containsEvent(actual, desired) {
@@ -510,7 +696,7 @@
         });
       });
     }
-    runJob(key2, execute, automatic = false) {
+    runJob(key2, execute2, automatic = false) {
       const prior = this.flights.get(key2);
       if (prior) return prior;
       const promise = (async () => {
@@ -524,7 +710,7 @@
           return true;
         });
         if (!ready) return clone(this.job(key2));
-        const result = await execute();
+        const result = await execute2();
         await this.lock(async () => {
           this.live();
           if (this.job(key2)?.status !== "pending") return;
@@ -570,11 +756,18 @@
         await this.commit({ ...this.state, active });
       });
     }
-    pause() {
-      return this.lock(() => this.commit({ ...this.state, active: pauseSession(this.state.active, this.now()) }));
+    checkSession(expectedId) {
+      if (expectedId !== void 0 && this.state.active?.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
     }
-    resume() {
+    pause(expectedId) {
+      return this.lock(() => {
+        this.checkSession(expectedId);
+        return this.commit({ ...this.state, active: pauseSession(this.state.active, this.now()) });
+      });
+    }
+    resume(expectedId) {
       return this.lock(async () => {
+        this.checkSession(expectedId);
         const s = this.state.active, now = this.now();
         if (!s || s.runningSince != null) throw new Error("\u5F53\u524D\u72B6\u6001\u4E0D\u80FD\u7EE7\u7EED\u3002");
         if (now < (s.segments.at(-1)?.end ?? s.startedAt)) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
@@ -609,8 +802,9 @@
         await this.commit({ ...this.state, active: s });
       });
     }
-    finish(completeTask = true) {
+    finish(completeTask = true, expectedId) {
       return this.lock(async () => {
+        this.checkSession(expectedId);
         const now = this.now(), s = pauseSession(this.state.active, now);
         const segments = s.segments.filter((p) => p.end - p.start >= 1e3).map((p, i) => ({ ...p, uid: `simple-task-timer-${s.id}-${i}`, saved: false }));
         validateSegments(segments, now);
@@ -1123,9 +1317,9 @@
       this.category.setAttribute("aria-label", "\u672C\u6B21\u8BA1\u65F6\u5206\u7C7B");
       this.category.onchange = () => actions2.category(this.category.value);
       this.controls = el(this.timer, "div", "ctt-timer-controls");
-      this.pause = button(this.controls, "\u6682\u505C", () => this.model.active?.runningSince == null ? actions2.resume() : actions2.pause());
-      button(this.controls, "\u7ED3\u675F\u5E76\u5B8C\u6210", () => actions2.finish(true), "ctt-primary");
-      button(this.controls, "\u53EA\u8BB0\u65F6\u95F4", () => actions2.finish(false), "ctt-quiet");
+      this.pause = button(this.controls, "\u6682\u505C", () => this.model.active?.runningSince == null ? actions2.resume(this.model.active?.id || "") : actions2.pause(this.model.active?.id || ""));
+      button(this.controls, "\u7ED3\u675F\u5E76\u5B8C\u6210", () => actions2.finish(true, this.model.active?.id || ""), "ctt-primary");
+      button(this.controls, "\u53EA\u8BB0\u65F6\u95F4", () => actions2.finish(false, this.model.active?.id || ""), "ctt-quiet");
       const body = el(root, "div", "ctt-body");
       const timeline = el(body, "section", "ctt-panel ctt-timeline");
       const top = el(timeline, "div", "ctt-panel-heading");
@@ -1947,6 +2141,7 @@
     }
   } catch {
   }
+  tasks = tasks.map((t) => ({ ...t, path: "preview-tasks.md" }));
   var write = () => {
     localStorage.setItem(key, JSON.stringify({ journal: controller.state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode }));
   };
@@ -1988,6 +2183,7 @@
   });
   bridge.authorized = api;
   var ui;
+  var timerApi;
   var notice = (text) => {
     const node = document.querySelector("#toast");
     node.textContent = text;
@@ -2036,22 +2232,54 @@
     write();
     render();
   }, (id) => worker.retry(`delete:${id}`));
-  async function run(fn) {
-    if (busy) return false;
+  async function execute(fn) {
+    if (busy) throw new Error("\u8BF7\u7A0D\u540E\u91CD\u8BD5");
     busy = true;
     error = "";
     render();
     try {
-      await fn();
-      return true;
-    } catch (e) {
-      error = e.message;
-      return false;
+      return await fn();
     } finally {
       busy = false;
       render();
     }
   }
+  async function run(fn) {
+    try {
+      await execute(fn);
+      return true;
+    } catch (e) {
+      error = e.message;
+      render();
+      return false;
+    }
+  }
+  timerApi = new TimerApi({
+    controller,
+    execute,
+    resolve: async (ref) => {
+      const found = tasks.find((t) => t.id === ref.id && t.path === ref.path);
+      if (!found) throw new Error("\u4EFB\u52A1\u4E0D\u5B58\u5728");
+      return clone(found);
+    },
+    prepare: async (task) => {
+      bridge.assertWritable(task.calendarId || defaultCalendarId);
+      return { ...task, calendarId: task.calendarId || defaultCalendarId };
+    },
+    refresh: async () => {
+      write();
+      render();
+    },
+    state: () => ({ available: true, active: controller.state.active, tasks, pending: controller.jobs().length, sync: worker?.view })
+  });
+  var showResult = async (result) => {
+    const r = await result;
+    if (!r.ok) {
+      error = r.message;
+      notice(r.message);
+      render();
+    }
+  };
   function model() {
     const state = controller.state;
     return {
@@ -2073,6 +2301,7 @@
     };
   }
   function render() {
+    timerApi?.notify();
     ui?.update(model());
     updateStatus(document.querySelector("#preview-status"), controller.state.active, tasks, sortMode);
   }
@@ -2159,7 +2388,7 @@
       write();
     }),
     start: (task) => {
-      void run(() => controller.start(task, task.calendarId || defaultCalendarId));
+      void showResult(timerApi.start(taskRef(task), { source: "view" }));
     },
     complete: (task) => {
       task.completed = true;
@@ -2170,17 +2399,14 @@
       Object.assign(task, patch);
       write();
     }),
-    pause: () => {
-      void run(() => controller.pause());
+    pause: (id) => {
+      void showResult(timerApi.pause(id || ""));
     },
-    resume: () => {
-      void run(() => controller.resume());
+    resume: (id) => {
+      void showResult(timerApi.resume(id || ""));
     },
-    finish: (complete) => {
-      void run(async () => {
-        await controller.finish(complete);
-        write();
-      });
+    finish: (complete, id) => {
+      void showResult(timerApi.finish(id || "", complete));
     },
     editStart: () => dialogs.start(),
     category: (id) => {
@@ -2214,6 +2440,7 @@
   render();
   void controller.recover().then(() => worker?.wake());
   setInterval(() => {
+    timerApi?.notify();
     ui.tick();
     updateStatus(document.querySelector("#preview-status"), controller.state.active, tasks, sortMode);
   }, 1e3);
@@ -2232,8 +2459,20 @@
     localStorage.removeItem(key);
     location.reload();
   };
-  window.__preview = { controller, bridge, model, render, worker, setDelay: (ms) => {
+  window.__preview = { controller, bridge, model, render, worker, api: timerApi, mountTaskCard, taskRef, setDelay: (ms) => {
     syncDelay = ms;
   }, tasks: () => tasks, entries: () => entries };
   window.addEventListener("beforeunload", () => worker?.stop());
+  var disposeCard;
+  document.querySelector("#show-card").onclick = () => {
+    const panel = document.querySelector("#research-card");
+    if (disposeCard) {
+      disposeCard();
+      disposeCard = void 0;
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+    disposeCard = mountTaskCard(panel, timerApi, taskRef(tasks.find((t) => t.id === "t1")), { source: "components", path: "research.md" });
+  };
 })();

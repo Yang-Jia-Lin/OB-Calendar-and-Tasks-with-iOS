@@ -18,7 +18,7 @@ export interface Actions {
   connect(): void; refresh(): void; settings(): void; categorySettings(): void; openCalendar(): void;
   date(value: string): void; add(title: string, due: string, category: string): Promise<boolean>;
   start(task: Task): void; complete(task: Task): void; editTask(task: Task): void;
-  pause(): void; resume(): void; finish(complete: boolean): void; editStart(): void; category(id: string): void;
+  pause(sessionId?: string): void; resume(sessionId?: string): void; finish(complete: boolean, sessionId?: string): void; editStart(): void; category(id: string): void;
   newEvent(): void; editRow(row: TimelineRow): void; retry(id: string): void; keep(id: string): void; resolveDeletion(id: string): void;
   sortTasks(mode: TaskSort): Promise<boolean>; reorderTasks(nextIds: string[], expectedIds: string[]): Promise<boolean>;
 }
@@ -82,8 +82,8 @@ export class TimerUI {
     const details = el(this.timer, "div", "ctt-session-details"); this.started = button(details, "", actions.editStart, "ctt-quiet", "修改开始时间");
     this.category = el(details, "select", "ctt-category"); this.category.setAttribute("aria-label", "本次计时分类"); this.category.onchange = () => actions.category(this.category.value);
     this.controls = el(this.timer, "div", "ctt-timer-controls");
-    this.pause = button(this.controls, "暂停", () => this.model.active?.runningSince == null ? actions.resume() : actions.pause());
-    button(this.controls, "结束并完成", () => actions.finish(true), "ctt-primary"); button(this.controls, "只记时间", () => actions.finish(false), "ctt-quiet");
+    this.pause = button(this.controls, "暂停", () => this.model.active?.runningSince == null ? actions.resume(this.model.active?.id || "") : actions.pause(this.model.active?.id || ""));
+    button(this.controls, "结束并完成", () => actions.finish(true, this.model.active?.id || ""), "ctt-primary"); button(this.controls, "只记时间", () => actions.finish(false, this.model.active?.id || ""), "ctt-quiet");
     const body = el(root, "div", "ctt-body");
     const timeline = el(body, "section", "ctt-panel ctt-timeline");
     const top = el(timeline, "div", "ctt-panel-heading"); el(top, "h3", "", "时间轴");

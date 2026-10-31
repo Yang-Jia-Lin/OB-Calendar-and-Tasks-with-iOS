@@ -142,3 +142,19 @@
 .ctt-deletion-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ctt-deletion-actions button { white-space: normal; }
 @media (prefers-reduced-motion: reduce) { .ctt-shell *, .ctt-shell *::before { transition: none !important; animation: none !important; } }
+
+/* Shared Markdown / Components task controls. */
+.ctt-card { padding:12px; border:1px solid var(--background-modifier-border); border-radius:10px; color:var(--text-normal); font-size:var(--font-ui-small,14px); }
+.ctt-card-title { font-weight:600; overflow-wrap:anywhere; }
+.ctt-card-status { margin:6px 0; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+.ctt-card-controls { display:flex; flex-wrap:wrap; gap:6px; }
+.ctt-card-controls button { font:inherit; height:auto; padding:4px 8px; }
+.ctt-card-message { color:var(--text-muted); margin-top:6px; overflow-wrap:anywhere; }
+.ctt-card-message:empty { display:none; }
+.components--DynamicDataView-PageCardCover:has(.ctt-card) { height:auto; min-height:0; aspect-ratio:auto; overflow:visible; }
+.components--DynamicDataView-PageCardCover:has(.ctt-card):before { display:none; }
+.components--DynamicDataView-PageCardCoverPreviewContent:has(.ctt-card) { position:relative; height:auto; max-height:none; overflow:visible; padding:8px; opacity:1; }
+.components--DynamicDataView-PageCardCoverPreviewContent:has(.ctt-card):after { display:none; pointer-events:none; }
+
+/* Components finishes an absent section with an empty preview and no loading span. */
+.components--DynamicDataView-PageCardCover:has(>.components--DynamicDataView-PageCardCoverPreviewContent:empty):not(:has(>span)) { display:none; }

@@ -93,11 +93,12 @@ test("local timer start and repeated rendering reuse the FCR snapshot without ev
   api.getCalendarSources = () => [{ id: "research", name: "科研", type: "caldav" }]; api.getProviderCapabilities = () => ({ canCreate: true });
   api.getAllEvents = () => { scans++; return []; }; api.getEvents = () => { scans++; return []; };
   api.createEvent = async () => { writes++; return true; };
-  const task = { id: "task", title: "Local", completed: false, kind: "local" as const, calendarId: "research" };
+  const task = { id: "task", title: "Local", completed: false, kind: "local" as const, path: "tasks.md", calendarId: "research" };
   p.app = { plugins: { getPlugin: () => null } }; p.items = [task];
   p.controller = new TimerController({ state: blankJournal(), calendar: h.bridge, persist: async () => {}, tasks: { complete: async () => {} }, onChange: () => { p.model(); } });
   p.render = () => { p.model(); }; p.readCalendarView(); scans = 0;
   p.refresh = async () => { throw new Error("start must not perform a full refresh"); };
-  p.actions().start(task); await settled(p); for (let i = 0; i < 5; i++) p.model();
+  p.tasks = { resolve: async () => ({ ...task }) }; p.initializeApi();
+  p.actions().start(task); await new Promise(resolve => setImmediate(resolve)); await settled(p); for (let i = 0; i < 5; i++) p.model();
   assert.equal(p.error, ""); assert.equal(p.controller.state.active?.title, "Local"); assert.equal(scans, 0); assert.equal(writes, 0);
 });

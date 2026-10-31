@@ -1,3 +1,5 @@
+import { TimerApi, taskRef } from "../Clients/Obsidian/api";
+import { mountTaskCard } from "../Clients/Obsidian/card";
 import { FcrBridge, type FcrApi } from "../Providers/Fcr/bridge";
 import { clone, uid, type Task, type Entry } from "../Shared/contracts";
 import { TimerController, blankJournal, validateJournal } from "../Shared/timer";
@@ -41,6 +43,7 @@ const makeEvent = (id: string, title: string, start: string, end: string, calend
 makeEvent("demo-event-2", "项目讨论", "10:30", "11:15", "work"); makeEvent("demo-event-3", "实验方案整理", "14:00", "15:00", "research"); makeEvent("demo-event-4", "健身", "19:00", "20:00", "personal");
 let initial = seed;
 try { const saved = JSON.parse(localStorage.getItem(key) || "null"); if (saved) { initial = validateJournal(saved.journal); tasks = saved.tasks; entries = saved.entries; defaultCalendarId = saved.defaultCalendarId; typography = appearance(saved.typography); categories = categoryPreferences(saved.categories); sortMode = taskSort(saved.taskSort); } } catch { /* Invalid preview fixtures are reset; no real data exists here. */ }
+tasks = tasks.map(t => ({ ...t, path: "preview-tasks.md" }));
 const write = () => { localStorage.setItem(key, JSON.stringify({ journal: controller.state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode })); };
 const effect = async () => { if (syncDelay) await new Promise(resolve => setTimeout(resolve, syncDelay)); if (offline) throw new Error("模拟断网：操作已保存在本机，联网后可重试。"); };
 const api: FcrApi = {
@@ -54,18 +57,25 @@ const api: FcrApi = {
 };
 const bridge = new FcrBridge({}, () => null, async () => {}); bridge.authorized = api;
 let ui: TimerUI;
+let timerApi: TimerApi | undefined;
 const notice = (text: string) => { const node = document.querySelector<HTMLElement>("#toast")!; node.textContent = text; setTimeout(() => { if (node.textContent === text) node.textContent = ""; }, 4000); };
 const controller = new TimerController({ state: initial, background: true, persist: async state => { localStorage.setItem(key, JSON.stringify({ journal: state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode })); }, calendar: bridge,
   tasks: { complete: async task => { const found = tasks.find(t => t.id === task.id); if (!found) throw new Error("待办已删除"); if (!found.completed && found.title !== task.title) throw new Error("待办已变化"); found.completed = true; write(); } }, onChange: () => { render(); worker?.wake(); } });
 worker = new SyncWorker(controller, { enabled: () => true, changed: () => render(), settled: () => { write(); render(); } });
 const host: DialogHost = { notice, open: (title, render) => { const restore = document.activeElement; const d = document.createElement("dialog"); document.body.append(d); const root = el(d, "div", "ctt-dialog"); applyAppearance(root, typography); el(root, "h2", "", title); render(root, () => d.close()); d.addEventListener("close", () => { d.remove(); if (restore instanceof HTMLElement && restore.isConnected) restore.focus(); }); d.showModal(); } };
 const dialogs = new Dialogs(host, controller, bridge, () => calendars, () => defaultCalendarId, async () => { write(); render(); }, id => worker!.retry(`delete:${id}`));
-async function run(fn: () => Promise<unknown>) { if (busy) return false; busy = true; error = ""; render(); try { await fn(); return true; } catch (e) { error = (e as Error).message; return false; } finally { busy = false; render(); } }
+async function execute<T>(fn: () => Promise<T>): Promise<T> { if (busy) throw new Error("请稍后重试"); busy = true; error = ""; render(); try { return await fn(); } finally { busy = false; render(); } }
+async function run(fn: () => Promise<unknown>) { try { await execute(fn); return true; } catch (e) { error = (e as Error).message; render(); return false; } }
+timerApi = new TimerApi({ controller, execute, resolve: async ref => {
+  const found = tasks.find(t => t.id === ref.id && t.path === ref.path); if (!found) throw new Error("任务不存在"); return clone(found);
+}, prepare: async task => { bridge.assertWritable(task.calendarId || defaultCalendarId); return { ...task, calendarId: task.calendarId || defaultCalendarId }; },
+  refresh: async () => { write(); render(); }, state: () => ({ available: true, active: controller.state.active, tasks, pending: controller.jobs().length, sync: worker?.view }) });
+const showResult = async (result: ReturnType<TimerApi["start"]>) => { const r = await result; if (!r.ok) { error = r.message; notice(r.message); render(); } };
 function model(): ViewModel { const state = controller.state;
   return { connected: true, busy, error, sources: calendars, calendars, defaultCalendarId, active: state.active, tasks, date, appearance: typography, categoryPreferences: categories, taskSort: sortMode,
     rows: mergeTimeline(bridge.timeline(date), state.records, date, state.operations, state.deletions), pending: pendingView(state, worker?.view), sync: worker?.view };
 }
-function render() { ui?.update(model()); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }
+function render() { timerApi?.notify(); ui?.update(model()); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }
 const actions: Actions = {
   connect: () => {}, refresh: () => { void run(async () => { bridge.refresh(); await controller.reconcileDeletions(); notice("已刷新示例日历"); }); }, openCalendar: () => { void bridge.openCalendar(); },
   categorySettings: () => host.open("分类排序与显示", (root, close) => {
@@ -83,9 +93,9 @@ const actions: Actions = {
   sortTasks: mode => run(async () => { const before = sortMode; sortMode = mode; try { write(); } catch (e) { sortMode = before; throw e; } }),
   reorderTasks: (next, expected) => run(async () => { if (sortMode !== "manual") throw new Error("请先切换手动排序。"); const before = tasks; tasks = reorderTaskSlots(tasks, next, expected); try { write(); } catch (e) { tasks = before; throw e; } }),
   add: (title, due, calendarId) => run(async () => { if (!title.trim()) throw new Error("请填写名称。"); bridge.assertWritable(calendarId); tasks.push({ id: uid(), title, due, calendarId, completed: false, kind: "local" }); write(); }),
-  start: task => { void run(() => controller.start(task, task.calendarId || defaultCalendarId)); },
+  start: task => { void showResult(timerApi!.start(taskRef(task), { source: "view" })); },
   complete: task => { task.completed = true; write(); render(); }, editTask: task => dialogs.task(task, async patch => { Object.assign(task, patch); write(); }),
-  pause: () => { void run(() => controller.pause()); }, resume: () => { void run(() => controller.resume()); }, finish: complete => { void run(async () => { await controller.finish(complete); write(); }); },
+  pause: id => { void showResult(timerApi!.pause(id || "")); }, resume: id => { void showResult(timerApi!.resume(id || "")); }, finish: (complete, id) => { void showResult(timerApi!.finish(id || "", complete)); },
   editStart: () => dialogs.start(), category: id => { void run(() => controller.updateActive({ calendarId: id })); },
   newEvent: () => dialogs.event(date), editRow: row => { if (row.deleting && row.deletionId) { dialogs.deletion(row.deletionId); return; } if (row.pending && !row.recordId) { notice(row.error || "请先重试待同步操作。"); return; } if (row.recordId) dialogs.record(controller.state.records.find(r => r.id === row.recordId)!, row.segmentUid); else dialogs.event(date, row); },
   resolveDeletion: id => dialogs.deletion(id),
@@ -95,10 +105,17 @@ const actions: Actions = {
 ui = new TimerUI(mountTimerView(document.querySelector<HTMLElement>("#app")!), actions);
 setupStatus(document.querySelector<HTMLElement>("#preview-status")!, () => document.querySelector<HTMLElement>(".ctt-shell")!.scrollTo({ top: 0 }));
 render(); void controller.recover().then(() => worker?.wake());
-setInterval(() => { ui.tick(); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }, 1000); setInterval(() => { void controller.heartbeat(); }, 15000);
+setInterval(() => { timerApi?.notify(); ui.tick(); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }, 1000); setInterval(() => { void controller.heartbeat(); }, 15000);
 document.querySelector<HTMLInputElement>("#offline")!.onchange = e => { offline = (e.target as HTMLInputElement).checked; if (!offline) void worker?.resume("network"); };
 document.querySelector<HTMLSelectElement>("#sync-delay")!.onchange = e => { syncDelay = Number((e.target as HTMLSelectElement).value); };
 document.querySelector<HTMLInputElement>("#theme")!.onchange = e => document.documentElement.classList.toggle("theme-dark", (e.target as HTMLInputElement).checked);
 document.querySelector<HTMLButtonElement>("#reset")!.onclick = () => { localStorage.removeItem(key); location.reload(); };
-(window as any).__preview = { controller, bridge, model, render, worker, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
+(window as any).__preview = { controller, bridge, model, render, worker, api: timerApi, mountTaskCard, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
 window.addEventListener("beforeunload", () => worker?.stop());
+
+let disposeCard: (() => void) | undefined;
+document.querySelector<HTMLButtonElement>("#show-card")!.onclick = () => {
+  const panel = document.querySelector<HTMLElement>("#research-card")!;
+  if (disposeCard) { disposeCard(); disposeCard = undefined; panel.hidden = true; return; }
+  panel.hidden = false; disposeCard = mountTaskCard(panel, timerApi!, taskRef(tasks.find(t => t.id === "t1")!), { source: "components", path: "research.md" });
+};

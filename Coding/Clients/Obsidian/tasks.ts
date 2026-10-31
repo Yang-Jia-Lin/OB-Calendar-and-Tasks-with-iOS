@@ -1,6 +1,7 @@
 import type { App, TFile } from "obsidian";
 import { uid, type Task } from "../../Shared/contracts";
 import { orderByIds, reorderTaskSlots } from "./taskOrder";
+import type { TaskRef } from "./api";
 const LINE = /^(\s*-\s+\[)([ xX])(\]\s+)(.*)$/;
 const MARK = /\s*<!--\s*simple-task:([a-zA-Z0-9-]+)\s*-->\s*$/;
 const CATEGORY = /\s*<!--\s*ctt-category:([^\s<>]+)\s*-->/;
@@ -72,6 +73,13 @@ export class MarkdownTasks {
   async list() { const file = await this.file(); if (!file) return [];
     let text = await this.app.vault.read(file); if (ensureTaskIds(text) !== text) { await this.app.vault.process(file, current => ensureTaskIds(current)); text = await this.app.vault.read(file); }
     return parseTasks(text, file.path); }
+  async resolve(ref: TaskRef) {
+    if (ref.kind !== "local" || ref.path !== this.path()) throw new Error("此任务不属于当前配置的待办文件，请核对绑定路径。");
+    const file = await this.file(); if (!file) throw new Error("原待办文件不存在。");
+    const matches = parseTasks(await this.app.vault.read(file), file.path).filter(t => t.id === ref.id);
+    if (matches.length !== 1) throw new Error("任务 ID 不存在或重复，请在待办文件中核对。");
+    return matches[0];
+  }
   async add(title: string, due: string, calendarId: string) {
     if (!calendarId) throw new Error("请选择分类。"); const line = taskLine(title, due, uid(), calendarId), file = (await this.file(true))!;
     await this.app.vault.process(file, current => `${current.trimEnd()}\n${line}\n`);
