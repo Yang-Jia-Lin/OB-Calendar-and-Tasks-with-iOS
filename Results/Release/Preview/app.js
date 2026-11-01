@@ -448,6 +448,215 @@
     } };
   }
 
+  // Clients/Obsidian/diary.ts
+  init_time();
+  var DIARY_START = "<!-- ctt-diary-timeline:start -->";
+  var DIARY_END = "<!-- ctt-diary-timeline:end -->";
+  var DIARY_BUTTON = "```calendar-task-timer-diary\n```";
+  var DEFAULT_DIARY_FOLDER = "00-Record/Calendar/Daily";
+  var DEFAULT_DIARY_LAYOUT = `### \u5F53\u5929\u65F6\u95F4\u8F74
+
+{{timeline}}
+
+> \u65E5\u8BB0\u65E5\u671F\uFF1A{{date}} \xB7 \u5FEB\u7167\u66F4\u65B0\uFF1A{{updated}}
+> \u6765\u6E90\uFF1A\u65E5\u5386\u5F53\u524D\u5DF2\u52A0\u8F7D\u6570\u636E\u53CA\u672C\u673A\u5DF2\u7ED3\u675F\u5DE5\u65F6\uFF1B\u65E5\u5386\u540C\u6B65\u5B8C\u6210\u540E\u53EF\u518D\u6B21\u66F4\u65B0\u3002
+`;
+  function diaryPath(value, fallback) {
+    const p = typeof value === "string" ? value.trim().replace(/\\/g, "/").replace(/\/$/, "") : fallback;
+    if (!p || p.startsWith("/") || p.split("/").some((s) => !s || s === "." || s === ".." || s.startsWith(".")) || /[:\x00-\x1f]/.test(p)) throw new Error("\u65E5\u8BB0\u8DEF\u5F84\u987B\u4E3A\u5E93\u5185\u666E\u901A\u6587\u4EF6\u5939\u6216\u6587\u4EF6\u8DEF\u5F84\u3002");
+    return p;
+  }
+  function validDiaryDay(value) {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const n = Date.parse(`${value}T00:00:00Z`);
+    return Number.isFinite(n) && new Date(n).toISOString().slice(0, 10) === value;
+  }
+  function diaryDate(path, property, folder = DEFAULT_DIARY_FOLDER) {
+    if (!path.startsWith(`${diaryPath(folder, DEFAULT_DIARY_FOLDER)}/`) || !path.endsWith(".md")) throw new Error("\u8BF7\u6253\u5F00\u65E5\u8BB0\u76EE\u5F55\u5185\u7684 Markdown \u65E5\u8BB0\u3002");
+    const match = path.split("/").at(-1).slice(0, -3).match(/^(\d{4})年(\d{1,2})月(\d{1,2})日(?:\s+.*)?$/);
+    if (!match) throw new Error("\u65E5\u8BB0\u6587\u4EF6\u540D\u9700\u8981\u5305\u542B\u5E74\u6708\u65E5\u3002");
+    const fromName = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+    if (!validDiaryDay(fromName)) throw new Error("\u65E5\u8BB0\u6587\u4EF6\u540D\u4E2D\u7684\u65E5\u671F\u65E0\u6548\u3002");
+    if (property !== void 0 && property !== null && property !== "") {
+      if (!validDiaryDay(property)) throw new Error("\u65E5\u8BB0\u65E5\u671F\u5C5E\u6027\u65E0\u6548\uFF0C\u8BF7\u4F7F\u7528 YYYY-MM-DD\u3002");
+      return property;
+    }
+    return fromName;
+  }
+  function inline(value) {
+    return value.replace(/[\r\n\t]+/g, " ").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/[\\`*_{}\[\]()!|~]/g, (c) => `\\${c}`);
+  }
+  function renderDiary(date2, rows, calendars2, layout = DEFAULT_DIARY_LAYOUT, now = Date.now()) {
+    if (!validDiaryDay(date2)) throw new Error("\u65E5\u8BB0\u65E5\u671F\u65E0\u6548\u3002");
+    if (layout.split("{{timeline}}").length !== 2 || layout.includes(DIARY_START) || layout.includes(DIARY_END)) throw new Error("\u65F6\u95F4\u8F74\u6A21\u677F\u987B\u4E14\u53EA\u80FD\u5305\u542B\u4E00\u4E2A {{timeline}}\uFF0C\u4E0D\u80FD\u5305\u542B\u751F\u6210\u533A\u6807\u8BB0\u3002");
+    const start = +/* @__PURE__ */ new Date(`${date2}T00:00:00`), next = new Date(start);
+    next.setDate(next.getDate() + 1);
+    const end = +next, names = new Map(calendars2.map((c) => [c.id, c.name]));
+    for (const r of rows) if (!Number.isFinite(r.start) || !Number.isFinite(r.end) || r.end <= r.start) throw new Error("\u65E5\u5386\u5B58\u5728\u65E0\u6548\u65F6\u95F4\u6BB5\uFF0C\u4FDD\u7559\u539F\u65F6\u95F4\u8F74\u3002");
+    const visible = rows.filter((r) => r.start < end && r.end > start).sort((a, b) => Number(!!b.allDay) - Number(!!a.allDay) || a.start - b.start || a.key.localeCompare(b.key));
+    const lines = visible.map((r) => {
+      const time = r.allDay ? "\u5168\u5929" : `${r.start < start ? "00:00" : dateParts(r.start).time.slice(0, 5)}\u2013${r.end >= end ? "24:00" : dateParts(r.end).time.slice(0, 5)}${r.start < start || r.end > end ? "\uFF08\u8DE8\u65E5\uFF09" : ""}`;
+      const kind = r.recordId ? "\u5B9E\u9645\u5DE5\u65F6" : "\u65E5\u7A0B";
+      const state = r.deleting ? " \xB7 \u5F85\u5220\u9664" : r.pending ? " \xB7 \u5F85\u540C\u6B65" : "";
+      return `| ${time} | ${inline(r.title)} | ${inline(names.get(r.calendarId) || "\u672A\u547D\u540D\u65E5\u5386")} | ${kind}${state} |`;
+    });
+    const timeline = lines.length ? ["| \u65F6\u95F4 | \u5185\u5BB9 | \u65E5\u5386 | \u7C7B\u578B |", "| --- | --- | --- | --- |", ...lines].join("\n") : "\u5F53\u5929\u6682\u65E0\u5DF2\u52A0\u8F7D\u7684\u65E5\u7A0B\u6216\u5DF2\u7ED3\u675F\u5DE5\u65F6\u3002";
+    const at = dateParts(now);
+    const tokens = { timeline, date: date2, updated: `${at.date} ${at.time}` };
+    return { markdown: layout.replace(/\{\{(timeline|date|updated)\}\}/g, (_, k) => tokens[k]).trim(), count: visible.length };
+  }
+  function diaryRegion(text) {
+    const found = [];
+    let fence = "";
+    for (const m of text.matchAll(/[^\n]+\n?|\n/g)) {
+      const line = m[0].replace(/\r?\n$/, ""), token = line.trim();
+      const f = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (f) {
+        if (!fence) fence = f[1];
+        else if (f[1][0] === fence[0] && f[1].length >= fence.length) fence = "";
+      }
+      if (line.includes(DIARY_START) || line.includes(DIARY_END)) {
+        if (fence || token !== DIARY_START && token !== DIARY_END) throw new Error("\u65F6\u95F4\u8F74\u6807\u8BB0\u4F4D\u7F6E\u5F02\u5E38\uFF0C\u672A\u6539\u52A8\u7B14\u8BB0\u3002");
+        found.push({ type: token === DIARY_START ? "start" : "end", from: m.index, to: m.index + m[0].length });
+      }
+    }
+    if (!found.length) return null;
+    if (found.length !== 2 || found[0].type !== "start" || found[1].type !== "end") throw new Error("\u65F6\u95F4\u8F74\u6807\u8BB0\u7F3A\u5931\u3001\u91CD\u590D\u6216\u987A\u5E8F\u5F02\u5E38\uFF0C\u672A\u6539\u52A8\u7B14\u8BB0\u3002");
+    return { from: found[0].to, to: found[1].from, content: text.slice(found[0].to, found[1].from) };
+  }
+  function replaceDiary(text, markdown) {
+    if (markdown.includes(DIARY_START) || markdown.includes(DIARY_END)) throw new Error("\u751F\u6210\u5185\u5BB9\u5305\u542B\u4FDD\u7559\u6807\u8BB0\u3002");
+    const newline = text.includes("\r\n") ? "\r\n" : "\n";
+    const block = markdown.replace(/\r?\n/g, newline) + newline;
+    const region = diaryRegion(text);
+    if (region) return text.slice(0, region.from) + block + text.slice(region.to);
+    const bom = text.startsWith("\uFEFF") ? 1 : 0;
+    let at = bom;
+    if (/^---\r?\n/.test(text.slice(bom))) {
+      const frontmatter = text.slice(bom).match(/^---\r?\n[\s\S]*?^---[ \t]*(?:\r?\n|$)/m);
+      if (!frontmatter) throw new Error("\u7B14\u8BB0\u5C5E\u6027\u533A\u672A\u95ED\u5408\uFF0C\u672A\u6539\u52A8\u7B14\u8BB0\u3002");
+      at += frontmatter[0].length;
+    }
+    const section = `${DIARY_BUTTON}
+
+${DIARY_START}
+${markdown}
+${DIARY_END}
+
+`.replace(/\r?\n/g, newline);
+    return text.slice(0, at) + (at && !text.slice(0, at).endsWith("\n") ? newline : "") + section + text.slice(at);
+  }
+  var DiaryUpdater = class {
+    constructor(ports) {
+      this.ports = ports;
+    }
+    ports;
+    pending = /* @__PURE__ */ new Map();
+    update(path) {
+      const existing = this.pending.get(path);
+      if (existing) return existing;
+      const promise = this.write(path);
+      this.pending.set(path, promise);
+      void promise.finally(() => this.pending.delete(path)).catch(() => {
+      });
+      return promise;
+    }
+    async write(path) {
+      const p = this.ports;
+      if (!p.available()) throw new Error("\u63D2\u4EF6\u5DF2\u5378\u8F7D\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u3002");
+      const before = await p.read(path), date2 = p.date(path, before), region = diaryRegion(before);
+      const layout = await p.layout(), snapshot = await p.snapshot(date2);
+      const result = renderDiary(date2, snapshot.rows, snapshot.calendars, layout);
+      if (replaceDiary(before, result.markdown) === before) return { count: result.count, changed: false };
+      if (!p.available()) throw new Error("\u63D2\u4EF6\u5DF2\u5378\u8F7D\uFF0C\u4FDD\u7559\u539F\u7B14\u8BB0\u3002");
+      await p.backup(path, before);
+      await p.process(path, (current) => {
+        if (!p.available()) throw new Error("\u63D2\u4EF6\u5DF2\u5378\u8F7D\uFF0C\u4FDD\u7559\u539F\u7B14\u8BB0\u3002");
+        if (p.date(path, current) !== date2 || diaryRegion(current)?.content !== region?.content) throw new Error("\u65E5\u8BB0\u65E5\u671F\u6216\u751F\u6210\u533A\u5DF2\u88AB\u4FEE\u6539\uFF0C\u8BF7\u91CD\u65B0\u66F4\u65B0\u3002");
+        return replaceDiary(current, result.markdown);
+      });
+      return { count: result.count, changed: true };
+    }
+  };
+
+  // Clients/Obsidian/diaryButton.ts
+  function mountDiaryButton(root, path, update) {
+    root.classList.add("ctt-diary-controls");
+    const button2 = root.ownerDocument.createElement("button"), status = root.ownerDocument.createElement("span");
+    button2.type = "button";
+    button2.textContent = "\u66F4\u65B0\u65F6\u95F4\u8F74";
+    status.className = "ctt-diary-status";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    root.append(button2, status);
+    let disposed = false;
+    const click = async () => {
+      if (button2.disabled || disposed) return;
+      button2.disabled = true;
+      status.textContent = "\u6B63\u5728\u751F\u6210\u65E5\u8BB0\u5FEB\u7167\u2026";
+      try {
+        const result = await update(path);
+        if (!disposed) status.textContent = `${result.changed ? "\u5DF2\u66F4\u65B0" : "\u5185\u5BB9\u5DF2\u662F\u6700\u65B0\u5FEB\u7167"}\uFF0C\u5171 ${result.count} \u9879`;
+      } catch (e) {
+        if (!disposed) status.textContent = `\u672A\u66F4\u65B0\uFF1A${e instanceof Error ? e.message : String(e)}`;
+      } finally {
+        if (!disposed) button2.disabled = false;
+      }
+    };
+    button2.addEventListener("click", click);
+    return () => {
+      disposed = true;
+      button2.removeEventListener("click", click);
+    };
+  }
+
+  // Preview/diaryFixture.ts
+  function diaryFixture() {
+    const state = { text: `---
+\u65E5\u8BB0\u65E5\u671F: 2026-10-31
+---
+${DIARY_START}
+\u65E7\u5FEB\u7167
+${DIARY_END}
+
+### \u6211\u7684\u8865\u5145
+\u4FDD\u7559\u8FD9\u6BB5\u624B\u5199\u60F3\u6CD5\u3002
+
+### \u4ECA\u65E5\u65B0\u8BB0\uFF0F\u4FEE\u6539
+\u4FDD\u7559\u539F\u6709\u67E5\u8BE2\u3002`, fail: false, calls: 0, backups: 0 };
+    const root = document.createElement("section");
+    root.id = "ctt-diary-fixture";
+    root.style.cssText = "max-width:850px;margin:20px auto;padding:20px;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:12px";
+    const heading = document.createElement("h2");
+    heading.textContent = "\u65E5\u8BB0\u65F6\u95F4\u8F74 \xB7 \u6309\u94AE\u9884\u89C8";
+    const controls = document.createElement("div"), content2 = document.createElement("pre");
+    content2.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere";
+    content2.textContent = state.text;
+    root.append(heading, controls, content2);
+    document.body.prepend(root);
+    const updater = new DiaryUpdater({
+      available: () => true,
+      read: async () => state.text,
+      date: (p) => diaryDate(p, "2026-10-31"),
+      layout: async () => DEFAULT_DIARY_LAYOUT,
+      snapshot: async () => {
+        state.calls++;
+        await new Promise((r) => setTimeout(r, 150));
+        if (state.fail) throw Error("\u65E5\u5386\u672A\u8FDE\u63A5\uFF0C\u539F\u5185\u5BB9\u5DF2\u4FDD\u7559");
+        return { calendars: [{ id: "a", name: "\u79D1\u7814" }], rows: [{ key: "work", title: "\u89C6\u9891\u611F\u77E5\u4F18\u5316", recordId: "one", calendarId: "a", start: +/* @__PURE__ */ new Date("2026-10-31T09:00"), end: +/* @__PURE__ */ new Date("2026-10-31T10:00") }] };
+      },
+      backup: async () => {
+        state.backups++;
+      },
+      process: async (_p, update) => {
+        state.text = update(state.text);
+        content2.textContent = state.text;
+      }
+    });
+    const dispose = mountDiaryButton(controls, "00-Record/Calendar/Daily/2026\u5E7410\u670831\u65E5 \u661F\u671F\u516D.md", (p) => updater.update(p));
+    return { state, dispose };
+  }
+
   // Providers/Fcr/bridge.ts
   init_time();
   function containsEvent(actual, desired) {
@@ -2589,6 +2798,10 @@
     syncDelay = ms;
   }, tasks: () => tasks, entries: () => entries };
   window.addEventListener("beforeunload", () => worker?.stop());
+  if (new URLSearchParams(location.search).has("diary")) {
+    document.querySelector("#app").style.display = "none";
+    window.__diaryPreview = diaryFixture();
+  }
   if (new URLSearchParams(location.search).has("components")) window.__preview.native = componentsFixture(timerApi, {
     "research.md": taskRef(tasks.find((t) => t.id === "t1")),
     "reading.md": taskRef(tasks.find((t) => t.id === "t2"))

@@ -1,5 +1,6 @@
 import { TimerApi, taskRef } from "../Clients/Obsidian/api";
 import { componentsFixture } from "./componentsFixture";
+import { diaryFixture } from "./diaryFixture";
 import { FcrBridge, type FcrApi } from "../Providers/Fcr/bridge";
 import { clone, uid, type Task, type Entry } from "../Shared/contracts";
 import { TimerController, blankJournal, validateJournal } from "../Shared/timer";
@@ -112,6 +113,7 @@ document.querySelector<HTMLInputElement>("#theme")!.onchange = e => document.doc
 document.querySelector<HTMLButtonElement>("#reset")!.onclick = () => { localStorage.removeItem(key); location.reload(); };
 (window as any).__preview = { controller, bridge, model, render, worker, api: timerApi, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
 window.addEventListener("beforeunload", () => worker?.stop());
+if (new URLSearchParams(location.search).has("diary")) { document.querySelector<HTMLElement>("#app")!.style.display = "none"; (window as any).__diaryPreview = diaryFixture(); }
 if (new URLSearchParams(location.search).has("components")) (window as any).__preview.native = componentsFixture(timerApi!, {
   "research.md": taskRef(tasks.find(t => t.id === "t1")!), "reading.md": taskRef(tasks.find(t => t.id === "t2")!)
 });

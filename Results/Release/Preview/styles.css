@@ -143,6 +143,10 @@
 .ctt-deletion-actions button { white-space: normal; }
 @media (prefers-reduced-motion: reduce) { .ctt-shell *, .ctt-shell *::before { transition: none !important; animation: none !important; } }
 /* Existing Components native timer field shares the title row. No added card controls. */
+.ctt-diary-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-block:10px; }
+.ctt-diary-controls button { white-space:nowrap; }
+.ctt-diary-status { color:var(--text-muted); font-size:var(--font-ui-small,13px); overflow-wrap:anywhere; }
+.ctt-diary-controls button:focus-visible { outline:2px solid var(--interactive-accent); outline-offset:2px; }
 .components--DynamicDataView-PageCardContent.ctt-components-timer-header { display:grid; grid-template-columns:minmax(0,max-content) max-content minmax(72px,1fr); align-items:start; gap:4px 8px; container-type:inline-size; container-name:ctt-timer-card; }
 .ctt-components-timer-header > .components--DynamicDataView-PageTitle { grid-column:1; grid-row:1; align-self:center; min-width:0; }
 .ctt-components-timer-header > .components--DynamicDataView-PagePropertyList { display:contents; }

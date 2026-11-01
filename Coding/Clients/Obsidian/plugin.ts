@@ -1,4 +1,4 @@
-import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, type WorkspaceLeaf, type TFile } from "obsidian";
+import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, MarkdownRenderChild, getFrontMatterInfo, parseYaml, type WorkspaceLeaf, type TFile } from "obsidian";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { TimerController, blankJournal } from "../../Shared/timer";
@@ -19,6 +19,8 @@ import { pendingView, syncKey } from "./syncStatus";
 import { TimerApi, taskRef, type ActionResult, type TaskRef } from "./api";
 import { componentTaskBindings, nativeTimerLabels, toggleNoteTimer } from "./components";
 import { ComponentsTimerButtons, type NativeButtonScope } from "./componentsButtons";
+import { DiaryUpdater, diaryDate, diaryPath, DEFAULT_DIARY_FOLDER, DEFAULT_DIARY_LAYOUT, DEFAULT_DIARY_LAYOUT_PATH } from "./diary";
+import { mountDiaryButton } from "./diaryButton";
 const VIEW = "calendar-task-timer-view";
 function hash(text: string) { let n = 2166136261; for (const c of text) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0).toString(16); }
 class TimerView extends ItemView {
@@ -28,6 +30,12 @@ class TimerView extends ItemView {
   async onOpen() { this.ui = new TimerUI(mountTimerView(this.contentEl), this.owner.actions()); this.render(); }
   render() { this.ui?.update(this.owner.model()); }
   async onClose() { this.ui?.destroy(); }
+}
+class DiaryButton extends MarkdownRenderChild {
+  private dispose?: () => void;
+  constructor(root: HTMLElement, private source: string, private owner: CalendarTaskTimer) { super(root); }
+  onload() { this.dispose = mountDiaryButton(this.containerEl, this.source, p => this.owner.updateDiaryFromNote(p)); }
+  onunload() { this.dispose?.(); }
 }
 class FormModal extends Modal {
   private restore: Element | null = null;
@@ -68,6 +76,14 @@ class TimerSettings extends PluginSettingTab {
     new Setting(root).setName("页面字重").addDropdown(d => d.addOptions({ "400": "常规", "500": "适中", "600": "加粗" }).setValue(String(appearance(p.settings).fontWeight)).onChange(async value => { p.settings.fontWeight = Number(value); p.render(); await p.saveSettings(); }));
     new Setting(root).setName("待办文件").addText(t => { t.setValue(p.settings.tasksPath); t.inputEl.onchange = () => { void p.run(async () => { const before = p.settings.tasksPath; p.settings.tasksPath = t.inputEl.value; try { p.tasks.path(); await p.saveSettings(); await p.refresh(); } catch (e) { p.settings.tasksPath = before; throw e; } }); }; });
     new Setting(root).setName("打开待办文件").addButton(b => b.setButtonText("打开").onClick(() => { void p.run(async () => { const file = await p.tasks.file(true); if (file) await p.app.workspace.getLeaf(false).openFile(file); }); }));
+    new Setting(root).setName("日记时间轴").setDesc("日记中的按钮或“更新当前日记时间轴”命令只替换生成区，保留手写内容；快照使用日历当前已加载数据。");
+    for (const [key, label, fallback] of [["diaryFolder", "日记目录", DEFAULT_DIARY_FOLDER], ["diaryLayoutPath", "时间轴排版模板", DEFAULT_DIARY_LAYOUT_PATH]] as const) {
+      new Setting(root).setName(label).setDesc(key === "diaryLayoutPath" ? "可在 Obsidian 中直接编辑；保留 {{timeline}}。模板不存在时使用内置排版。" : "只允许更新此目录内、文件名含年月日的日记。")
+        .addText(t => { t.setValue(p.settings[key] || fallback); t.inputEl.onchange = () => { void (async () => {
+          try { const next = diaryPath(t.inputEl.value, fallback); if (key === "diaryLayoutPath" && !next.endsWith(".md")) throw new Error("排版模板须为 Markdown 文件。"); p.settings[key] = next; await p.saveSettings(); }
+          catch (e) { t.setValue(p.settings[key] || fallback); new Notice((e as Error).message); }
+        })(); }; });
+    }
     const bindings = componentTaskBindings(p.settings.componentTaskBindings);
     if (Object.keys(bindings).length) {
       new Setting(root).setName("Components 卡片按钮绑定").setDesc("卡片使用 Components 原生按钮；任务关联保存在本插件设置中。");
@@ -86,6 +102,7 @@ export default class CalendarTaskTimer extends Plugin {
   private noteChoices = new Map<string, Promise<TaskRef | null>>();
   private noteToggles = new Map<string, Promise<ActionResult>>();
   private componentButtons?: ComponentsTimerButtons;
+  private diary!: DiaryUpdater;
   private componentRevision = 0;
   get connected() { return this.bridge?.connected ?? false; }
   private busy = false; private error = ""; private date = dayKey(); private items: Task[] = [];
@@ -101,6 +118,9 @@ export default class CalendarTaskTimer extends Plugin {
     Object.assign(this.settings, categoryPreferences(data));
     this.settings.taskSort = taskSort(data.taskSort);
     this.settings.componentTaskBindings = componentTaskBindings(data.componentTaskBindings);
+    for (const [key, fallback] of [["diaryFolder", DEFAULT_DIARY_FOLDER], ["diaryLayoutPath", DEFAULT_DIARY_LAYOUT_PATH]] as const) {
+      try { this.settings[key] = diaryPath(data[key], fallback); } catch { this.settings[key] = fallback; }
+    }
     this.base = (this.app.vault.adapter as any).getBasePath?.(); if (!this.base) throw new Error("本版仅支持桌面 Obsidian。");
     this.vaultId = hash(this.base); this.pluginDir = path.join(this.base, this.manifest.dir || `${this.app.vault.configDir}/plugins/${this.manifest.id}`);
     const key = `calendar-task-timer-device-${this.vaultId}`;
@@ -116,6 +136,7 @@ export default class CalendarTaskTimer extends Plugin {
       tasks: { complete: task => this.completeOriginal(task) }, onChange: () => { this.render(); this.worker?.wake(); } });
     const recovered = await this.controller.recover();
     this.initializeApi();
+    this.initializeDiary();
     this.componentButtons = new ComponentsTimerButtons(document, { api: this.api,
       binding: note => componentTaskBindings(this.settings.componentTaskBindings)[note],
       toggle: (note, expected) => this.toggleFromNote(note, false, expected) });
@@ -129,6 +150,13 @@ export default class CalendarTaskTimer extends Plugin {
     this.addCommand({ id: "pause-resume", name: "暂停／继续当前计时", callback: () => { const s = this.api.getState().active; void this.showResult(s?.runningSince == null ? this.api.resume(s?.id || "") : this.api.pause(s.id)); } });
     this.addCommand({ id: "finish-record-only", name: "结束计时只记时间", callback: () => this.actions().finish(false) });
     this.addCommand({ id: "finish", name: "结束计时并完成待办", callback: () => this.actions().finish(true) });
+    this.addCommand({ id: "update-diary-timeline", name: "更新当前日记时间轴", callback: () => {
+      void this.updateDiaryFromNote(this.app.workspace.getActiveFile()?.path || "").then(r => new Notice(`日记时间轴已更新，共 ${r.count} 项`)).catch(e => new Notice((e as Error).message));
+    } });
+    this.registerMarkdownCodeBlockProcessor("calendar-task-timer-diary", (source, el, ctx) => {
+      if (source.trim()) { el.textContent = "日记更新按钮不需要脚本参数。"; return; }
+      ctx.addChild(new DiaryButton(el, ctx.sourcePath, this));
+    });
     this.addSettingTab(new TimerSettings(this.app, this)); this.status = this.addStatusBarItem(); setupStatus(this.status, () => { void this.openView(); });
     this.registerInterval(window.setInterval(() => this.tick(), 1000));
     this.registerInterval(window.setInterval(() => { if (!this.importing) void this.controller.heartbeat().catch(e => this.fail(e)); }, 15000));
@@ -148,6 +176,33 @@ export default class CalendarTaskTimer extends Plugin {
     await this.refreshComponentButtons();
   }
   onunload() { this.unloaded = true; this.componentButtons?.dispose(); this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
+  private diaryFile(note: string): TFile {
+    const file = this.app.vault.getAbstractFileByPath(note);
+    if (!file || !("extension" in file) || file.extension !== "md") throw new Error("请先打开一篇日记。");
+    return file as TFile;
+  }
+  private initializeDiary() {
+    this.diary = new DiaryUpdater({
+      available: () => !this.unloaded,
+      read: note => this.app.vault.read(this.diaryFile(note)),
+      date: (note, text) => { const info = getFrontMatterInfo(text); const fm = info.exists ? parseYaml(info.frontmatter) : {};
+        return diaryDate(note, fm?.["日记日期"], this.settings.diaryFolder || DEFAULT_DIARY_FOLDER); },
+      layout: async () => { const file = this.app.vault.getAbstractFileByPath(this.settings.diaryLayoutPath || DEFAULT_DIARY_LAYOUT_PATH);
+        if (!file) return DEFAULT_DIARY_LAYOUT;
+        if (!("extension" in file) || file.extension !== "md") throw new Error("日记时间轴模板不是 Markdown 文件。");
+        return this.app.vault.read(file as TFile); },
+      snapshot: async date => {
+        if (!this.connected) throw new Error("请先在插件中连接日历，原时间轴已保留。");
+        const calendars = this.bridge.sources(), groups = this.bridge.api().getAllEvents();
+        if (!calendars.length || calendars.some(c => !groups.some(g => g.id === c.id))) throw new Error("部分日历尚未加载，请在日历同步完成后重试；原时间轴已保留。");
+        const state = this.controller.state;
+        return { calendars, rows: mergeTimeline(this.bridge.timeline(date), state.records, date, state.operations, state.deletions) };
+      },
+      backup: async (_note, text) => { const folder = path.join(this.pluginDir, "diary-backups"); await fs.mkdir(folder, { recursive: true }); await fs.writeFile(path.join(folder, `${Date.now()}-${uid()}.md`), text, { flag: "wx" }); },
+      process: async (note, update) => { const file = this.diaryFile(note); await this.app.vault.process(file, text => { if (file.path !== note) throw new Error("日记已移动或重命名，请重新更新。"); return update(text); }); }
+    });
+  }
+  updateDiaryFromNote(note: string) { return this.diary.update(note); }
   private async refreshComponentButtons() {
     const revision = ++this.componentRevision, sources: { file: TFile; root: HTMLElement }[] = [];
     this.app.workspace.iterateAllLeaves(leaf => {

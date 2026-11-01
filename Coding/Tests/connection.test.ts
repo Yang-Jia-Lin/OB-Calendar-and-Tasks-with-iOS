@@ -64,7 +64,7 @@ test("overlapping startup and toolbar requests share one authorization prompt", 
 // Exercise the real Obsidian toolbar wiring with only the host classes mocked.
 const loader = Module as any, originalLoad = loader._load;
 loader._load = function(id: string, ...args: any[]) {
-  if (id === "obsidian") return { Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {} };
+  if (id === "obsidian") return { Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {}, MarkdownRenderChild: class {} };
   return originalLoad.call(this, id, ...args);
 };
 let PluginClass: any;

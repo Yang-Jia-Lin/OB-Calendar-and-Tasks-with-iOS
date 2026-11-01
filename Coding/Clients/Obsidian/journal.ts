@@ -43,7 +43,7 @@ export class JournalStore {
     await fs.rename(temp, this.file); this.lastGood = raw;
   }
 }
-export interface Settings extends CategoryPreferences { defaultCalendarId: string; tasksPath: string; importedLegacy: boolean; fontSize?: number; fontWeight?: number; taskSort?: TaskSort; componentTaskBindings?: Record<string, TaskRef> }
+export interface Settings extends CategoryPreferences { defaultCalendarId: string; tasksPath: string; importedLegacy: boolean; fontSize?: number; fontWeight?: number; taskSort?: TaskSort; componentTaskBindings?: Record<string, TaskRef>; diaryFolder?: string; diaryLayoutPath?: string }
 export function prepareLegacyImport(legacySettings: Record<string, unknown>, raw: unknown, current: Journal, legacyEnabled: boolean) {
   if (legacyEnabled) throw new Error("请先停止旧版计时，并在第三方插件中禁用“简洁待办计时”。");
   if (current.active || current.records.length || current.operations.length || current.deletions?.length) throw new Error("新版已有记录，不能覆盖导入。请保留当前日志。");
