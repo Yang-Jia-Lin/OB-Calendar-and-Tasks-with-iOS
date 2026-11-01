@@ -1,6 +1,6 @@
 # 日历与待办计时
 
-AI 开发入口：[Agents/AGENTS.md](Agents/AGENTS.md)。检查产物集中在 Agents/Tests，不属于插件交付内容。
+AI 开发入口：[Agents/AGENTS.md](Agents/AGENTS.md)；下一轮接续先读[交接](Agents/Handoff.md)。检查产物集中在 Agents/Tests，不属于插件交付内容。
 
 面向电脑主力记录的日历／待办工作台，结合 OB 科研执行入口与 iPad 原生应用。**目标业务数据统一使用 iCloud：日历保存安排和实际记录，提醒事项保存行动任务。**
 
@@ -92,7 +92,7 @@ Results/
 
 文档：[开发约定](Notes/0-开发约定.md)、[产品需求](Notes/1-产品需求.md)、[架构设计](Notes/2-架构设计.md)、[开发日志](Notes/开发日志.md)。版本变化、验收标准和提醒事项实测已统一归入开发日志，按新到旧排列；后续每次开发或验证更新该日志。探针运行方法见[探针说明](Coding/Probes/IcloudReminders/README.md)。
 
-完成重大功能、重要可靠性修复或实质架构变更并通过相关检查后，自动提交并正常推送远程；文档、微小 UI、产物整理不自动提交，用户明确要求提交时执行。具体边界见开发约定和 [Agents/AGENTS.md](Agents/AGENTS.md)。
+每次新版本通过相关检查后，自动提交本次相关代码／文档／产物并正常推送 `origin/main`，包括小幅 UI 或修复版本。提交标题简洁并带版本号，例如 `V0.2.16 Fix 计时按钮菜单遮挡`。纯文档工作不虚增版本。授权及范围见[开发约定](Notes/0-开发约定.md)和 [Agents/AGENTS.md](Agents/AGENTS.md)。
 
 ## 边界与来源
 
