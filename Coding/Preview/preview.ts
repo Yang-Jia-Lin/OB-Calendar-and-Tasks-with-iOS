@@ -93,7 +93,7 @@ const actions: Actions = {
   date: value => { date = value; render(); },
   sortTasks: mode => run(async () => { const before = sortMode; sortMode = mode; try { write(); } catch (e) { sortMode = before; throw e; } }),
   reorderTasks: (next, expected) => run(async () => { if (sortMode !== "manual") throw new Error("请先切换手动排序。"); const before = tasks; tasks = reorderTaskSlots(tasks, next, expected); try { write(); } catch (e) { tasks = before; throw e; } }),
-  add: (title, due, calendarId) => run(async () => { if (!title.trim()) throw new Error("请填写名称。"); bridge.assertWritable(calendarId); tasks.push({ id: uid(), title, due, calendarId, completed: false, kind: "local" }); write(); }),
+  add: (title, due, calendarId) => run(async () => { if (!title.trim()) throw new Error("请填写名称。"); bridge.assertWritable(calendarId); tasks.push({ id: uid(), path: "preview-tasks.md", title, due, calendarId, completed: false, kind: "local" }); write(); }),
   start: task => { void showResult(timerApi!.start(taskRef(task), { source: "view" })); },
   complete: task => { task.completed = true; write(); render(); }, editTask: task => dialogs.task(task, async patch => { Object.assign(task, patch); write(); }),
   pause: id => { void showResult(timerApi!.pause(id || "")); }, resume: id => { void showResult(timerApi!.resume(id || "")); }, finish: (complete, id) => { void showResult(timerApi!.finish(id || "", complete)); },
@@ -111,7 +111,7 @@ document.querySelector<HTMLInputElement>("#offline")!.onchange = e => { offline 
 document.querySelector<HTMLSelectElement>("#sync-delay")!.onchange = e => { syncDelay = Number((e.target as HTMLSelectElement).value); };
 document.querySelector<HTMLInputElement>("#theme")!.onchange = e => document.documentElement.classList.toggle("theme-dark", (e.target as HTMLInputElement).checked);
 document.querySelector<HTMLButtonElement>("#reset")!.onclick = () => { localStorage.removeItem(key); location.reload(); };
-(window as any).__preview = { controller, bridge, model, render, worker, api: timerApi, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
+(window as any).__preview = { controller, bridge, model, render, ui, worker, api: timerApi, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
 window.addEventListener("beforeunload", () => worker?.stop());
 if (new URLSearchParams(location.search).has("diary")) { document.querySelector<HTMLElement>("#app")!.style.display = "none"; (window as any).__diaryPreview = diaryFixture(); }
 if (new URLSearchParams(location.search).has("components")) (window as any).__preview.native = componentsFixture(timerApi!, {

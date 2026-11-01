@@ -57,7 +57,7 @@ export class TimerUI {
   private taskSort: HTMLSelectElement;
   private sortNotice: HTMLElement;
   private dragged?: { id: string; ids: string[] };
-  private taskNodes = new Map<string, { root: HTMLElement; handle: HTMLButtonElement; text: HTMLButtonElement; meta: HTMLElement; check: HTMLInputElement; start: HTMLButtonElement }>();
+  private taskNodes = new Map<string, { root: HTMLElement; handle: HTMLButtonElement; text: HTMLButtonElement; meta: HTMLElement; timing: HTMLElement; sessionId?: string; check: HTMLInputElement; start: HTMLButtonElement }>();
   private rowNodes = new Map<string, { root: HTMLButtonElement; start: HTMLElement; end: HTMLElement; link: HTMLElement; title: HTMLElement; meta: HTMLElement }>();
   constructor(private root: HTMLElement, private actions: Actions) {
     root.classList.add("ctt-shell"); root.replaceChildren();
@@ -109,7 +109,7 @@ export class TimerUI {
     this.due = el(dateLabel, "input"); this.due.type = "date"; this.due.hidden = true; this.due.setAttribute("aria-label", "待办日期，可留空");
     this.due.onchange = () => { dateToggle.hidden = !!this.due.value; if (!this.due.value) this.due.hidden = true; };
     const add = el(addTools, "button", "ctt-primary", "添加"); add.type = "submit";
-    form.onsubmit = async e => { e.preventDefault(); if (await actions.add(this.taskTitle.value, this.due.value, this.newCategory.value)) { this.taskTitle.value = ""; this.due.value = ""; this.due.hidden = true; dateToggle.hidden = false; this.taskTitle.focus(); } };
+    form.onsubmit = async e => { e.preventDefault(); if (await actions.add(this.taskTitle.value, this.due.value, this.newCategory.value)) { this.taskTitle.value = ""; this.due.value = ""; this.due.hidden = true; dateToggle.hidden = false; this.resetDraftCategory(); this.taskTitle.focus(); } };
     this.taskList = el(taskScroll, "div", "ctt-task-list"); this.taskList.setAttribute("aria-label", "未完成待办");
     this.observer = new ResizeObserver(entries => { const { width, height } = entries[0].contentRect;
       root.classList.toggle("ctt-stacked", width < 840 || width / Math.max(1, height) < 1.15);
@@ -130,7 +130,7 @@ export class TimerUI {
     this.started.textContent = m.active ? `开始于 ${dateParts(m.active.startedAt).date.slice(5)} ${dateParts(m.active.startedAt).time.slice(0, 5)}` : "";
     options(this.category, m.calendars, m.active?.calendarId || "");
     const draft = this.newCategory.value;
-    options(this.newCategory, m.calendars, (!old || !draft || (old.defaultCalendarId !== m.defaultCalendarId && !this.taskTitle.value)) ? m.defaultCalendarId : draft);
+    options(this.newCategory, m.calendars, (!old || !draft || (old.defaultCalendarId !== m.defaultCalendarId && !this.taskTitle.value)) ? (this.filter || m.defaultCalendarId) : draft);
     if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m.date;
     if (JSON.stringify(old?.calendars) !== JSON.stringify(m.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m.categoryPreferences)) this.renderTabs();
     this.renderTasks(); this.renderRows();
@@ -161,12 +161,18 @@ export class TimerUI {
     this.tick();
   }
   private renderTabs() {
-    const sources = orderedCategories(this.model.calendars, this.model.categoryPreferences, true); if (this.filter && !sources.some(c => c.id === this.filter)) this.filter = "";
+    const sources = orderedCategories(this.model.calendars, this.model.categoryPreferences, true); if (this.filter && !sources.some(c => c.id === this.filter)) { this.filter = ""; this.resetDraftCategory(); }
     this.tabs.replaceChildren();
     for (const c of [{ id: "", name: "全部" }, ...sources]) {
-      const b = button(this.tabs, c.name, () => { this.filter = c.id; this.renderTabs(); this.renderTasks(); }, "ctt-tab");
+      const b = button(this.tabs, c.name, () => { this.filter = c.id; this.resetDraftCategory(); this.renderTabs(); this.renderTasks(); this.tick(); }, "ctt-tab");
       b.classList.toggle("is-selected", c.id === this.filter); b.setAttribute("aria-pressed", String(c.id === this.filter));
     }
+  }
+  private resetDraftCategory() { options(this.newCategory, this.model.calendars, this.filter || this.model.defaultCalendarId); }
+  private taskSession(task: Task) {
+    const active = this.model.active;
+    return active && active.task.kind === task.kind && active.task.id === task.id &&
+      (task.kind === "local" ? active.task.path === task.path : active.task.calendarId === task.calendarId) ? active : null;
   }
   private renderTasks() {
     const m = this.model, manual = taskSort(m.taskSort) === "manual", tasks = sortedTasks(m.tasks.filter(t => !t.completed && (!this.filter || (t.calendarId || m.defaultCalendarId) === this.filter)), taskSort(m.taskSort));
@@ -179,8 +185,8 @@ export class TimerUI {
       let item = this.taskNodes.get(task.id);
       if (!item) {
         const root = el(this.taskList, "div", "ctt-task-row"), handle = button(root, "⠿", () => {}, "ctt-drag-handle"), check = el(root, "input"); check.type = "checkbox";
-        const body = el(root, "div", "ctt-task-text"), text = button(body, "", () => {}, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta");
-        const start = button(root, "▷", () => {}, "ctt-start", "开始计时"); item = { root, handle, check, text, meta, start }; this.taskNodes.set(task.id, item);
+        const body = el(root, "div", "ctt-task-text"), text = button(body, "", () => {}, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta"), timing = el(body, "div", "ctt-task-timing");
+        const start = button(root, "▷", () => {}, "ctt-start", "开始计时"); item = { root, handle, check, text, meta, timing, start }; this.taskNodes.set(task.id, item);
       }
       item.root.dataset.taskId = task.id;
       item.handle.hidden = !manual; item.handle.disabled = m.busy; item.handle.draggable = manual && !m.busy;
@@ -208,11 +214,18 @@ export class TimerUI {
         next.splice(next.indexOf(task.id) + Number(after), 0, source.id); void this.saveOrder(next, source.ids);
       };
       const categoryId = task.calendarId || m.defaultCalendarId, category = m.sources.find(c => c.id === categoryId);
+      const active = this.taskSession(task), paused = !!active && active.runningSince == null;
+      item.sessionId = active?.id; item.timing.hidden = !active;
+      item.root.dataset.timerState = active ? paused ? "paused" : "running" : "idle";
+      item.root.classList.toggle("is-timing", !!active); item.root.classList.toggle("is-paused", paused);
       item.text.textContent = task.title; item.text.onclick = () => this.actions.editTask(task);
-      item.check.setAttribute("aria-label", `完成 ${task.title}`); item.check.checked = false; item.check.disabled = m.busy || m.active?.task.id === task.id;
+      item.check.setAttribute("aria-label", `完成 ${task.title}`); item.check.checked = false; item.check.disabled = m.busy || !!active;
       item.check.onchange = () => this.actions.complete(task);
       item.meta.textContent = [category?.name || "选择分类", task.due].filter(Boolean).join(" · "); item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
-      item.start.onclick = () => this.actions.start(task); item.start.disabled = m.busy || !!m.active || !m.connected || !m.calendars.some(c => c.id === categoryId);
+      const label = active ? paused ? "继续计时" : "暂停计时" : "开始计时";
+      item.start.textContent = active && !paused ? "Ⅱ" : "▷"; item.start.title = label; item.start.setAttribute("aria-label", label);
+      item.start.onclick = () => { if (active) { if (paused) this.actions.resume(active.id); else this.actions.pause(active.id); } else this.actions.start(task); };
+      item.start.disabled = m.busy || (!active && (!!m.active || !m.connected || !m.calendars.some(c => c.id === categoryId)));
       // Only move DOM nodes if order actually changed, preserving focus on periodic refresh.
       if (this.taskList.children[i] !== item.root) this.taskList.insertBefore(item.root, this.taskList.children[i] || null);
     });
@@ -266,6 +279,8 @@ export class TimerUI {
   tick() {
     const ms = elapsed(this.model?.active || null); this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
     this.hand.style.transform = `rotate(${(ms / 60000) * 360}deg)`;
+    const active = this.model?.active;
+    if (active) for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "已暂停" : "计时中"} · ${secondsText(ms)}`;
   }
   destroy() { this.observer.disconnect(); this.densityObserver.disconnect(); if (this.densityFrame) cancelAnimationFrame(this.densityFrame); this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync); this.root.ownerDocument.removeEventListener("keydown", this.escapeSync); this.root.replaceChildren(); }
 }

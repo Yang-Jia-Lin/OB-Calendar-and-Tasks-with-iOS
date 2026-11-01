@@ -1728,6 +1728,7 @@ ${DIARY_END}
           this.due.value = "";
           this.due.hidden = true;
           dateToggle.hidden = false;
+          this.resetDraftCategory();
           this.taskTitle.focus();
         }
       };
@@ -1807,7 +1808,7 @@ ${DIARY_END}
       this.started.textContent = m.active ? `\u5F00\u59CB\u4E8E ${dateParts(m.active.startedAt).date.slice(5)} ${dateParts(m.active.startedAt).time.slice(0, 5)}` : "";
       options(this.category, m.calendars, m.active?.calendarId || "");
       const draft = this.newCategory.value;
-      options(this.newCategory, m.calendars, !old || !draft || old.defaultCalendarId !== m.defaultCalendarId && !this.taskTitle.value ? m.defaultCalendarId : draft);
+      options(this.newCategory, m.calendars, !old || !draft || old.defaultCalendarId !== m.defaultCalendarId && !this.taskTitle.value ? this.filter || m.defaultCalendarId : draft);
       if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m.date;
       if (JSON.stringify(old?.calendars) !== JSON.stringify(m.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m.categoryPreferences)) this.renderTabs();
       this.renderTasks();
@@ -1849,17 +1850,29 @@ ${DIARY_END}
     }
     renderTabs() {
       const sources = orderedCategories(this.model.calendars, this.model.categoryPreferences, true);
-      if (this.filter && !sources.some((c) => c.id === this.filter)) this.filter = "";
+      if (this.filter && !sources.some((c) => c.id === this.filter)) {
+        this.filter = "";
+        this.resetDraftCategory();
+      }
       this.tabs.replaceChildren();
       for (const c of [{ id: "", name: "\u5168\u90E8" }, ...sources]) {
         const b = button(this.tabs, c.name, () => {
           this.filter = c.id;
+          this.resetDraftCategory();
           this.renderTabs();
           this.renderTasks();
+          this.tick();
         }, "ctt-tab");
         b.classList.toggle("is-selected", c.id === this.filter);
         b.setAttribute("aria-pressed", String(c.id === this.filter));
       }
+    }
+    resetDraftCategory() {
+      options(this.newCategory, this.model.calendars, this.filter || this.model.defaultCalendarId);
+    }
+    taskSession(task) {
+      const active = this.model.active;
+      return active && active.task.kind === task.kind && active.task.id === task.id && (task.kind === "local" ? active.task.path === task.path : active.task.calendarId === task.calendarId) ? active : null;
     }
     renderTasks() {
       const m = this.model, manual = taskSort(m.taskSort) === "manual", tasks2 = sortedTasks(m.tasks.filter((t) => !t.completed && (!this.filter || (t.calendarId || m.defaultCalendarId) === this.filter)), taskSort(m.taskSort));
@@ -1878,10 +1891,10 @@ ${DIARY_END}
           }, "ctt-drag-handle"), check = el(root, "input");
           check.type = "checkbox";
           const body = el(root, "div", "ctt-task-text"), text = button(body, "", () => {
-          }, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta");
+          }, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta"), timing = el(body, "div", "ctt-task-timing");
           const start = button(root, "\u25B7", () => {
           }, "ctt-start", "\u5F00\u59CB\u8BA1\u65F6");
-          item = { root, handle, check, text, meta, start };
+          item = { root, handle, check, text, meta, timing, start };
           this.taskNodes.set(task.id, item);
         }
         item.root.dataset.taskId = task.id;
@@ -1926,16 +1939,31 @@ ${DIARY_END}
           void this.saveOrder(next, source.ids);
         };
         const categoryId = task.calendarId || m.defaultCalendarId, category = m.sources.find((c) => c.id === categoryId);
+        const active = this.taskSession(task), paused = !!active && active.runningSince == null;
+        item.sessionId = active?.id;
+        item.timing.hidden = !active;
+        item.root.dataset.timerState = active ? paused ? "paused" : "running" : "idle";
+        item.root.classList.toggle("is-timing", !!active);
+        item.root.classList.toggle("is-paused", paused);
         item.text.textContent = task.title;
         item.text.onclick = () => this.actions.editTask(task);
         item.check.setAttribute("aria-label", `\u5B8C\u6210 ${task.title}`);
         item.check.checked = false;
-        item.check.disabled = m.busy || m.active?.task.id === task.id;
+        item.check.disabled = m.busy || !!active;
         item.check.onchange = () => this.actions.complete(task);
         item.meta.textContent = [category?.name || "\u9009\u62E9\u5206\u7C7B", task.due].filter(Boolean).join(" \xB7 ");
         item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
-        item.start.onclick = () => this.actions.start(task);
-        item.start.disabled = m.busy || !!m.active || !m.connected || !m.calendars.some((c) => c.id === categoryId);
+        const label = active ? paused ? "\u7EE7\u7EED\u8BA1\u65F6" : "\u6682\u505C\u8BA1\u65F6" : "\u5F00\u59CB\u8BA1\u65F6";
+        item.start.textContent = active && !paused ? "\u2161" : "\u25B7";
+        item.start.title = label;
+        item.start.setAttribute("aria-label", label);
+        item.start.onclick = () => {
+          if (active) {
+            if (paused) this.actions.resume(active.id);
+            else this.actions.pause(active.id);
+          } else this.actions.start(task);
+        };
+        item.start.disabled = m.busy || !active && (!!m.active || !m.connected || !m.calendars.some((c) => c.id === categoryId));
         if (this.taskList.children[i] !== item.root) this.taskList.insertBefore(item.root, this.taskList.children[i] || null);
       });
     }
@@ -1999,6 +2027,10 @@ ${DIARY_END}
       const ms = elapsed(this.model?.active || null);
       this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
       this.hand.style.transform = `rotate(${ms / 6e4 * 360}deg)`;
+      const active = this.model?.active;
+      if (active) {
+        for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D"} \xB7 ${secondsText(ms)}`;
+      }
     }
     destroy() {
       this.observer.disconnect();
@@ -2719,7 +2751,7 @@ ${DIARY_END}
     add: (title, due, calendarId) => run(async () => {
       if (!title.trim()) throw new Error("\u8BF7\u586B\u5199\u540D\u79F0\u3002");
       bridge.assertWritable(calendarId);
-      tasks.push({ id: uid(), title, due, calendarId, completed: false, kind: "local" });
+      tasks.push({ id: uid(), path: "preview-tasks.md", title, due, calendarId, completed: false, kind: "local" });
       write();
     }),
     start: (task) => {
@@ -2794,7 +2826,7 @@ ${DIARY_END}
     localStorage.removeItem(key);
     location.reload();
   };
-  window.__preview = { controller, bridge, model, render, worker, api: timerApi, taskRef, setDelay: (ms) => {
+  window.__preview = { controller, bridge, model, render, ui, worker, api: timerApi, taskRef, setDelay: (ms) => {
     syncDelay = ms;
   }, tasks: () => tasks, entries: () => entries };
   window.addEventListener("beforeunload", () => worker?.stop());
