@@ -247,6 +247,207 @@
     }
   };
 
+  // Clients/Obsidian/componentsButtons.ts
+  init_time();
+  var FIELD = ".components--DynamicDataView-PageProperty_button";
+  var VALUE = ".components--DynamicDataView-PageProperty-Value";
+  var ComponentsTimerButtons = class {
+    constructor(doc, host2) {
+      this.doc = doc;
+      this.host = host2;
+      this.state = host2.api.getState();
+      this.observer = new MutationObserver((changes) => {
+        if (changes.some((c) => c.type === "attributes" ? c.target.matches(`a[data-href],${VALUE}`) : [...c.addedNodes, ...c.removedNodes].some((n) => n.nodeType === 1))) this.schedule();
+      });
+      this.observer.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-href", "aria-label"] });
+      this.unsubscribe = host2.api.subscribe((state) => {
+        this.state = state;
+        for (const button2 of this.buttons.values()) this.paint(button2);
+      });
+    }
+    doc;
+    host;
+    scopes = [];
+    buttons = /* @__PURE__ */ new Map();
+    observer;
+    unsubscribe;
+    frame = 0;
+    stopped = false;
+    state;
+    setScopes(scopes) {
+      if (!this.stopped) {
+        this.scopes = scopes;
+        this.reconcile();
+      }
+    }
+    schedule() {
+      if (this.frame || this.stopped) return;
+      this.frame = this.doc.defaultView.requestAnimationFrame(() => {
+        this.frame = 0;
+        this.reconcile();
+      });
+    }
+    reconcile() {
+      const found = /* @__PURE__ */ new Set();
+      for (const scope of this.scopes) {
+        if (!scope.root.isConnected) continue;
+        for (const field2 of scope.root.querySelectorAll(FIELD)) {
+          const value = field2.querySelector(VALUE);
+          if (!value || !scope.labels.has(value.getAttribute("aria-label") || "")) continue;
+          const card = field2.closest(".components--DynamicDataView-PageCard");
+          const link = card?.querySelector(".components--DynamicDataView-PageTitle a[data-href]");
+          const note = link?.getAttribute("data-href");
+          const button2 = value.querySelector(".components--DynamicDataView-Button"), label = button2?.querySelector(".components--DynamicDataView-ButtonLabel");
+          const content2 = field2.closest(".components--DynamicDataView-PageCardContent");
+          if (!note?.endsWith(".md") || !button2 || !label || !content2 || card?.classList.contains("components--DynamicDataView-PageCard_preview")) continue;
+          found.add(field2);
+          const previous = this.buttons.get(field2);
+          if (previous?.button === button2 && previous.label === label && previous.note === note) continue;
+          previous?.restore();
+          this.buttons.set(field2, this.mount(field2, button2, label, content2, note));
+        }
+      }
+      for (const [field2, button2] of this.buttons) if (!found.has(field2)) {
+        button2.restore();
+        this.buttons.delete(field2);
+      }
+      for (const button2 of this.buttons.values()) this.paint(button2);
+    }
+    mount(field2, button2, label, content2, note) {
+      const original = { text: label.textContent || "", title: button2.getAttribute("title"), role: button2.getAttribute("role"), tab: button2.getAttribute("tabindex"), aria: button2.getAttribute("aria-label"), disabled: button2.getAttribute("aria-disabled") };
+      const item = { field: field2, button: button2, label, content: content2, note, expected: null, working: false, error: "", restore: () => {
+      } };
+      const activate = (e) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (item.working || !this.state.available || e instanceof MouseEvent && e.detail > 1) return;
+        const expected = item.expected;
+        item.working = true;
+        item.error = "";
+        this.paint(item);
+        void this.host.toggle(note, expected).then((r) => {
+          if (!r.ok && r.code !== "cancelled") item.error = r.message;
+        }).catch((e2) => {
+          item.error = e2.message;
+        }).finally(() => {
+          item.working = false;
+          if (!this.stopped && this.buttons.get(field2) === item) this.paint(item);
+        });
+      };
+      const key2 = (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        if (e.repeat) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
+        activate(e);
+      };
+      button2.addEventListener("click", activate, true);
+      button2.addEventListener("keydown", key2, true);
+      button2.setAttribute("role", "button");
+      button2.tabIndex = 0;
+      field2.classList.add("ctt-components-timer-field");
+      content2.classList.add("ctt-components-timer-header");
+      button2.classList.add("ctt-components-timer-button");
+      item.restore = () => {
+        button2.removeEventListener("click", activate, true);
+        button2.removeEventListener("keydown", key2, true);
+        label.textContent = original.text;
+        for (const [name, value] of Object.entries({ title: original.title, role: original.role, tabindex: original.tab, "aria-label": original.aria, "aria-disabled": original.disabled })) value == null ? button2.removeAttribute(name) : button2.setAttribute(name, value);
+        button2.classList.remove("ctt-components-timer-button");
+        button2.removeAttribute("data-ctt-state");
+        field2.classList.remove("ctt-components-timer-field");
+        if (!content2.querySelector(".ctt-components-timer-field")) content2.classList.remove("ctt-components-timer-header");
+      };
+      return item;
+    }
+    paint(item) {
+      const active = this.state.active, ref = this.host.binding(item.note), own = active && ref && sameTask(active.task, ref);
+      item.expected = own ? active.id : null;
+      const phase = !this.state.available ? "unavailable" : item.working ? "working" : own ? active.runningSince == null ? "paused" : "running" : active ? "blocked" : "idle";
+      const text = phase === "unavailable" ? "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D" : item.working ? "\u5904\u7406\u4E2D\u2026" : own ? `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u25CF"} ${secondsText(elapsed(active))} \xB7 \u7ED3\u675F` : "\u5F00\u59CB\u8BA1\u65F6";
+      if (item.label.textContent !== text) item.label.textContent = text;
+      item.button.dataset.cttState = phase;
+      const title = item.error || (own ? "\u70B9\u51FB\u7ED3\u675F\uFF0C\u53EA\u8BB0\u5F55\u5DE5\u65F6\uFF0C\u4FDD\u7559\u4EFB\u52A1\u672A\u5B8C\u6210" : active ? `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u7ED3\u675F\u8BE5\u4F1A\u8BDD` : "\u70B9\u51FB\u5F00\u59CB\u6B64\u8BFE\u9898\u5173\u8054\u7684\u4EFB\u52A1");
+      if (item.button.title !== title) item.button.title = title;
+      if (item.button.getAttribute("aria-label") !== text) item.button.setAttribute("aria-label", text);
+      item.button.setAttribute("aria-disabled", String(item.working || !this.state.available));
+    }
+    dispose() {
+      if (this.stopped) return;
+      this.stopped = true;
+      this.observer.disconnect();
+      this.unsubscribe();
+      if (this.frame) this.doc.defaultView.cancelAnimationFrame(this.frame);
+      for (const button2 of this.buttons.values()) button2.restore();
+      this.buttons.clear();
+      this.scopes = [];
+    }
+  };
+
+  // Clients/Obsidian/components.ts
+  async function toggleNoteTimer(note, expected, host2) {
+    const state = host2.state(), ref = host2.binding(note), active = state.active;
+    if (expected === null) return host2.start(note);
+    if (typeof expected === "string") {
+      if (!ref || active?.id !== expected || !sameTask(active.task, ref)) return { ok: false, code: "stale-session", message: "\u5361\u7247\u5BF9\u5E94\u7684\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u6309\u6700\u65B0\u72B6\u6001\u91CD\u8BD5\u3002" };
+      return host2.finish(expected);
+    }
+    return active && ref && sameTask(active.task, ref) ? host2.finish(active.id) : host2.start(note);
+  }
+
+  // Preview/componentsFixture.ts
+  function componentsFixture(api2, bindings) {
+    const style = document.createElement("style");
+    style.textContent = `
+    #ctt-native-fixture { position:fixed;top:65px;left:20px;width:900px;max-width:calc(100vw - 40px);z-index:5;background:var(--background-primary);border:1px solid var(--background-modifier-border);padding:12px;box-shadow:0 8px 30px #0002; }
+    #ctt-native-fixture .fixture-cards { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; }
+    #ctt-native-fixture .components--DynamicDataView-PageCard { position:relative;min-width:0;border:1px solid var(--background-modifier-border);border-radius:10px; }
+    #ctt-native-fixture .components--DynamicDataView-PageCardContent { padding-block:8px; }
+    #ctt-native-fixture .components--DynamicDataView-PageContextMenu { position:absolute;top:4px;right:4px;z-index:3;display:flex;width:60px;height:24px;background:var(--background-primary);opacity:0; }
+    #ctt-native-fixture .components--DynamicDataView-PageCard:hover .components--DynamicDataView-PageContextMenu { opacity:1; }
+    #ctt-native-fixture .components--DynamicDataView-PageContextMenu button { width:30px;height:24px;padding:0; }
+
+    #ctt-native-fixture .components--DynamicDataView-PageTitle { display:flex;align-items:center;padding-inline:8px;overflow:hidden;font-size:14px;line-height:1.4; }
+    #ctt-native-fixture .components--DynamicDataView-PageTitleLink { width:100%;overflow:hidden; }
+    #ctt-native-fixture .components--DynamicDataView-PageTitle a { color:var(--text-normal);text-decoration:none;white-space:nowrap; }
+    #ctt-native-fixture .components--DynamicDataView-PagePropertyList { display:flex;flex-direction:column;gap:2px;padding:4px 8px; }
+    #ctt-native-fixture .ctt-components-timer-header > .components--DynamicDataView-PagePropertyList { display:contents; }
+    #ctt-native-fixture .components--DynamicDataView-Button { display:inline-flex;position:relative; }
+    #ctt-native-fixture .components--DynamicDataView-ButtonLabel { display:flex;align-items:center;padding:4px 8px;min-width:30px;border-radius:4px;border:1px solid var(--background-modifier-border);cursor:pointer;font-size:13px; }
+  `;
+    document.head.append(style);
+    const root = document.createElement("aside");
+    root.id = "ctt-native-fixture";
+    root.innerHTML = `<div class="fixture-cards">${[["research.md", "\u89C6\u9891\u611F\u77E5\u4F18\u5316"], ["reading.md", "Paper Reading"]].map(([path, title]) => `
+    <div class="components--DynamicDataView-PageCard" data-note="${path}"><div class="components--DynamicDataView-PageContextMenu"><button aria-label="\u7F16\u8F91">\u270E</button><button aria-label="\u66F4\u591A">\u22EF</button></div><div class="components--DynamicDataView-PageCardContent">
+      <div class="components--DynamicDataView-PageTitle"><div class="components--DynamicDataView-PageTitleLink"><a class="internal-link" data-href="${path}" href="${path}">${title}</a></div></div>
+      <div class="components--DynamicDataView-PagePropertyList">
+        <div class="components--DynamicDataView-PageProperty components--DynamicDataView-PageProperty_button"><div class="components--DynamicDataView-PageProperty-Value" aria-label="\u5F00\u59CB\u8BA1\u65F6"><span class="components--DynamicDataView-Button"><div class="components--DynamicDataView-ButtonLabel">\u5F00\u59CB\u8BA1\u65F6</div></span></div></div>
+        <div class="components--DynamicDataView-PageProperty"><p>\u8BFE\u9898\u4E2D\u7684\u539F\u6709\u4EFB\u52A1\u5217\u8868</p><p>\u25A1 \u7EE7\u7EED\u7814\u7A76\u5DE5\u4F5C</p></div>
+      </div>
+    </div></div>`).join("")}</div>`;
+    document.body.append(root);
+    const counts = { escapedClicks: 0 };
+    root.addEventListener("click", () => {
+      counts.escapedClicks++;
+    });
+    const toggle = (note, expected) => toggleNoteTimer(note, expected, {
+      state: () => api2.getState(),
+      binding: (note2) => bindings[note2],
+      start: (note2) => api2.start(bindings[note2]),
+      finish: (id) => api2.finish(id, false)
+    });
+    const manager = new ComponentsTimerButtons(document, { api: api2, binding: (note) => bindings[note], toggle });
+    manager.setScopes([{ root, labels: /* @__PURE__ */ new Set(["\u5F00\u59CB\u8BA1\u65F6"]) }]);
+    return { root, manager, counts, toggle, dispose: () => {
+      manager.dispose();
+      root.remove();
+      style.remove();
+    } };
+  }
+
   // Providers/Fcr/bridge.ts
   init_time();
   function containsEvent(actual, desired) {
@@ -2388,4 +2589,8 @@
     syncDelay = ms;
   }, tasks: () => tasks, entries: () => entries };
   window.addEventListener("beforeunload", () => worker?.stop());
+  if (new URLSearchParams(location.search).has("components")) window.__preview.native = componentsFixture(timerApi, {
+    "research.md": taskRef(tasks.find((t) => t.id === "t1")),
+    "reading.md": taskRef(tasks.find((t) => t.id === "t2"))
+  });
 })();

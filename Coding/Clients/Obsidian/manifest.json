@@ -1,5 +1,5 @@
 {
-  "id": "calendar-task-timer", "name": "日历与待办计时", "version": "0.2.14",
+  "id": "calendar-task-timer", "name": "日历与待办计时", "version": "0.2.16",
   "minAppVersion": "1.12.7", "description": "简洁待办、专注计时和可编辑时间轴，复用 FCR 日历连接。",
   "author": "Personal tools", "isDesktopOnly": true
 }

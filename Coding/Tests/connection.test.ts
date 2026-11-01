@@ -121,3 +121,13 @@ test("cancelling a native button task choice starts no timer and raises no error
   p.configureNoteTask = async () => null;
   const result = await p.startFromNote("research.md"); assert.equal(result.code, "cancelled"); assert.equal(p.error, "");
 });
+
+test("rapid native toggle invocations share one flight instead of starting then immediately ending", async () => {
+  const p = pluginHarness(connection()), task = { id: "one", path: "tasks.md", kind: "local", completed: false, title: "One" };
+  p.settings.componentTaskBindings = { "research.md": { kind: "local", path: "tasks.md", id: "one" } };
+  let starts = 0, finishes = 0;
+  p.api = { getState: () => ({ available: true, active: null, tasks: [task], pending: 0 }), finish: () => { finishes++; } };
+  p.startFromNote = async () => { starts++; return { ok: true, sessionId: "first" }; };
+  const results = await Promise.all([p.toggleFromNote("research.md"), p.toggleFromNote("research.md")]);
+  assert.equal(starts, 1); assert.equal(finishes, 0); assert.equal(results[0].sessionId, results[1].sessionId);
+});

@@ -5,6 +5,7 @@ import { MarkdownTasks } from "../Clients/Obsidian/tasks";
 import { TimerController } from "../Shared/timer";
 import { clone, type Task, type CalendarPort } from "../Shared/contracts";
 import { elapsed } from "../Shared/time";
+import { toggleNoteTimer } from "../Clients/Obsidian/components";
 
 function harness() {
   let now = Date.parse("2026-10-31T01:00:00Z"), enabled = true, writes = 0, completions = 0;
@@ -103,4 +104,27 @@ test("Markdown resolver is read-only and refuses wrong paths and ambiguous IDs",
   assert.equal((await tasks.resolve({ kind: "local", path: "tasks.md", id: "a" })).title, "first");
   await assert.rejects(tasks.resolve({ kind: "local", path: "other.md", id: "a" }));
   text += "- [ ] duplicate <!-- simple-task:a -->\n"; await assert.rejects(tasks.resolve({ kind: "local", path: "tasks.md", id: "a" })); assert.equal(changes, 0);
+});
+
+test("single native button starts then finishes the same task without completing it", async () => {
+  const h = harness(), host = { state: () => h.api.getState(), binding: () => taskRef(h.tasks[0]),
+    start: () => h.api.start(taskRef(h.tasks[0])), finish: (id: string) => h.api.finish(id, false) };
+  await toggleNoteTimer("research.md", null, host); const id = h.controller.state.active!.id;
+  h.advance(2000); await toggleNoteTimer("research.md", id, host);
+  assert.equal(h.controller.state.active, null); assert.equal(h.controller.state.records.length, 1);
+  assert.equal(h.controller.state.records[0].id, id); assert.equal(h.tasks[0].completed, false);
+});
+test("an idle native snapshot cannot finish a session that just started elsewhere", async () => {
+  const h = harness(); await h.api.start(taskRef(h.tasks[0])); const id = h.controller.state.active!.id;
+  const result = await toggleNoteTimer("research.md", null, { state: () => h.api.getState(), binding: () => taskRef(h.tasks[0]),
+    start: () => h.api.start(taskRef(h.tasks[0])), finish: () => { throw new Error("must not finish"); } });
+  assert.ok(result.ok); assert.equal(h.controller.state.active!.id, id); assert.equal(h.controller.state.records.length, 0);
+});
+test("a stale native snapshot or changed note binding never ends a newer or different task", async () => {
+  const h = harness(); await h.api.start(taskRef(h.tasks[0])); const old = h.controller.state.active!.id; h.advance(2000); await h.api.finish(old);
+  await h.api.start(taskRef(h.tasks[0])); const current = h.controller.state.active!.id;
+  const host = { state: () => h.api.getState(), binding: () => taskRef(h.tasks[0]), start: () => h.api.start(taskRef(h.tasks[0])), finish: (id: string) => h.api.finish(id, false) };
+  assert.equal((await toggleNoteTimer("research.md", old, host)).ok, false);
+  assert.equal((await toggleNoteTimer("research.md", current, { ...host, binding: () => taskRef(h.tasks[1]) })).ok, false);
+  assert.equal(h.controller.state.active!.id, current); assert.equal(h.controller.state.records.length, 1);
 });

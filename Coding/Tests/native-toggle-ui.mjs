@@ -1,0 +1,89 @@
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
+const browser = await chromium.launch({ executablePath: process.env.CTT_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, timezoneId: 'Asia/Shanghai' });
+const checks = [], errors = [];
+page.on('pageerror', e => errors.push(e.message));
+const check = (name, value) => { assert.ok(value, name); checks.push(name); };
+const card = page.locator('[data-note="research.md"]'), button = card.locator('.ctt-components-timer-button');
+try {
+  await page.goto('http://127.0.0.1:4173/?components'); await button.waitFor();
+  await button.evaluate(e => { window.originalNativeButton = e; });
+  check('Uses the existing native span without adding a second button or Markdown control', await page.evaluate(() => document.querySelectorAll('#ctt-native-fixture .components--DynamicDataView-Button').length === 2 && !document.querySelector('#ctt-native-fixture .ctt-components-timer-field button,.ctt-card')));
+  check('Wide card button follows the title and reserves space for the Components menu', await card.evaluate(e => {
+    const title = e.querySelector('.components--DynamicDataView-PageTitle').getBoundingClientRect(), button = e.querySelector('.ctt-components-timer-button').getBoundingClientRect(), content = e.getBoundingClientRect();
+    return Math.abs((title.top + title.bottom - button.top - button.bottom) / 2) < 3 && title.left - content.left < 15 && content.right - button.right >= 72 && button.left - title.right >= 0 && button.left - title.right <= 10;
+  }));
+  await card.hover();
+  const unobscured = () => card.evaluate(e => {
+    const button = e.querySelector('.ctt-components-timer-button'), a = button.getBoundingClientRect(), menu = e.querySelector('.components--DynamicDataView-PageContextMenu'), b = menu.getBoundingClientRect();
+    const at = document.elementFromPoint((a.left+a.right)/2, (a.top+a.bottom)/2);
+    return getComputedStyle(menu).opacity === '1' && (a.right <= b.left - 4 || a.top >= b.bottom + 4) && button.contains(at);
+  });
+  check('Hover edit/more menu cannot cover the idle timer button', await unobscured());
+  await button.click(); await page.waitForFunction(() => window.__preview.controller.state.active);
+  const first = await page.evaluate(() => window.__preview.controller.state.active.id);
+  check('First native click starts the same session shown in the plugin view', (await page.locator('.ctt-current-title').textContent()).includes('梳理论文中的核心问题') && (await button.textContent()).includes('结束'));
+  const timeBefore = await button.textContent();
+  await page.waitForFunction(text => document.querySelector('[data-note="research.md"] .ctt-components-timer-button').textContent !== text, timeBefore, { timeout: 3500 });
+  check('Native button duration updates from the shared host tick', await button.textContent() !== timeBefore);
+  await button.focus(); await page.waitForTimeout(1100);
+  check('Updating duration preserves the native element and keyboard focus', await button.evaluate(e => e === window.originalNativeButton && document.activeElement === e));
+  await page.locator('.ctt-timer-controls').getByRole('button', { name: '暂停', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-note="research.md"] .ctt-components-timer-button').textContent.includes('已暂停'));
+  const paused = await button.textContent(); await page.waitForTimeout(1200);
+  check('Pausing from the plugin freezes the native duration and shows paused state', await button.textContent() === paused);
+  await page.locator('.ctt-timer-controls').getByRole('button', { name: '继续', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-note="research.md"] .ctt-components-timer-button').dataset.cttState === 'running');
+  check('Plugin resume updates the same native button and session', await page.evaluate(id => window.__preview.controller.state.active.id === id, first));
+  await card.hover();
+  check('Hover menu cannot cover the longer running duration button', await unobscured());
+  const titleLink = card.locator('.components--DynamicDataView-PageTitle a');
+  const originalTitle = await titleLink.textContent();
+  await titleLink.evaluate(e => { e.textContent = '一个需要继续研究并且标题很长的科研课题名称'; });
+  check('A long title yields space to the running action and menu', await unobscured());
+  await titleLink.evaluate((e, text) => { e.textContent = text; }, originalTitle);
+  await page.locator('#ctt-native-fixture').screenshot({ path: '../Agents/Tests/Visuals/22-native-toggle-wide.png' });
+  await button.click(); await page.waitForFunction(() => !window.__preview.controller.state.active);
+  check('Second click produces one record, resets the label and leaves the original task open', (await button.textContent()) === '开始计时' && await page.evaluate(id => window.__preview.controller.state.records.filter(r => r.id === id).length === 1 && !window.__preview.tasks().find(t => t.id === 't1').completed, first));
+  check('Native action stays on the card instead of bubbling into note navigation', await page.evaluate(() => window.__preview.native.counts.escapedClicks === 0));
+  await button.dblclick(); await page.waitForFunction(() => window.__preview.controller.state.active);
+  const second = await page.evaluate(() => window.__preview.controller.state.active.id);
+  check('Double click starts once and does not immediately finish again', second !== first && await page.evaluate(id => window.__preview.controller.state.records.every(r => r.id !== id), second));
+  await button.evaluate(e => e.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })));
+  check('Holding the activation key does not repeatedly toggle the timer', await page.evaluate(id => window.__preview.controller.state.active.id === id, second));
+  await page.locator('[data-note="reading.md"] .ctt-components-timer-button').click();
+  check('Clicking another card cannot end or switch the active task', await page.evaluate(id => window.__preview.controller.state.active.id === id, second) && (await page.locator('[data-note="reading.md"] .ctt-components-timer-button').getAttribute('title')).includes('正在计时'));
+  await page.evaluate(() => {
+    const card = document.querySelector('[data-note="research.md"]'), template = document.createElement('template');
+    template.innerHTML = card.outerHTML.replace(/ctt-components-timer-(field|button|header)/g, '');
+    const replacement = template.content.firstElementChild;
+    for (const button of replacement.querySelectorAll('.components--DynamicDataView-Button')) {
+      for (const attr of ['role','tabindex','title','aria-label','aria-disabled','data-ctt-state']) button.removeAttribute(attr);
+      button.querySelector('.components--DynamicDataView-ButtonLabel').textContent = '开始计时';
+    }
+    card.replaceWith(replacement);
+  });
+  await page.waitForFunction(() => document.querySelector('[data-note="research.md"] .ctt-components-timer-button')?.dataset.cttState === 'running');
+  check('Components-style rerender reattaches to the native field and keeps the shared timer', await page.evaluate(id => window.__preview.controller.state.active.id === id, second));
+  await page.locator('#ctt-native-fixture').evaluate(e => { e.style.width = '280px'; e.querySelector('.fixture-cards').style.gridTemplateColumns = '1fr'; });
+  await page.waitForTimeout(100);
+  check('Narrow cards wrap the action below the title without horizontal overlap', await card.evaluate(e => {
+    const title = e.querySelector('.components--DynamicDataView-PageTitle').getBoundingClientRect(), button = e.querySelector('.ctt-components-timer-button').getBoundingClientRect(), box = e.getBoundingClientRect();
+    return button.top >= title.bottom && button.right <= box.right && button.left >= box.left && e.scrollWidth <= e.clientWidth;
+  }));
+  await card.hover();
+  check('Narrow card keeps the action clear of its native menu', await unobscured());
+  await page.locator('#ctt-native-fixture').screenshot({ path: '../Agents/Tests/Visuals/23-native-toggle-narrow.png' });
+  await page.evaluate(() => { window.removedNativeButton = document.querySelector('[data-note="research.md"] .ctt-components-timer-button'); window.__preview.native.root.remove(); });
+  await page.waitForFunction(() => window.__preview.native.manager.buttons.size === 0);
+  check('Removing the view restores detached native fields and releases event bindings', await page.evaluate(() => !window.removedNativeButton.classList.contains('ctt-components-timer-button') && window.removedNativeButton.getAttribute('role') === null));
+  await page.evaluate(() => document.body.append(window.__preview.native.root));
+  await page.waitForFunction(() => window.__preview.native.manager.buttons.size === 2);
+  check('Reopening a view attaches to the existing session without creating another timer', await page.evaluate(id => window.__preview.controller.state.active.id === id, second));
+  check('Disposing the enhancement restores native labels and unsubscribes', await page.evaluate(() => { const p = window.__preview, before = p.api.listeners.size; p.native.manager.dispose(); return p.api.listeners.size === before - 1 && !document.querySelector('.ctt-components-timer-button') && [...p.native.root.querySelectorAll('.components--DynamicDataView-ButtonLabel')].every(e => e.textContent === '开始计时'); }));
+  check('No native toggle browser errors', errors.length === 0);
+  await writeFile('../Agents/Tests/native-toggle-ui.json', JSON.stringify({ passed: checks.length, checks, errors }, null, 2));
+  console.log(JSON.stringify({ passed: checks.length, checks, errors }, null, 2));
+} finally { await browser.close(); }

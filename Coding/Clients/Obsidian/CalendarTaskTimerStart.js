@@ -8,6 +8,7 @@ module.exports = {
       new obsidian.Notice("请先加载 0.2.14 或更高版本的日历与待办计时插件。");
       return { ok: false, code: "unavailable" };
     }
-    return plugin.startFromNote(this.currentFile?.path || "", chooseTask === true);
+    const note = this.currentFile?.path || "";
+    return plugin.toggleFromNote ? plugin.toggleFromNote(note, chooseTask === true) : plugin.startFromNote(note, chooseTask === true);
   }
 };

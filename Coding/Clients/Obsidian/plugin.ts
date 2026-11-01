@@ -1,4 +1,4 @@
-import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, type WorkspaceLeaf } from "obsidian";
+import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, type WorkspaceLeaf, type TFile } from "obsidian";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { TimerController, blankJournal } from "../../Shared/timer";
@@ -17,7 +17,8 @@ import { taskSort, TASK_SORT_LABELS, type TaskSort } from "./taskOrder";
 import { SyncWorker } from "../../Shared/sync";
 import { pendingView, syncKey } from "./syncStatus";
 import { TimerApi, taskRef, type ActionResult, type TaskRef } from "./api";
-import { componentTaskBindings } from "./components";
+import { componentTaskBindings, nativeTimerLabels, toggleNoteTimer } from "./components";
+import { ComponentsTimerButtons, type NativeButtonScope } from "./componentsButtons";
 const VIEW = "calendar-task-timer-view";
 function hash(text: string) { let n = 2166136261; for (const c of text) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0).toString(16); }
 class TimerView extends ItemView {
@@ -83,6 +84,9 @@ export default class CalendarTaskTimer extends Plugin {
   worker?: SyncWorker;
   api!: TimerApi;
   private noteChoices = new Map<string, Promise<TaskRef | null>>();
+  private noteToggles = new Map<string, Promise<ActionResult>>();
+  private componentButtons?: ComponentsTimerButtons;
+  private componentRevision = 0;
   get connected() { return this.bridge?.connected ?? false; }
   private busy = false; private error = ""; private date = dayKey(); private items: Task[] = [];
   private store!: JournalStore; private base = ""; private vaultId = ""; private pluginDir = ""; private status?: HTMLElement;
@@ -112,6 +116,9 @@ export default class CalendarTaskTimer extends Plugin {
       tasks: { complete: task => this.completeOriginal(task) }, onChange: () => { this.render(); this.worker?.wake(); } });
     const recovered = await this.controller.recover();
     this.initializeApi();
+    this.componentButtons = new ComponentsTimerButtons(document, { api: this.api,
+      binding: note => componentTaskBindings(this.settings.componentTaskBindings)[note],
+      toggle: (note, expected) => this.toggleFromNote(note, false, expected) });
     this.worker = new SyncWorker(this.controller, { channel: this.store.file.toLowerCase(), enabled: () => this.connected && !this.importing && !this.unloaded && navigator.onLine !== false,
       changed: () => this.render(), settled: () => { this.readCalendarView(); this.scheduleSnapshot(); } });
     const host: DialogHost = { open: (title, render) => new FormModal(this.app, title, (root, close) => { applyAppearance(root, this.settings); render(root, close); }).open(), notice: text => { new Notice(text); } };
@@ -126,7 +133,11 @@ export default class CalendarTaskTimer extends Plugin {
     this.registerInterval(window.setInterval(() => this.tick(), 1000));
     this.registerInterval(window.setInterval(() => { if (!this.importing) void this.controller.heartbeat().catch(e => this.fail(e)); }, 15000));
     this.registerInterval(window.setInterval(() => { if (!this.busy) void this.refresh(true).catch(e => this.fail(e)); }, 30000));
-    this.registerEvent(this.app.vault.on("modify", file => { if (file.path === this.settings.tasksPath) this.later(() => { void this.refreshLocal().catch(e => this.fail(e)); }, 180); }));
+    this.registerEvent(this.app.vault.on("modify", file => {
+      if (file.path === this.settings.tasksPath) this.later(() => { void this.refreshLocal().catch(e => this.fail(e)); }, 180);
+      if (file.path.endsWith(".components")) void this.refreshComponentButtons();
+    }));
+    this.registerEvent(this.app.workspace.on("layout-change", () => { void this.refreshComponentButtons(); }));
     this.app.workspace.onLayoutReady(() => { void (async () => { try { await this.bridge.connect(false); await this.worker?.resume("auth"); } catch {} await this.refresh(); if (recovered) new Notice("上次计时已恢复为暂停。"); })().catch(e => this.fail(e)); });
     const online = () => { void this.worker?.resume("network").catch(e => this.fail(e)); };
     window.addEventListener("online", online); this.register(() => window.removeEventListener("online", online));
@@ -134,8 +145,23 @@ export default class CalendarTaskTimer extends Plugin {
     const visibility = () => { if (document.visibilityState === "hidden") void this.controller.heartbeat().catch(e => this.fail(e)); };
     document.addEventListener("visibilitychange", visibility); this.register(() => document.removeEventListener("visibilitychange", visibility));
     await this.refresh();
+    await this.refreshComponentButtons();
   }
-  onunload() { this.unloaded = true; this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
+  onunload() { this.unloaded = true; this.componentButtons?.dispose(); this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
+  private async refreshComponentButtons() {
+    const revision = ++this.componentRevision, sources: { file: TFile; root: HTMLElement }[] = [];
+    this.app.workspace.iterateAllLeaves(leaf => {
+      const file = (leaf.view as unknown as { file?: TFile }).file;
+      if (leaf.view.getViewType() === "components-file-view" && file?.extension === "components") sources.push({ file, root: leaf.view.containerEl });
+    });
+    const reads = new Map<string, Promise<Set<string>>>();
+    const scopes: NativeButtonScope[] = await Promise.all(sources.map(async ({ file, root }) => {
+      let read = reads.get(file.path);
+      if (!read) { read = this.app.vault.read(file).then(text => nativeTimerLabels(JSON.parse(text))).catch(() => new Set<string>()); reads.set(file.path, read); }
+      return { root, labels: await read };
+    }));
+    if (!this.unloaded && revision === this.componentRevision) this.componentButtons?.setScopes(scopes);
+  }
   private initializeApi() {
     this.api = new TimerApi({ controller: this.controller, resolve: ref => this.tasks.resolve(ref),
       prepare: async task => {
@@ -169,7 +195,7 @@ export default class CalendarTaskTimer extends Plugin {
     try { await this.saveSettings(); } catch (e) { if (this.settings.componentTaskBindings === next) this.settings.componentTaskBindings = before; throw e; }
     return selected;
   }
-  async startFromNote(notePath: string, chooseTask = false): Promise<ActionResult> {
+  async startFromNote(notePath: string, chooseTask = false, notify = true): Promise<ActionResult> {
     let result: ActionResult;
     try {
       if (this.unloaded) return { ok: false, code: "unavailable", message: "计时插件已卸载。" };
@@ -178,7 +204,22 @@ export default class CalendarTaskTimer extends Plugin {
       const ref = !chooseTask && componentTaskBindings(this.settings.componentTaskBindings)[notePath] || await this.configureNoteTask(notePath);
       result = ref ? await this.api.start(ref, { source: "components", path: notePath }) : { ok: false, code: "cancelled", message: "已取消选择任务。" };
     } catch (e) { result = { ok: false, code: "action-error", message: (e as Error).message }; }
-    await this.showResult(Promise.resolve(result)); return result;
+    if (notify) await this.showResult(Promise.resolve(result)); return result;
+  }
+  toggleFromNote(notePath: string, chooseTask = false, expectedSession?: string | null): Promise<ActionResult> {
+    if (this.unloaded) return Promise.resolve({ ok: false, code: "unavailable", message: "计时插件已卸载。" });
+    const ref = componentTaskBindings(this.settings.componentTaskBindings)[notePath], key = ref ? JSON.stringify(ref) : notePath;
+    const previous = this.noteToggles.get(key); if (previous) return previous;
+    const action = (async () => {
+      const result = chooseTask ? await this.startFromNote(notePath, true, false) : await toggleNoteTimer(notePath, expectedSession, {
+        state: () => this.api.getState(), binding: note => componentTaskBindings(this.settings.componentTaskBindings)[note],
+        start: note => this.startFromNote(note, false, false), finish: id => this.api.finish(id, false)
+      });
+      await this.showResult(Promise.resolve(result)); return result;
+    })();
+    this.noteToggles.set(key, action);
+    void action.finally(() => { if (!this.unloaded) this.later(() => { if (this.noteToggles.get(key) === action) this.noteToggles.delete(key); }, 350); }).catch(() => {});
+    return action;
   }
   async saveTaskSort(mode: TaskSort) {
     const previous = this.settings.taskSort; this.settings.taskSort = mode;
