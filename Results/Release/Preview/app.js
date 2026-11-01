@@ -108,6 +108,86 @@
     }
   });
 
+  // Clients/Obsidian/dom.ts
+  function el(parent, tag, cls = "", text) {
+    const node = parent.ownerDocument.createElement(tag);
+    node.className = cls;
+    if (text != null) node.textContent = text;
+    parent.append(node);
+    return node;
+  }
+  function button(parent, text, action, cls = "", label) {
+    const b = el(parent, "button", cls, text);
+    b.type = "button";
+    if (label) {
+      b.title = label;
+      b.setAttribute("aria-label", label);
+    }
+    b.onclick = action;
+    return b;
+  }
+  function field(parent, label, type, value) {
+    const l = el(parent, "label", "ctt-field");
+    el(l, "span", "", label);
+    const input = el(l, "input");
+    input.type = type;
+    input.value = value;
+    input.setAttribute("aria-label", label);
+    if (type === "datetime-local") input.step = "1";
+    return input;
+  }
+  function options(select, sources, value, placeholder = "\u9009\u62E9\u5206\u7C7B") {
+    const signature = JSON.stringify(sources.map((c) => [c.id, c.name]));
+    if (select.dataset.options !== signature) {
+      select.replaceChildren();
+      const empty = el(select, "option", "", placeholder);
+      empty.value = "";
+      for (const c of sources) {
+        const o = el(select, "option", "", c.name);
+        o.value = c.id;
+      }
+      select.dataset.options = signature;
+    }
+    if (value && !sources.some((c) => c.id === value)) {
+      if (!Array.from(select.options).some((o) => o.value === value)) {
+        const o = el(select, "option", "", "\u5206\u7C7B\u5DF2\u4E0D\u53EF\u7528");
+        o.value = value;
+      }
+    }
+    select.value = value;
+  }
+
+  // Clients/Obsidian/noteTaskForm.ts
+  function mountNoteTaskForm(root, title, calendars2, defaultCategory, existing, done) {
+    const form = el(root, "form", "ctt-dialog"), name = el(form, "div", "ctt-field");
+    el(name, "span", "", "\u5F85\u529E\u540D\u79F0");
+    el(name, "strong", "ctt-note-task-title", title);
+    const label = el(form, "label", "ctt-field");
+    el(label, "span", "", "\u5206\u7C7B");
+    const category = el(label, "select");
+    category.setAttribute("aria-label", "\u8BFE\u9898\u5F85\u529E\u5206\u7C7B");
+    category.required = true;
+    options(category, calendars2, calendars2.some((c) => c.id === defaultCategory) ? defaultCategory : "");
+    el(form, "p", "ctt-muted", existing ? "\u4FDD\u5B58\u5206\u7C7B\u540E\u7EE7\u7EED\u4F7F\u7528\u5F53\u524D\u5173\u8054\u5F85\u529E\u3002" : "\u6309\u7B14\u8BB0\u6807\u9898\u521B\u5EFA\u5F85\u529E\uFF0C\u4E0B\u6B21\u70B9\u51FB\u76F4\u63A5\u5F00\u59CB\u8BA1\u65F6\u3002");
+    const controls = el(form, "div", "ctt-dialog-controls");
+    let settled = false;
+    button(controls, "\u53D6\u6D88", () => {
+      if (!settled) {
+        settled = true;
+        done(null);
+      }
+    });
+    const save = el(controls, "button", "ctt-primary", existing ? "\u4FDD\u5B58\u5206\u7C7B" : "\u521B\u5EFA\u5F85\u529E");
+    save.type = "submit";
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      if (settled || !calendars2.some((c) => c.id === category.value)) return;
+      settled = true;
+      done(category.value);
+    };
+    return category;
+  }
+
   // Shared/contracts.ts
   var clone = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
   var uid = () => globalThis.crypto.randomUUID();
@@ -1519,55 +1599,6 @@ ${DIARY_END}
     const mount = content2.ownerDocument.createElement("div");
     content2.replaceChildren(mount);
     return mount;
-  }
-
-  // Clients/Obsidian/dom.ts
-  function el(parent, tag, cls = "", text) {
-    const node = parent.ownerDocument.createElement(tag);
-    node.className = cls;
-    if (text != null) node.textContent = text;
-    parent.append(node);
-    return node;
-  }
-  function button(parent, text, action, cls = "", label) {
-    const b = el(parent, "button", cls, text);
-    b.type = "button";
-    if (label) {
-      b.title = label;
-      b.setAttribute("aria-label", label);
-    }
-    b.onclick = action;
-    return b;
-  }
-  function field(parent, label, type, value) {
-    const l = el(parent, "label", "ctt-field");
-    el(l, "span", "", label);
-    const input = el(l, "input");
-    input.type = type;
-    input.value = value;
-    input.setAttribute("aria-label", label);
-    if (type === "datetime-local") input.step = "1";
-    return input;
-  }
-  function options(select, sources, value, placeholder = "\u9009\u62E9\u5206\u7C7B") {
-    const signature = JSON.stringify(sources.map((c) => [c.id, c.name]));
-    if (select.dataset.options !== signature) {
-      select.replaceChildren();
-      const empty = el(select, "option", "", placeholder);
-      empty.value = "";
-      for (const c of sources) {
-        const o = el(select, "option", "", c.name);
-        o.value = c.id;
-      }
-      select.dataset.options = signature;
-    }
-    if (value && !sources.some((c) => c.id === value)) {
-      if (!Array.from(select.options).some((o) => o.value === value)) {
-        const o = el(select, "option", "", "\u5206\u7C7B\u5DF2\u4E0D\u53EF\u7528");
-        o.value = value;
-      }
-    }
-    select.value = value;
   }
 
   // Clients/Obsidian/categories.ts
@@ -3057,6 +3088,11 @@ ${DIARY_END}
   window.__preview = { controller, bridge, model, render, ui, worker, api: timerApi, taskRef, setDelay: (ms) => {
     syncDelay = ms;
   }, tasks: () => tasks, entries: () => entries, calendarStats: () => ({ mounts: calendarMounts, disposals: calendarDisposals }), completions: () => completions };
+  window.__preview.noteFormChoices = [];
+  window.__preview.openNoteTaskForm = (defaultCategory, existing = false) => host.open("\u521B\u5EFA\u8BA1\u65F6\u5F85\u529E \xB7 \u7AEF\u8FB9\u4E91\u5E73\u53F0", (root, close) => mountNoteTaskForm(root, "\u7AEF\u8FB9\u4E91\u5E73\u53F0", calendars, defaultCategory, existing, (choice) => {
+    window.__preview.noteFormChoices.push(choice);
+    close();
+  }));
   window.addEventListener("beforeunload", () => worker?.stop());
   if (new URLSearchParams(location.search).has("diary")) {
     document.querySelector("#app").style.display = "none";

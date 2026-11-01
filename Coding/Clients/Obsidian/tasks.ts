@@ -39,7 +39,13 @@ export function restoreBoundTaskText(text: string, ref: TaskRef, seed: {title:st
   const task=matches[0] || {...seed,id:ref.id,kind:"local" as const,path:ref.path,completed:false};validate(task);
   if(matches.length)return task.completed?setTaskCompletionText(text,task,false):text;
   const eol=text.includes("\r\n")?"\r\n":"\n";
-  return text+(text.endsWith(eol)?"":eol)+taskLine(task.title,task.due,ref.id,task.calendarId)+eol;
+  return text+(text.endsWith(eol)?"":eol)+taskLine(task.title,task.due,ref.id,task.calendarId).replace(/\n/g,eol)+eol;
+}
+export function configureBoundTaskText(text: string, ref: TaskRef, seed: {title:string;due?:string;calendarId?:string}) {
+  const matches=parseTasks(text,ref.path).filter(t=>t.id===ref.id);
+  if(matches.length>1)throw new Error("任务 ID 重复，请先核对原待办。");
+  if(matches.length)return matches[0].calendarId===seed.calendarId?text:updateTaskText(text,matches[0],{calendarId:seed.calendarId},true);
+  return restoreBoundTaskText(text,ref,seed);
 }
 const LINE = /^(\s*-\s+\[)([ xX])(\]\s+)(.*)$/;
 const MARK = /\s*<!--\s*simple-task:([a-zA-Z0-9-]+)\s*-->\s*$/;
@@ -140,9 +146,13 @@ export class MarkdownTasks implements TaskRepository {
     await this.app.vault.process(file,text=>removeTaskText(text,task));
   }
   async restoreBound(ref: TaskRef, seed: {title:string;due?:string;calendarId?:string}, validate: (task:Task)=>void) {
-    if(ref.path!==this.path()||ref.kind!=="local"||!/^[a-zA-Z0-9-]+$/.test(ref.id))throw new Error("绑定已失效，请重新选择任务。");
+    if(ref.path!==this.path()||ref.kind!=="local"||!/^[a-zA-Z0-9-]+$/.test(ref.id))throw new Error("绑定已失效，请检查待办文件路径。");
     const file=(await this.file(true))!;
     await this.app.vault.process(file,text=>restoreBoundTaskText(text,ref,seed,validate));return this.resolve(ref);
+  }
+  async configureBound(ref: TaskRef, seed: {title:string;due?:string;calendarId?:string}) {
+    if(ref.path!==this.path()||ref.kind!=="local"||!/^[a-zA-Z0-9-]+$/.test(ref.id))throw new Error("绑定路径已变化，请核对待办文件。");
+    const file=(await this.file(true))!;await this.app.vault.process(file,text=>configureBoundTaskText(text,ref,seed));return this.resolve(ref);
   }
   async completeLocal(task: Task) {
     const file = this.app.vault.getAbstractFileByPath(task.path || ""); if (!file || !("extension" in file)) throw new Error("本地待办已删除或移动，请核对完成状态。");

@@ -1,3 +1,4 @@
+import { mountNoteTaskForm } from "../Clients/Obsidian/noteTaskForm";
 import { TimerApi, taskRef } from "../Clients/Obsidian/api";
 import { componentsFixture } from "./componentsFixture";
 import { diaryFixture } from "./diaryFixture";
@@ -123,6 +124,8 @@ document.querySelector<HTMLSelectElement>("#sync-delay")!.onchange = e => { sync
 document.querySelector<HTMLInputElement>("#theme")!.onchange = e => document.documentElement.classList.toggle("theme-dark", (e.target as HTMLInputElement).checked);
 document.querySelector<HTMLButtonElement>("#reset")!.onclick = () => { localStorage.removeItem(key); location.reload(); };
 (window as any).__preview = { controller, bridge, model, render, ui, worker, api: timerApi, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries,calendarStats:()=>({mounts:calendarMounts,disposals:calendarDisposals}),completions:()=>completions };
+(window as any).__preview.noteFormChoices=[];
+(window as any).__preview.openNoteTaskForm=(defaultCategory:string,existing=false)=>host.open("创建计时待办 · 端边云平台",(root,close)=>mountNoteTaskForm(root,"端边云平台",calendars,defaultCategory,existing,choice=>{(window as any).__preview.noteFormChoices.push(choice);close();}));
 window.addEventListener("beforeunload", () => worker?.stop());
 if (new URLSearchParams(location.search).has("diary")) { document.querySelector<HTMLElement>("#app")!.style.display = "none"; (window as any).__diaryPreview = diaryFixture(); }
 if (new URLSearchParams(location.search).has("components")) (window as any).__preview.native = componentsFixture(timerApi!, {

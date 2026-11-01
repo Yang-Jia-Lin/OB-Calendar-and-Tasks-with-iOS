@@ -2,7 +2,7 @@ import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, MarkdownRen
 import fs from "node:fs/promises";
 import path from "node:path";
 import { TimerController, blankJournal } from "../../Shared/timer";
-import { uid, type Task, type TimelineRow } from "../../Shared/contracts";
+import { uid, type Task, type TimelineRow, type Calendar } from "../../Shared/contracts";
 import { dayKey } from "../../Shared/time";
 import { mergeTimeline } from "../../Shared/timeline";
 import { FcrBridge } from "../../Providers/Fcr/bridge";
@@ -22,6 +22,7 @@ import { ComponentsTimerButtons, type NativeButtonScope } from "./componentsButt
 import { DiaryUpdater, diaryDate, diaryPath, DEFAULT_DIARY_FOLDER, DEFAULT_DIARY_LAYOUT, DEFAULT_DIARY_LAYOUT_PATH } from "./diary";
 import { mountDiaryButton } from "./diaryButton";
 import { FcrCalendarPanel } from "./calendarPanel";
+import { mountNoteTaskForm } from "./noteTaskForm";
 import { ApplicationState, appPage, focusLimit, focusRefs, refKey, type TaskCompletion, type SessionStore, type CalendarQuery } from "../../Shared/application";
 const VIEW = "calendar-task-timer-view";
 function hash(text: string) { let n = 2166136261; for (const c of text) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0).toString(16); }
@@ -53,17 +54,12 @@ class FormModal extends Modal {
   onOpen() { this.restore = document.activeElement; this.titleEl.textContent = this.title; this.contentEl.classList.add("ctt-dialog"); this.renderForm(this.contentEl, () => this.close()); }
   onClose() { this.contentEl.replaceChildren(); if (this.restore instanceof HTMLElement && this.restore.isConnected) this.restore.focus(); }
 }
-class TaskChoiceModal extends Modal {
-  private selected: TaskRef | null = null;
-  constructor(app: CalendarTaskTimer["app"], private noteName: string, private tasks: Task[], private previous: TaskRef | undefined, private done: (ref: TaskRef | null) => void) { super(app); }
+class NoteTaskModal extends Modal {
+  private selected: string | null = null;
+  constructor(app: CalendarTaskTimer["app"], private noteName: string, private calendars: Calendar[], private category: string, private existing: boolean, private done: (category: string | null) => void) { super(app); }
   onOpen() {
-    this.titleEl.textContent = `选择计时任务 · ${this.noteName}`;
-    const initial = this.tasks.find(t => t.id === this.previous?.id && t.path === this.previous?.path) || this.tasks[0];
-    let selected = initial.id;
-    new Setting(this.contentEl).setName("关联已有待办").setDesc("保存后，此课题卡片下次点击直接开始；不会复制待办。")
-      .addDropdown(d => { for (const task of this.tasks) d.addOption(task.id, task.title); d.setValue(selected).onChange(value => { selected = value; }); });
-    new Setting(this.contentEl).addButton(b => b.setButtonText("取消").onClick(() => this.close()))
-      .addButton(b => b.setButtonText("保存选择").setCta().onClick(() => { this.selected = taskRef(this.tasks.find(t => t.id === selected)!); this.close(); }));
+    this.titleEl.textContent = `${this.existing?"设置分类":"创建计时待办"} · ${this.noteName}`;
+    mountNoteTaskForm(this.contentEl,this.noteName,this.calendars,this.category,this.existing,category=>{this.selected=category;this.close();});
   }
   onClose() { this.contentEl.replaceChildren(); this.done(this.selected); }
 }
@@ -97,8 +93,8 @@ class TimerSettings extends PluginSettingTab {
     const bindings = componentTaskBindings(p.settings.componentTaskBindings);
     if (Object.keys(bindings).length) {
       new Setting(root).setName("Components 卡片按钮绑定").setDesc("卡片使用 Components 原生按钮；任务关联保存在本插件设置中。");
-      for (const [note, ref] of Object.entries(bindings)) new Setting(root).setName(note).setDesc(p.model().tasks.find(t => t.path === ref.path && t.id === ref.id)?.title || "原任务不可用，请重新选择")
-        .addButton(b => b.setButtonText("重新选择任务").onClick(() => { void p.configureNoteTask(note).then(() => this.display()).catch(e => new Notice((e as Error).message)); }));
+      for (const [note, ref] of Object.entries(bindings)) new Setting(root).setName(note).setDesc(p.model().tasks.find(t => t.path === ref.path && t.id === ref.id)?.title || "原待办已删除；下次开始会恢复")
+        .addButton(b => b.setButtonText("修改分类").onClick(() => { void p.configureNoteTask(note).then(() => this.display()).catch(e => new Notice((e as Error).message)); }));
     }
     new Setting(root).setName("导入旧版数据").setDesc("先结束计时并禁用旧插件。仅导入当前设备设置和日志；原文件与授权令牌保留。新版已有记录时不允许覆盖。")
       .addButton(b => b.setButtonText(p.settings.importedLegacy ? "已导入" : "导入旧版").setDisabled(p.settings.importedLegacy).onClick(() => { void p.run(async () => { await p.importLegacy(); this.display(); }); }));
@@ -239,7 +235,7 @@ export default class CalendarTaskTimer extends Plugin {
     this.api = new TimerApi({ controller: this.controller, resolve: async (ref,context) => {
       if(context?.source!=="components")return this.tasks.resolve(ref);
       const note=context.path || "",binding=componentTaskBindings(this.settings.componentTaskBindings)[note],file=this.app.vault.getAbstractFileByPath(note);
-      if(!binding||refKey(binding)!==refKey(ref)||!file||!("extension" in file)||file.extension!=="md")throw new Error("课题绑定无效，请重新选择任务。");
+      if(!binding||refKey(binding)!==refKey(ref)||!file||!("extension" in file)||file.extension!=="md")throw new Error("课题绑定无效，请检查课题与待办文件设置。");
       const active=this.controller.state.active;
       if(active){if(sameTask(active.task,ref))return active.task;throw new Error("请先结束当前计时，再开始另一个课题。");}
       if(this.controller.state.records.some(r=>r.completeTask&&!r.taskSaved&&sameTask(r.task,ref)))throw new Error("此任务还有完成状态待确认，请先处理同步队列。");
@@ -264,22 +260,28 @@ export default class CalendarTaskTimer extends Plugin {
     const choice = this.chooseNoteTask(notePath); this.noteChoices.set(notePath, choice);
     void choice.finally(() => this.noteChoices.delete(notePath)).catch(() => {}); return choice;
   }
+  private chooseNoteCategory(title: string, calendars: Calendar[], category: string, existing: boolean) {
+    return new Promise<string|null>(resolve=>{const modal=new NoteTaskModal(this.app,title,calendars,category,existing,resolve);this.register(()=>modal.close());modal.open();});
+  }
   private async chooseNoteTask(notePath: string) {
-    const file = this.app.vault.getAbstractFileByPath(notePath);
-    if (!file || !("extension" in file) || file.extension !== "md") throw new Error("请从一张 Markdown 课题卡片或课题笔记开始计时。");
-    const tasks = (await this.tasks.list()).filter(t => !t.completed);
-    if (!tasks.length) throw new Error("配置的待办文件中没有未完成任务，请先在插件页添加待办。");
-    const previous = componentTaskBindings(this.settings.componentTaskBindings);
-    const selected = await new Promise<TaskRef | null>(resolve => {
-      const modal = new TaskChoiceModal(this.app, file.name, tasks, previous[notePath], resolve);
-      this.register(() => modal.close()); modal.open();
+    const file=this.app.vault.getAbstractFileByPath(notePath);
+    if(!file||!("extension" in file)||file.extension!=="md")throw new Error("请从一张 Markdown 课题卡片或课题笔记开始计时。");
+    if(this.controller.state.active)throw new Error("请先结束当前计时，再设置课题分类。");
+    const previous=componentTaskBindings(this.settings.componentTaskBindings)[notePath],current=this.items.find(t=>previous&&sameTask(t,previous));
+    const title=current?.title || file.name.replace(/\.md$/i,""),calendars=this.bridge.writableCalendars();
+    if(!calendars.length)throw new Error("没有可写分类，请先连接并设置日历。");
+    const category=await this.chooseNoteCategory(title,calendars,current?.calendarId || this.settings.defaultCalendarId,!!previous);
+    if(!category||this.unloaded)return null;
+    return this.execute(async()=>{
+      if(this.controller.state.active)throw new Error("请先结束当前计时，再设置课题分类。");
+      if(this.app.vault.getAbstractFileByPath(notePath)!==file)throw new Error("课题笔记已移动，请重新打开。");
+      this.bridge.assertWritable(category);
+      const before=componentTaskBindings(this.settings.componentTaskBindings),beforeSnapshots=componentTaskSnapshots(this.settings.componentTaskSnapshots);
+      const ref=before[notePath] || {kind:"local" as const,path:this.tasks.path(),id:uid()},seed={title,due:current?.due||"",calendarId:category};
+      this.settings.componentTaskBindings={...before,[notePath]:ref};this.settings.componentTaskSnapshots={...beforeSnapshots,[notePath]:seed};
+      try{await this.saveSettings();}catch(e){this.settings.componentTaskBindings=before;this.settings.componentTaskSnapshots=beforeSnapshots;throw e;}
+      await this.tasks.configureBound(ref,seed);await this.refreshLocal();return ref;
     });
-    if (!selected || this.unloaded) return null;
-    const before = componentTaskBindings(this.settings.componentTaskBindings), beforeSnapshots=componentTaskSnapshots(this.settings.componentTaskSnapshots), next = { ...before, [notePath]: selected };
-    this.settings.componentTaskBindings = next;
-    const task=tasks.find(t=>sameTask(t,selected));if(task)this.settings.componentTaskSnapshots={...componentTaskSnapshots(this.settings.componentTaskSnapshots),[notePath]:{title:task.title,due:task.due||"",calendarId:task.calendarId||this.settings.defaultCalendarId}};
-    try { await this.saveSettings(); } catch (e) { if (this.settings.componentTaskBindings === next) {this.settings.componentTaskBindings = before;this.settings.componentTaskSnapshots=beforeSnapshots;} throw e; }
-    return selected;
   }
   async startFromNote(notePath: string, chooseTask = false, notify = true): Promise<ActionResult> {
     let result: ActionResult;
@@ -288,7 +290,7 @@ export default class CalendarTaskTimer extends Plugin {
       const file = this.app.vault.getAbstractFileByPath(notePath);
       if (!file || !("extension" in file) || file.extension !== "md") throw new Error("请从课题卡片开始，或先打开对应课题笔记。");
       const ref = !chooseTask && componentTaskBindings(this.settings.componentTaskBindings)[notePath] || await this.configureNoteTask(notePath);
-      result = ref ? await this.api.start(ref, { source: "components", path: notePath }) : { ok: false, code: "cancelled", message: "已取消选择任务。" };
+      result = ref ? await this.api.start(ref, { source: "components", path: notePath }) : { ok: false, code: "cancelled", message: "已取消设置课题待办。" };
     } catch (e) { result = { ok: false, code: "action-error", message: (e as Error).message }; }
     if (notify) await this.showResult(Promise.resolve(result)); return result;
   }

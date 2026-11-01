@@ -158,3 +158,33 @@ test("rapid native toggle invocations share one flight instead of starting then 
   const results = await Promise.all([p.toggleFromNote("research.md"), p.toggleFromNote("research.md")]);
   assert.equal(starts, 1); assert.equal(finishes, 0); assert.equal(results[0].sessionId, results[1].sessionId);
 });
+async function noteCreationHarness() {
+  const h=connection("old"),p=pluginHarness(h);await h.bridge.connect();
+  h.getScoped().getCalendarSources=()=>[{id:"research",name:"科研",type:"caldav"},{id:"work",name:"工作",type:"caldav"}];h.getScoped().getProviderCapabilities=()=>({canCreate:true});
+  let text="",now=Date.now(),failWrite=false;const files=new Map<string,any>();
+  const file=(path:string)=>{if(!files.has(path))files.set(path,{path,name:path.split("/").at(-1),extension:"md"});return files.get(path);};
+  p.app={vault:{getAbstractFileByPath:file,read:async()=>text,process:async(_file:unknown,fn:(text:string)=>string)=>{if(failWrite){failWrite=false;throw Error("write failed");}text=fn(text);}},plugins:{getPlugin:()=>null}};
+  p.settings.tasksPath="tasks.md";p.settings.defaultCalendarId="research";p.tasks=new MarkdownTasks(p.app,()=>"tasks.md");p.saveSettings=async()=>{};
+  p.controller=new TimerController({background:true,calendar:h.bridge,persist:async()=>{},tasks:{complete:async()=>{}},now:()=>now});p.initializeApi();
+  return {p,text:()=>text,advance:()=>{now+=2000;},failWrite:()=>{failWrite=true;}};
+}
+test("unbound cards create from the note title, preselect the default category and share repeated clicks",async()=>{
+  const h=await noteCreationHarness(),p=h.p,calls:any[]=[];
+  p.chooseNoteCategory=async(...args:any[])=>{calls.push(args);return "work";};
+  const [a,b]=await Promise.all([p.startFromNote("课题/端边云平台.md"),p.startFromNote("课题/端边云平台.md")]);
+  assert.equal(a.ok,true);assert.equal(b.sessionId,a.sessionId);assert.equal(calls.length,1);assert.equal(calls[0][0],"端边云平台");assert.equal(calls[0][2],"research");
+  const tasks=parseTasks(h.text(),"tasks.md");assert.equal(tasks.length,1);assert.equal(tasks[0].title,"端边云平台");assert.equal(tasks[0].calendarId,"work");assert.equal(p.settings.componentTaskBindings["课题/端边云平台.md"].id,tasks[0].id);
+});
+test("cancel and failed binding persistence create no task; an active session opens no category picker",async()=>{
+  const h=await noteCreationHarness(),p=h.p;let prompts=0;p.chooseNoteCategory=async()=>{prompts++;return null;};
+  assert.equal((await p.startFromNote("取消.md")).code,"cancelled");assert.equal(h.text(),"");assert.equal(p.controller.state.active,null);
+  p.chooseNoteCategory=async()=>"research";p.saveSettings=async()=>{throw Error("save failed");};
+  const failed=await p.startFromNote("保存失败.md");assert.equal(failed.ok,false);assert.match(failed.message,/save failed/);assert.equal(h.text(),"");assert.equal(p.settings.componentTaskBindings["保存失败.md"],undefined);
+  p.saveSettings=async()=>{};await p.controller.start({id:"active",title:"Active",kind:"local",path:"tasks.md",completed:false,calendarId:"research"},"research");
+  p.chooseNoteCategory=async()=>{prompts++;return "work";};assert.equal((await p.startFromNote("其他课题.md")).ok,false);assert.equal(prompts,1);assert.equal(h.text(),"");
+});
+test("a failed task write retains its durable note identity so retry creates no duplicate",async()=>{
+  const h=await noteCreationHarness(),p=h.p;let prompts=0;p.chooseNoteCategory=async()=>{prompts++;return "research";};h.failWrite();
+  assert.equal((await p.startFromNote("端边云平台.md")).ok,false);const ref=p.settings.componentTaskBindings["端边云平台.md"];assert.ok(ref.id);assert.equal(h.text(),"");
+  assert.equal((await p.startFromNote("端边云平台.md")).ok,true);assert.equal(prompts,1);const tasks=parseTasks(h.text(),"tasks.md");assert.equal(tasks.length,1);assert.equal(tasks[0].id,ref.id);
+});

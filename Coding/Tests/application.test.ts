@@ -1,12 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ApplicationState, filterTasks, focusTasks, focusRefs, refKey, defaultFilters } from "../Shared/application";
-import { parseTasks, parseCompletions, setTaskCompletionText, taskLine, updateTaskText, removeTaskText, restoreBoundTaskText } from "../Clients/Obsidian/tasks";
+import { parseTasks, parseCompletions, setTaskCompletionText, taskLine, updateTaskText, removeTaskText, restoreBoundTaskText, configureBoundTaskText } from "../Clients/Obsidian/tasks";
 import { TimerController, validateJournal } from "../Shared/timer";
 import { TimerApi } from "../Clients/Obsidian/api";
 import type { Task } from "../Shared/contracts";
 const path="tasks.md", text="# Tasks\r\n\r\n"+taskLine("原任务","2026-11-01","one","research").replaceAll("\n","\r\n")+"\r\n\r\n保留笔记正文。\r\n";
 const task=()=>parseTasks(text,path)[0];
+test("note configuration creates one stable task and category updates retain completion history",()=>{
+ const ref={kind:"local" as const,path,id:"new-note"},seed={title:"端边云平台",calendarId:"research",due:""};
+ const created=configureBoundTaskText(text,ref,seed),again=configureBoundTaskText(created,ref,seed);assert.equal(again,created);assert.equal(parseTasks(created,path).filter(t=>t.id===ref.id).length,1);
+ assert.equal(created.replaceAll("\r\n","").includes("\n"),false);
+ const done=setTaskCompletionText(created,parseTasks(created,path).find(t=>t.id===ref.id)!,true,1234,()=>"done");
+ const changed=configureBoundTaskText(done,ref,{...seed,title:"ignored",calendarId:"work"}),task=parseTasks(changed,path).find(t=>t.id===ref.id)!;
+ assert.equal(task.title,"端边云平台");assert.equal(task.calendarId,"work");assert.equal(task.completed,true);assert.equal(parseCompletions(changed).length,1);
+});
 test("deleting a task preserves notes, completion history and other stable tasks",()=>{
   const completed=setTaskCompletionText(text+taskLine("Other","","two","work")+"\r\n",task(),true,1234,()=>"done"),current=parseTasks(completed,path).find(t=>t.id==="one")!;
   const removed=removeTaskText(completed,current);assert.deepEqual(parseTasks(removed,path).map(t=>t.id),["two"]);assert.equal(parseCompletions(removed).length,1);assert.ok(removed.includes("保留笔记正文。"));
