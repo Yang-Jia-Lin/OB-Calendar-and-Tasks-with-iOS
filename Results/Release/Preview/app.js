@@ -1663,6 +1663,17 @@ ${DIARY_END}
   }
 
   // Clients/Obsidian/ui.ts
+  function toolButton(parent, label, action, paths) {
+    const b = button(parent, "", action, "ctt-icon", label), svg = parent.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [name, value] of Object.entries({ viewBox: "0 0 24 24", width: "18", height: "18", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false" })) svg.setAttribute(name, value);
+    for (const d of paths) {
+      const path = parent.ownerDocument.createElementNS(svg.namespaceURI, "path");
+      path.setAttribute("d", d);
+      svg.append(path);
+    }
+    b.append(svg);
+    return b;
+  }
   var TimerUI = class {
     constructor(root, actions2) {
       this.root = root;
@@ -1671,7 +1682,7 @@ ${DIARY_END}
       root.replaceChildren();
       this.header = el(root, "header", "ctt-header");
       const tools = el(this.header, "nav", "ctt-tools");
-      tools.setAttribute("aria-label", "\u65E5\u5386\u5DE5\u5177");
+      tools.setAttribute("aria-label", "\u63D2\u4EF6\u5DE5\u5177");
       this.connect = button(tools, "\u8FDE\u63A5\u65E5\u5386", actions2.connect, "ctt-primary");
       this.syncMenu = el(tools, "details", "ctt-sync-menu");
       this.syncMenu.hidden = true;
@@ -1684,9 +1695,8 @@ ${DIARY_END}
       this.pending = el(syncPanel, "div", "ctt-pending");
       root.ownerDocument.addEventListener("pointerdown", this.closeSync);
       root.ownerDocument.addEventListener("keydown", this.escapeSync);
-      button(tools, "\u21BB", actions2.refresh, "ctt-icon", "\u5237\u65B0");
-      button(tools, "\u5B8C\u6574\u65E5\u5386", actions2.openCalendar, "ctt-quiet");
-      button(tools, "\u2699", actions2.settings, "ctt-icon", "\u8BBE\u7F6E");
+      toolButton(tools, "\u5237\u65B0", actions2.refresh, ["M20 7v5h-5", "M19.5 12a7.5 7.5 0 1 1-2-5.1L20 9"]);
+      toolButton(tools, "\u8BBE\u7F6E", actions2.settings, ["M4 7h5m4 0h7M4 17h9m4 0h3", "M13 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]);
       tools.append(this.syncMenu);
       this.error = el(root, "div", "ctt-error");
       this.error.setAttribute("role", "alert");
@@ -2170,6 +2180,8 @@ ${DIARY_END}
       const ms = elapsed(this.model?.active || null);
       this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
       this.timerBadge.textContent = this.model?.active ? this.model.active.runningSince == null ? " \xB7 \u5DF2\u6682\u505C" : " \xB7 \u8BA1\u65F6\u4E2D" : "";
+      this.timerBadge.title = this.model?.active ? this.model.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D" : "";
+      this.pageButtons.get("timer").setAttribute("aria-description", this.timerBadge.title);
       this.hand.style.transform = `rotate(${ms / 6e4 * 360}deg)`;
       const active = this.model?.active;
       if (active && this.page === "tasks") {

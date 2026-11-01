@@ -14,6 +14,7 @@ try{
  await page.goto('http://127.0.0.1:4173');await page.waitForSelector('.ctt-task-row');
  check('First open defaults to the pure task page',await tab('待办').getAttribute('aria-selected')==='true'&&!await page.locator('.ctt-timer').isVisible());
  check('Top bar starts with tabs and has no product title',await page.locator('.ctt-brand').count()===0&&await page.locator('.ctt-header').evaluate(e=>e.firstElementChild.classList.contains('ctt-page-tabs')));
+ check('Toolbar removes the full-calendar link and uses accessible outline icons',await page.getByRole('button',{name:'完整日历',exact:true}).count()===0&&await page.getByRole('button',{name:'刷新',exact:true}).locator('svg').count()===1&&await page.getByRole('button',{name:'设置',exact:true}).locator('svg').count()===1);
  check('Filters start collapsed behind one button',!await page.getByLabel('关联筛选').isVisible());
  check('Pages expose three accessible tabs and panels',await page.getByRole('tab').count()===3&&await page.getByRole('tabpanel').count()===1);
  check('Calendar is not created until first visited',await page.evaluate(()=>window.__preview.calendarStats().mounts)===0);
@@ -66,6 +67,10 @@ try{
  check('A new local session starts while old work is syncing',await page.evaluate(()=>window.__preview.controller.state.active.task.id)==='t1');
  await tab('计时').click();await settle();await page.screenshot({path:out+'/31-timer-wide.png'});
  await page.setViewportSize({width:390,height:844});await settle();check('Timer page fits a narrow pane',await page.locator('.ctt-shell').evaluate(e=>e.scrollWidth<=e.clientWidth));await page.screenshot({path:out+'/32-timer-narrow.png'});
+ await page.setViewportSize({width:320,height:844});await page.evaluate(()=>{const p=window.__preview;window.beforeToolbarModel=p.model();p.ui.update({...window.beforeToolbarModel,appearance:{fontSize:20,fontWeight:600}});});await page.waitForTimeout(100);
+ check('Tabs and tools fit one row at 320px with large text and an active timer',await page.locator('.ctt-header').evaluate(e=>{const tabs=e.querySelector('.ctt-page-tabs').getBoundingClientRect(),tools=e.querySelector('.ctt-tools').getBoundingClientRect(),box=e.getBoundingClientRect();return Math.abs((tabs.top+tabs.bottom-tools.top-tools.bottom)/2)<2&&tabs.right+5<=tools.left&&tools.right<=box.right+1&&e.scrollWidth<=e.clientWidth+1;}));
+ check('Compact activity dot retains its accessible running description',await tab('计时').getAttribute('aria-description')==='计时中');
+ await page.screenshot({path:out+'/35-toolbar-narrow.png'});await page.locator('#theme').check();await page.screenshot({path:out+'/36-toolbar-dark.png'});await page.locator('#theme').uncheck();await page.evaluate(()=>window.__preview.ui.update(window.beforeToolbarModel));await page.setViewportSize({width:390,height:844});
  await tab('待办').click();check('Narrow task page keeps tasks before execution history',await page.evaluate(()=>document.querySelector('.ctt-tasks').getBoundingClientRect().top<document.querySelector('.ctt-timeline').getBoundingClientRect().top));
  await page.evaluate(()=>{const p=window.__preview;for(let i=0;i<50;i++)p.tasks().push({id:'scroll-'+i,path:'preview-tasks.md',title:'滚动任务 '+i,calendarId:'research',completed:false,kind:'local'});p.render();});
  await page.locator('.ctt-task-row').last().scrollIntoViewIfNeeded();check('Task page has one outer vertical scroll region',await page.evaluate(()=>document.querySelector('.ctt-shell').scrollTop>100&&['.ctt-task-scroll','.ctt-timeline-list'].every(s=>getComputedStyle(document.querySelector(s)).overflowY==='visible')));

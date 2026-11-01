@@ -6,6 +6,11 @@ import { el, button, options } from "./dom";
 import { sortedTasks, taskSort, TASK_SORT_LABELS, type TaskSort } from "./taskOrder";
 import type { SyncView } from "../../Shared/sync";
 import { appPage, defaultFilters, filterTasks, refKey, type AppPage, type TaskCompletion, type TaskFilters, type TaskRef, type ApplicationActions } from "../../Shared/application";
+function toolButton(parent: HTMLElement, label: string, action: () => void, paths: string[]) {
+  const b=button(parent,"",action,"ctt-icon",label),svg=parent.ownerDocument.createElementNS("http://www.w3.org/2000/svg","svg");
+  for(const [name,value] of Object.entries({viewBox:"0 0 24 24",width:"18",height:"18",fill:"none",stroke:"currentColor","stroke-width":"1.75","stroke-linecap":"round","stroke-linejoin":"round","aria-hidden":"true",focusable:"false"}))svg.setAttribute(name,value);
+  for(const d of paths){const path=parent.ownerDocument.createElementNS(svg.namespaceURI,"path");path.setAttribute("d",d);svg.append(path);}b.append(svg);return b;
+}
 export interface ViewModel {
   connected: boolean; busy: boolean; error: string; calendars: Calendar[]; sources: Calendar[];
   defaultCalendarId: string; active: Session | null; tasks: Task[]; date: string; rows: TimelineRow[];
@@ -72,7 +77,7 @@ export class TimerUI {
   constructor(private root: HTMLElement, private actions: Actions) {
     root.classList.add("ctt-shell"); root.replaceChildren();
     this.header = el(root, "header", "ctt-header");
-    const tools = el(this.header, "nav", "ctt-tools"); tools.setAttribute("aria-label", "日历工具");
+    const tools = el(this.header, "nav", "ctt-tools"); tools.setAttribute("aria-label", "插件工具");
     this.connect = button(tools, "连接日历", actions.connect, "ctt-primary");
     this.syncMenu = el(tools, "details", "ctt-sync-menu"); this.syncMenu.hidden = true;
     this.syncSummary = el(this.syncMenu, "summary", "ctt-sync-summary"); this.syncSummary.setAttribute("aria-label", "同步状态");
@@ -80,7 +85,8 @@ export class TimerUI {
     this.syncError = el(syncPanel, "div", "ctt-dialog-error"); this.syncError.setAttribute("role", "alert");
     this.pending = el(syncPanel, "div", "ctt-pending");
     root.ownerDocument.addEventListener("pointerdown", this.closeSync); root.ownerDocument.addEventListener("keydown", this.escapeSync);
-    button(tools, "↻", actions.refresh, "ctt-icon", "刷新"); button(tools, "完整日历", actions.openCalendar, "ctt-quiet"); button(tools, "⚙", actions.settings, "ctt-icon", "设置");
+    toolButton(tools,"刷新",actions.refresh,["M20 7v5h-5","M19.5 12a7.5 7.5 0 1 1-2-5.1L20 9"]);
+    toolButton(tools,"设置",actions.settings,["M4 7h5m4 0h7M4 17h9m4 0h3","M13 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]);
     tools.append(this.syncMenu);
     this.error = el(root, "div", "ctt-error"); this.error.setAttribute("role", "alert"); this.error.hidden = true;
     const navigation = el(this.header,"nav","ctt-page-tabs"); this.header.prepend(navigation); navigation.setAttribute("role","tablist"); navigation.setAttribute("aria-label","功能页面");
@@ -293,6 +299,8 @@ export class TimerUI {
   tick() {
     const ms = elapsed(this.model?.active || null); this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
     this.timerBadge.textContent=this.model?.active?(this.model.active.runningSince==null?" · 已暂停":" · 计时中"):"";
+    this.timerBadge.title=this.model?.active?(this.model.active.runningSince==null?"已暂停":"计时中"):"";
+    this.pageButtons.get("timer")!.setAttribute("aria-description",this.timerBadge.title);
     this.hand.style.transform = `rotate(${(ms / 60000) * 360}deg)`;
     const active = this.model?.active;
     if (active && this.page==="tasks") for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "已暂停" : "计时中"} · ${secondsText(ms)}`;
