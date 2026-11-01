@@ -30,6 +30,9 @@ try {
   check('Native button duration updates from the shared host tick', await button.textContent() !== timeBefore);
   await button.focus(); await page.waitForTimeout(1100);
   check('Updating duration preserves the native element and keyboard focus', await button.evaluate(e => e === window.originalNativeButton && document.activeElement === e));
+  // The floating fixture emulates a separate note pane; let the plugin controls receive clicks.
+  await page.locator('#ctt-native-fixture').evaluate(e => { e.style.pointerEvents = 'none'; });
+  await page.getByRole('tab',{name:'计时',exact:true}).click();
   await page.locator('.ctt-timer-controls').getByRole('button', { name: '暂停', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-note="research.md"] .ctt-components-timer-button').textContent.includes('已暂停'));
   const paused = await button.textContent(); await page.waitForTimeout(1200);
@@ -37,6 +40,7 @@ try {
   await page.locator('.ctt-timer-controls').getByRole('button', { name: '继续', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-note="research.md"] .ctt-components-timer-button').dataset.cttState === 'running');
   check('Plugin resume updates the same native button and session', await page.evaluate(id => window.__preview.controller.state.active.id === id, first));
+  await page.locator('#ctt-native-fixture').evaluate(e => { e.style.pointerEvents = ''; });
   await card.hover();
   check('Hover menu cannot cover the longer running duration button', await unobscured());
   const titleLink = card.locator('.components--DynamicDataView-PageTitle a');
@@ -82,7 +86,7 @@ try {
   await page.evaluate(() => document.body.append(window.__preview.native.root));
   await page.waitForFunction(() => window.__preview.native.manager.buttons.size === 2);
   check('Reopening a view attaches to the existing session without creating another timer', await page.evaluate(id => window.__preview.controller.state.active.id === id, second));
-  check('Disposing the enhancement restores native labels and unsubscribes', await page.evaluate(() => { const p = window.__preview, before = p.api.listeners.size; p.native.manager.dispose(); return p.api.listeners.size === before - 1 && !document.querySelector('.ctt-components-timer-button') && [...p.native.root.querySelectorAll('.components--DynamicDataView-ButtonLabel')].every(e => e.textContent === '开始计时'); }));
+  check('Disposing the enhancement restores native labels and unsubscribes', await page.evaluate(() => { const p = window.__preview, before = p.api.timerListeners.size; p.native.manager.dispose(); return p.api.timerListeners.size === before - 1 && !document.querySelector('.ctt-components-timer-button') && [...p.native.root.querySelectorAll('.components--DynamicDataView-ButtonLabel')].every(e => e.textContent === '开始计时'); }));
   check('No native toggle browser errors', errors.length === 0);
   await writeFile('../Agents/Tests/native-toggle-ui.json', JSON.stringify({ passed: checks.length, checks, errors }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, errors }, null, 2));

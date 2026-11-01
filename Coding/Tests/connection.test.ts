@@ -64,15 +64,25 @@ test("overlapping startup and toolbar requests share one authorization prompt", 
 // Exercise the real Obsidian toolbar wiring with only the host classes mocked.
 const loader = Module as any, originalLoad = loader._load;
 loader._load = function(id: string, ...args: any[]) {
-  if (id === "obsidian") return { Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {}, MarkdownRenderChild: class {} };
+  if (id === "obsidian") return { Plugin: class {}, ItemView: class {}, PluginSettingTab: class {}, Modal: class {}, Notice: class {}, MarkdownRenderChild: class {}, Component: class {} };
   return originalLoad.call(this, id, ...args);
 };
 let PluginClass: any;
 try { PluginClass = require("../Clients/Obsidian/plugin").default; } finally { loader._load = originalLoad; }
 function pluginHarness(h: ReturnType<typeof connection>) {
-  const p = new PluginClass(); p.bridge = h.bridge; p.render = () => {}; p.refresh = async () => {}; p.later = () => {};
+  const p = new PluginClass(); p.bridge = h.bridge; p.calendarQuery = h.bridge; p.render = () => {}; p.refresh = async () => {}; p.later = () => {};
   return p;
 }
+test("calendar query rejects incomplete provider cache and preserves the last valid host snapshot", async () => {
+  const h = connection("old"), p = pluginHarness(h); await h.bridge.connect();
+  h.scoped({...h.getScoped(),getCalendarSources:()=>[{id:"research",name:"科研",type:"caldav"}],getAllEvents:()=>[{id:"research",events:[]}]});
+  await h.bridge.connect();
+  p.readCalendarView(); const valid=p.calendarView; assert.equal(valid.sources.length,1); assert.equal(valid.error,"");
+  h.scoped({...h.getScoped(),getAllEvents:()=>[]}); await h.bridge.connect();
+  p.readCalendarView(); assert.deepEqual(p.calendarView.sources,valid.sources); assert.match(p.calendarView.error,/缓存尚未就绪/);
+  Object.assign(h.getScoped(),{getAllEvents:()=>{throw Error("remote unavailable");}});
+  p.readCalendarView(); assert.deepEqual(p.calendarView.sources,valid.sources); assert.match(p.calendarView.error,/remote unavailable/);
+});
 async function settled(p: any) { for (let i = 0; i < 30 && p.busy; i++) await new Promise(resolve => setImmediate(resolve)); assert.equal(p.busy, false); }
 
 test("toolbar refresh authorizes a disconnected plugin before calling FCR refresh", async () => {

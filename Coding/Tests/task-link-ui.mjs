@@ -36,7 +36,7 @@ try{
   const initial=await current.locator('.ctt-task-timing').textContent();await page.waitForFunction(s=>document.querySelector('.ctt-task-row.is-timing .ctt-task-timing').textContent!==s,initial);
   check('The shared host tick updates the row duration',await current.locator('.ctt-task-timing').textContent()!==initial);
   await current.scrollIntoViewIfNeeded();await page.locator('.ctt-tasks').screenshot({path:'../Agents/Tests/Visuals/26-task-category-running.png'});
-  await page.getByRole('button',{name:'暂停',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.ctt-task-row.is-timing')?.dataset.timerState==='paused');
+  await page.getByRole('tab',{name:'计时',exact:true}).click();await page.getByRole('button',{name:'暂停',exact:true}).click();await page.getByRole('tab',{name:'待办',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.ctt-task-row.is-timing')?.dataset.timerState==='paused');
   const paused=await current.locator('.ctt-task-timing').textContent();await page.waitForTimeout(1200);
   check('Pausing from the main timer freezes the row and offers resume',paused.startsWith('已暂停 · ')&&paused===await current.locator('.ctt-task-timing').textContent()&&await current.getByRole('button',{name:'继续计时',exact:true}).isEnabled());
   await current.getByRole('button',{name:'继续计时',exact:true}).click();await page.waitForFunction(()=>window.__preview.controller.state.active.runningSince!==null);
@@ -45,12 +45,12 @@ try{
   check('Active row controls fit a narrow pane',await current.evaluate(e=>{const b=e.querySelector('.ctt-start').getBoundingClientRect(),r=e.getBoundingClientRect();return b.left>=r.left&&b.right<=r.right+1&&b.right<=innerWidth;}));
   await page.locator('.ctt-tasks').screenshot({path:'../Agents/Tests/Visuals/27-task-category-narrow.png'});
   await current.getByRole('button',{name:'暂停计时',exact:true}).click();await page.waitForFunction(()=>window.__preview.controller.state.active.runningSince===null);
-  check('Row pause is reflected in the main timer controls',await page.getByRole('button',{name:'继续',exact:true}).isVisible());
-  await page.getByRole('button',{name:'只记时间',exact:true}).click();await page.waitForFunction(()=>!window.__preview.controller.state.active);
+  await page.getByRole('tab',{name:'计时',exact:true}).click();check('Row pause is reflected in the main timer controls',await page.getByRole('button',{name:'继续',exact:true}).isVisible());
+  await page.getByRole('button',{name:'只记时间',exact:true}).click();await page.waitForFunction(()=>!window.__preview.controller.state.active);await page.getByRole('tab',{name:'待办',exact:true}).click();
   check('Finishing restores idle row appearance and start action without completing it',await current.getAttribute('data-timer-state')==='idle'&&!await current.locator('.ctt-task-timing').isVisible()&&await current.getByRole('button',{name:'开始计时',exact:true}).isEnabled()&&await page.evaluate(()=>!window.__preview.tasks().find(t=>t.title==='个人新任务').completed));
   await page.evaluate(async()=>{const p=window.__preview;await p.api.start(p.taskRef(p.tasks().find(t=>t.id==='t1')));});
   await tab('工作').click();check('Filtering hides the active row without stopping its session',await page.locator('.ctt-task-row.is-timing').count()===0&&await page.evaluate(()=>window.__preview.controller.state.active.task.id)==='t1');
-  await tab('全部').click();const active=page.locator('[data-task-id=t1]');
+  await tab('全部').click();const active=page.locator('.ctt-task-row[data-task-id=t1]');
   check('Returning to All restores the same running indicator',await active.getAttribute('data-timer-state')==='running');
   await page.evaluate(()=>{const p=window.__preview;window.savedTaskPath=p.controller.state.active.task.path;p.controller.state.active.task.path='other-tasks.md';p.render();});
   check('An identical ID from another task file never highlights or controls this row',await page.locator('.ctt-task-row.is-timing').count()===0&&await active.getByRole('button',{name:'开始计时',exact:true}).isDisabled());

@@ -1,8 +1,10 @@
 import { clone, type Task, type Session } from "../../Shared/contracts";
 import type { TimerController } from "../../Shared/timer";
 import type { SyncView } from "../../Shared/sync";
+import { timerSnapshot, type TimerSnapshot } from "../../Shared/application";
+export type { TaskRef } from "../../Shared/application";
+import type { TaskRef } from "../../Shared/application";
 
-export interface TaskRef { kind: "local"; path: string; id: string }
 export interface EntryContext { source: "view" | "command" | "markdown" | "components"; path?: string }
 export interface TimerState {
   available: boolean; active: Session | null; tasks: Task[]; pending: number; sync?: SyncView;
@@ -19,6 +21,7 @@ export const sameTask = (task: Task, ref: TaskRef) => task.kind === ref.kind && 
 export class TimerApi {
   readonly version = 1;
   private listeners = new Set<(state: TimerState) => void>();
+  private timerListeners = new Set<(state: TimerSnapshot) => void>();
   private serial: Promise<unknown> = Promise.resolve();
   private disposed = false;
   constructor(private host: {
@@ -27,6 +30,7 @@ export class TimerApi {
     prepare(task: Task): Promise<Task>;
     execute<T>(action: () => Promise<T>): Promise<T>;
     state(): TimerState;
+    timerState?(): TimerSnapshot;
     refresh(): Promise<void>;
   }) {}
   getState(): TimerState { return clone({ ...this.host.state(), available: !this.disposed }); }
@@ -36,8 +40,17 @@ export class TimerApi {
     try { listener(this.getState()); } catch { this.listeners.delete(listener); }
     return () => { this.listeners.delete(listener); };
   }
-  notify() { for (const listener of this.listeners) { try { listener(this.getState()); } catch { /* A broken consumer cannot interrupt persistence or other views. */ } } }
-  dispose() { this.disposed = true; this.notify(); this.listeners.clear(); }
+  getTimerState(): TimerSnapshot { return this.host.timerState ? clone({...this.host.timerState(),available:!this.disposed}) : timerSnapshot(this.host.controller.state.active,!this.disposed); }
+  subscribeTimer(listener: (state: TimerSnapshot) => void) {
+    if (this.disposed) { listener(this.getTimerState()); return () => {}; }
+    this.timerListeners.add(listener); try { listener(this.getTimerState()); } catch { this.timerListeners.delete(listener); }
+    return () => { this.timerListeners.delete(listener); };
+  }
+  notify() {
+    for (const listener of this.listeners) { try { listener(this.getState()); } catch {} }
+    for (const listener of this.timerListeners) { try { listener(this.getTimerState()); } catch {} }
+  }
+  dispose() { this.disposed = true; this.notify(); this.listeners.clear(); this.timerListeners.clear(); }
   private action(fn: () => Promise<ActionResult>): Promise<ActionResult> {
     const result = this.serial.then(async (): Promise<ActionResult> => {
       if (this.disposed) return { ok: false, code: "unavailable", message: "计时插件已卸载，请重新加载。" };

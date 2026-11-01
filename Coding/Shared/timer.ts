@@ -8,6 +8,7 @@ export function validateJournal(input: unknown): Journal {
   if (!Array.isArray(data.operations) || data.operations.some(o => !o.id || !o.step?.uid || !["pending", "saved"].includes(o.status))) throw new Error("日程修改日志损坏。");
   if (data.deletions && (!Array.isArray(data.deletions) || data.deletions.some(o => !o.id || !o.uid || !o.calendarId || !o.before || o.before.uid !== o.uid || !Number.isFinite(o.start) || !Number.isFinite(o.end) || !["pending", "saved"].includes(o.status)))) throw new Error("删除操作日志损坏。");
   for (const s of [data.active, ...data.records].filter(Boolean) as Session[]) {
+    if (s.ownerDeviceId !== undefined && (typeof s.ownerDeviceId !== "string" || !s.ownerDeviceId || s.ownerDeviceId.length>128)) throw new Error("会话归属无效。");
     if (!s.id || !s.task?.id || !s.calendarId || !s.zone || !Number.isFinite(s.startedAt) || !Number.isFinite(s.lastHeartbeat) || !Array.isArray(s.segments) || (s.runningSince != null && !Number.isFinite(s.runningSince))) throw new Error("计时日志不完整。");
     new Intl.DateTimeFormat("en", { timeZone: s.zone });
     let end = -Infinity;
@@ -46,7 +47,7 @@ export class TimerController {
   private flights = new Map<string, Promise<unknown>>();
   private stopped = false;
   constructor(private deps: { state?: Journal; persist: (s: Journal) => Promise<void>; calendar: CalendarPort; tasks: TaskPort;
-    now?: () => number; zone?: () => string; onChange?: () => void; background?: boolean }) { this.state = validateJournal(deps.state || blankJournal()); }
+    now?: () => number; zone?: () => string; ownerDeviceId?: string; onChange?: () => void; background?: boolean }) { this.state = validateJournal(deps.state || blankJournal()); }
   private now() { return this.deps.now?.() ?? Date.now(); }
   private lock<T>(fn: () => Promise<T>): Promise<T> { const p = this.serial.then(fn); this.serial = p.catch(() => {}); return p; }
   private async commit(next: Journal, notify = true) { this.live(); await this.deps.persist(clone(next)); this.state = next; if (notify) this.deps.onChange?.(); }
@@ -95,7 +96,7 @@ export class TimerController {
     if (this.state.active) throw new Error("请先结束当前计时。");
     if (!task.id || !task.title.trim()) throw new Error("请选择有效待办。");
     this.deps.calendar.assertWritable(calendarId); const now = this.now();
-    const active: Session = { id: uid(), title: task.title, task: clone(task), calendarId, zone: this.deps.zone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    const active: Session = { id: uid(), ownerDeviceId: this.deps.ownerDeviceId, title: task.title, task: clone(task), calendarId, zone: this.deps.zone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
       startedAt: now, runningSince: now, lastHeartbeat: now, segments: [] };
     await this.commit({ ...this.state, active });
   }); }

@@ -3,6 +3,25 @@
 .ctt-shell *, .ctt-dialog * { box-sizing: border-box; }
 .ctt-shell [hidden], .ctt-dialog [hidden] { display: none !important; }
 .ctt-shell h2, .ctt-shell h3, .ctt-shell p { margin: 0; }
+.ctt-page-tabs { position:sticky; top:0; z-index:5; display:flex; gap:6px; flex:0 0 auto; border-bottom:1px solid var(--ctt-border); padding:6px 0 10px; background:var(--background-primary); }
+.ctt-task-row, .ctt-focus-task, .ctt-event { scroll-margin-top:70px; }
+.ctt-shell .ctt-page-tab { border:1px solid transparent; background:transparent; color:var(--ctt-muted); box-shadow:none; }
+.ctt-shell .ctt-page-tab[aria-selected=true] { background:var(--background-secondary); border-color:var(--ctt-border); color:var(--text-normal); }
+.ctt-page-timer-badge { font-size:11px; color:var(--interactive-accent); }
+.ctt-page { flex:0 0 auto; min-width:0; }
+.ctt-timer-page { display:flex; flex-direction:column; gap:24px; }
+.ctt-shell:not(.ctt-active) .ctt-timer-page .ctt-timer { height:340px; }
+.ctt-task-filters { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+.ctt-task-filters select { flex:1 1 100px; width:auto; font-size:calc(var(--ctt-font-size,15px) - 2px); }
+.ctt-task-filters input { max-width:155px; }
+.ctt-shell .ctt-pin { width:26px; flex:0 0 26px; padding:0; color:var(--ctt-muted); background:transparent; border:0; box-shadow:none; }
+.ctt-shell .ctt-pin[aria-pressed=true] { color:var(--interactive-accent); }
+.ctt-focus-section { max-width:880px; width:100%; margin-inline:auto; }
+.ctt-focus-task { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--ctt-border); }
+.ctt-focus-start { flex-shrink:0; }
+.ctt-calendar-page { min-height:400px; }
+.ctt-calendar-page .ofc-embedded-widget-container { width:100%; }
+.ctt-completion .ctt-event-time::after { content:'✓'; color:var(--interactive-accent); }
 .ctt-shell button, .ctt-dialog button { font: inherit; cursor: pointer; border-radius: 8px; min-height: 34px; padding: 6px 12px; box-shadow: 0 2px 4px #18283b0b; white-space: nowrap; }
 .ctt-shell button:disabled, .ctt-dialog button:disabled { opacity: .4; cursor: default; }
 .ctt-shell input, .ctt-shell select, .ctt-dialog input, .ctt-dialog select { font: inherit; min-height: 33px; border-radius: 6px; min-width: 0; max-width: 100%; }

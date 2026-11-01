@@ -1,4 +1,5 @@
-import { sameTask, type ActionResult, type TaskRef, type TimerApi, type TimerState } from "./api";
+import { sameTask, type ActionResult, type TaskRef, type TimerApi } from "./api";
+import type { TimerSnapshot } from "../../Shared/application";
 import { elapsed, secondsText } from "../../Shared/time";
 
 export interface NativeButtonScope { root: HTMLElement; labels: Set<string> }
@@ -16,18 +17,18 @@ export class ComponentsTimerButtons {
   private unsubscribe: () => void;
   private frame = 0;
   private stopped = false;
-  private state: TimerState;
+  private state: TimerSnapshot;
   constructor(private doc: Document, private host: {
     api: TimerApi; binding(note: string): TaskRef | undefined;
     toggle(note: string, expected: string | null): Promise<ActionResult>;
   }) {
-    this.state = host.api.getState();
+    this.state = host.api.getTimerState();
     this.observer = new MutationObserver(changes => {
       if (changes.some(c => c.type === "attributes" ? (c.target as Element).matches(`a[data-href],${VALUE}`)
         : [...c.addedNodes, ...c.removedNodes].some(n => n.nodeType === 1))) this.schedule();
     });
     this.observer.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-href", "aria-label"] });
-    this.unsubscribe = host.api.subscribe(state => { this.state = state; for (const button of this.buttons.values()) this.paint(button); });
+    this.unsubscribe = host.api.subscribeTimer(state => { this.state = state; for (const button of this.buttons.values()) this.paint(button); });
   }
   setScopes(scopes: NativeButtonScope[]) { if (!this.stopped) { this.scopes = scopes; this.reconcile(); } }
   private schedule() {

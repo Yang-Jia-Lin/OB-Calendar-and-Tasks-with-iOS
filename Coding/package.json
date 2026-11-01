@@ -1,6 +1,6 @@
 {
   "name": "calendar-task-timer-workspace",
-  "version": "0.2.20",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "check": "tsc --noEmit",

@@ -1,5 +1,6 @@
 import { clone, sameEvent, sameEventContent, comparableEventContent, isMissingResource, uid, type Calendar, type CalendarEvent, type CalendarPort, type DeleteTarget, type EditStep, type Entry, type TimelineRow } from "../../Shared/contracts";
 import { dayKey } from "../../Shared/time";
+import type { CalendarQuery } from "../../Shared/application";
 export interface FcrApi {
   getCalendarSources(): Calendar[];
   getProviderCapabilities(id: string): { canCreate?: boolean; canEdit?: boolean; canDelete?: boolean };
@@ -18,7 +19,7 @@ export function containsEvent(actual: CalendarEvent, desired: CalendarEvent) {
 function content(event: CalendarEvent): CalendarEvent {
   const { caldavHref: _href, etag: _etag, ...data } = clone(event); return data;
 }
-export class FcrBridge implements CalendarPort {
+export class FcrBridge implements CalendarPort, CalendarQuery {
   authorized: FcrApi | null = null;
   private connecting?: Promise<void>;
   get connected() { return this.authorized !== null; }
@@ -65,6 +66,11 @@ export class FcrBridge implements CalendarPort {
   }
   api() { if (!this.authorized) throw new Error("请先连接 FCR 日历。"); return this.authorized; }
   sources(): Calendar[] { return this.api().getCalendarSources().map(s => ({ id: s.id, name: s.name || s.id, color: s.color, type: s.type })); }
+  readDay(date: string) {
+    const sources = this.sources(), groups = this.api().getAllEvents();
+    if (sources.some(source => !groups.some(group => group.id === source.id))) throw new Error("日历缓存尚未就绪；保留已加载快照");
+    return { date, sources, calendars: this.writableCalendars(), rows: this.timeline(date) };
+  }
   writableCalendars() { return this.sources().filter(s => s.type === "caldav" && this.api().getProviderCapabilities(s.id)?.canCreate); }
   assertWritable(id: string) { if (!this.writableCalendars().some(s => s.id === id)) throw new Error("分类日历不可写或已移除，请重新选择。"); }
   entries(): Entry[] { return this.api().getAllEvents().flatMap(g => (g.events || []).map(x => ({ id: x.id, calendarId: g.id, color: g.color, event: clone(x.event) }))); }

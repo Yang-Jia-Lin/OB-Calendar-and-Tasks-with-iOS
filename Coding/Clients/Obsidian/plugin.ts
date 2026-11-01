@@ -21,15 +21,25 @@ import { componentTaskBindings, nativeTimerLabels, toggleNoteTimer } from "./com
 import { ComponentsTimerButtons, type NativeButtonScope } from "./componentsButtons";
 import { DiaryUpdater, diaryDate, diaryPath, DEFAULT_DIARY_FOLDER, DEFAULT_DIARY_LAYOUT, DEFAULT_DIARY_LAYOUT_PATH } from "./diary";
 import { mountDiaryButton } from "./diaryButton";
+import { FcrCalendarPanel } from "./calendarPanel";
+import { ApplicationState, appPage, focusLimit, focusRefs, refKey, type TaskCompletion, type SessionStore, type CalendarQuery } from "../../Shared/application";
 const VIEW = "calendar-task-timer-view";
 function hash(text: string) { let n = 2166136261; for (const c of text) n = Math.imul(n ^ c.charCodeAt(0), 16777619); return (n >>> 0).toString(16); }
 class TimerView extends ItemView {
   ui?: TimerUI;
+  private unsubs: (()=>void)[] = [];
+  private queued = false;
   constructor(leaf: WorkspaceLeaf, private owner: CalendarTaskTimer) { super(leaf); }
   getViewType() { return VIEW; } getDisplayText() { return "日历与待办计时"; } getIcon() { return "timer"; }
-  async onOpen() { this.ui = new TimerUI(mountTimerView(this.contentEl), this.owner.actions()); this.render(); }
-  render() { this.ui?.update(this.owner.model()); }
-  async onClose() { this.ui?.destroy(); }
+  async onOpen() {
+    this.ui = new TimerUI(mountTimerView(this.contentEl), {...this.owner.actions(),mountCalendar:root=>{
+      const panel=this.addChild(new FcrCalendarPanel(this.app,root));return {activate:()=>{void panel.activate();},dispose:()=>{this.removeChild(panel);panel.unload();}};
+    }});
+    for(const key of ["tasks","session","execution","sync"] as const)this.unsubs.push(this.owner.application.subscribe(key,()=>{if(this.queued)return;this.queued=true;queueMicrotask(()=>{this.queued=false;this.render();});}));
+    this.render();
+  }
+  render() { this.ui?.update(this.owner.application.get("view") || this.owner.model()); }
+  async onClose() { for(const unsub of this.unsubs)unsub();this.unsubs=[];this.ui?.destroy();this.ui=undefined; }
 }
 class DiaryButton extends MarkdownRenderChild {
   private dispose?: () => void;
@@ -71,6 +81,8 @@ class TimerSettings extends PluginSettingTab {
     renderCategorySettings(categoryRoot, calendars, p.settings, next => p.saveCategoryPreferences(next));
     new Setting(root).setName("待办显示顺序").setDesc("手动模式可拖动任务左侧手柄，或用 Alt + ↑ / ↓ 排序。")
       .addDropdown(d => d.addOptions(TASK_SORT_LABELS).setValue(taskSort(p.settings.taskSort)).onChange(value => { void p.run(() => p.saveTaskSort(taskSort(value))); }));
+    new Setting(root).setName("计时页重要待办数量").setDesc("置顶优先，再补充今天截止的未完成任务。")
+      .addSlider(s=>s.setLimits(1,10,1).setValue(focusLimit(p.settings.focusLimit)).setDynamicTooltip().onChange(value=>{p.settings.focusLimit=focusLimit(value);p.render();void p.saveSettings().catch(e=>new Notice((e as Error).message));}));
     new Setting(root).setName("页面字号").setDesc("计时、待办和时间轴一起调整。")
       .addSlider(s => s.setLimits(13, 20, 1).setValue(appearance(p.settings).fontSize).setDynamicTooltip().onChange(async value => { p.settings.fontSize = value; p.render(); await p.saveSettings(); }));
     new Setting(root).setName("页面字重").addDropdown(d => d.addOptions({ "400": "常规", "500": "适中", "600": "加粗" }).setValue(String(appearance(p.settings).fontWeight)).onChange(async value => { p.settings.fontWeight = Number(value); p.render(); await p.saveSettings(); }));
@@ -99,6 +111,9 @@ export default class CalendarTaskTimer extends Plugin {
   controller!: TimerController; bridge!: FcrBridge; tasks!: MarkdownTasks; dialogs!: Dialogs;
   worker?: SyncWorker;
   api!: TimerApi;
+  readonly application = new ApplicationState<{view:ViewModel|null;tasks:Task[];session:ViewModel["active"];execution:object|null;sync:object|null}>({view:null,tasks:[],session:null,execution:null,sync:null});
+  private completionEvents: TaskCompletion[] = [];
+  private calendarCache = new Map<string, typeof this.calendarView>();
   private noteChoices = new Map<string, Promise<TaskRef | null>>();
   private noteToggles = new Map<string, Promise<ActionResult>>();
   private componentButtons?: ComponentsTimerButtons;
@@ -107,6 +122,7 @@ export default class CalendarTaskTimer extends Plugin {
   get connected() { return this.bridge?.connected ?? false; }
   private busy = false; private error = ""; private date = dayKey(); private items: Task[] = [];
   private store!: JournalStore; private base = ""; private vaultId = ""; private pluginDir = ""; private status?: HTMLElement;
+  private sessionStore!: SessionStore; private calendarQuery!: CalendarQuery;
   private token: string | null = null; private importing = false; private timers = new Set<number>();
   private unloaded = false; private snapshotQueued = false;
   private calendarView: { date: string; sources: ViewModel["sources"]; calendars: ViewModel["calendars"]; rows: TimelineRow[]; error: string } = { date: "", sources: [], calendars: [], rows: [], error: "" };
@@ -118,6 +134,7 @@ export default class CalendarTaskTimer extends Plugin {
     Object.assign(this.settings, categoryPreferences(data));
     this.settings.taskSort = taskSort(data.taskSort);
     this.settings.componentTaskBindings = componentTaskBindings(data.componentTaskBindings);
+    this.settings.appPage=appPage(data.appPage);this.settings.focusPins=focusRefs(data.focusPins);this.settings.focusLimit=focusLimit(data.focusLimit);
     for (const [key, fallback] of [["diaryFolder", DEFAULT_DIARY_FOLDER], ["diaryLayoutPath", DEFAULT_DIARY_LAYOUT_PATH]] as const) {
       try { this.settings[key] = diaryPath(data[key], fallback); } catch { this.settings[key] = fallback; }
     }
@@ -126,13 +143,15 @@ export default class CalendarTaskTimer extends Plugin {
     const key = `calendar-task-timer-device-${this.vaultId}`;
     let device = window.localStorage.getItem(key); if (!/^[a-f0-9-]{36}$/i.test(device || "")) { device = uid(); window.localStorage.setItem(key, device); }
     this.store = new JournalStore(path.join(this.pluginDir, "sessions", `${device}.json`));
+    this.sessionStore = this.store;
     const secretKey = `calendar-task-timer-${this.vaultId}`, secretStorage = (this.app as any).secretStorage;
     this.bridge = new FcrBridge(this.app as any, () => secretStorage?.getSecret?.(secretKey) || this.token,
       async token => { if (secretStorage?.setSecret) await secretStorage.setSecret(secretKey, token); else this.token = token; });
+    this.calendarQuery = this.bridge;
     this.tasks = new MarkdownTasks(this.app, () => this.settings.tasksPath);
-    const state = await this.store.load();
+    const state = await this.sessionStore.load();
     if (state.legacyImport && !this.settings.importedLegacy) { this.settings = { ...this.settings, ...state.legacyImport, importedLegacy: true }; await this.saveSettings(); }
-    this.controller = new TimerController({ state, persist: s => this.store.save(s), calendar: this.bridge, background: true,
+    this.controller = new TimerController({ state, persist: s => this.sessionStore.save(s), calendar: this.bridge, background: true, ownerDeviceId:device!,
       tasks: { complete: task => this.completeOriginal(task) }, onChange: () => { this.render(); this.worker?.wake(); } });
     const recovered = await this.controller.recover();
     this.initializeApi();
@@ -175,7 +194,7 @@ export default class CalendarTaskTimer extends Plugin {
     await this.refresh();
     await this.refreshComponentButtons();
   }
-  onunload() { this.unloaded = true; this.componentButtons?.dispose(); this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
+  onunload() { this.unloaded = true; this.application.dispose();this.componentButtons?.dispose(); this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
   private diaryFile(note: string): TFile {
     const file = this.app.vault.getAbstractFileByPath(note);
     if (!file || !("extension" in file) || file.extension !== "md") throw new Error("请先打开一篇日记。");
@@ -296,7 +315,7 @@ export default class CalendarTaskTimer extends Plugin {
   }
   private later(fn: () => void, ms: number) { const id = window.setTimeout(() => { this.timers.delete(id); fn(); }, ms); this.timers.add(id); }
   private scheduleSnapshot() { if (this.snapshotQueued || this.unloaded) return; this.snapshotQueued = true; this.later(() => { this.snapshotQueued = false; if (!this.unloaded) void this.refresh().catch(e => this.fail(e)); }, 200); }
-  private async refreshLocal() { this.items = await this.tasks.list(); if (!this.unloaded) { this.render(); this.worker?.wake(); } }
+  private async refreshLocal() { this.items = await this.tasks.list();this.completionEvents=await this.tasks.completions(); if (!this.unloaded) { this.render(); this.worker?.wake(); } }
   private fail(e: unknown) { this.error = (e as Error).message || String(e); this.render(); }
   private async execute<T>(fn: () => Promise<T>): Promise<T> {
     if (this.unloaded || this.busy || this.importing) throw new Error("插件正在处理本地操作，请稍后重试。");
@@ -317,13 +336,16 @@ export default class CalendarTaskTimer extends Plugin {
     if (await this.bridge.api().updateEvent(entry.id, { ...entry.event, isTask: true, completed: new Date().toISOString() }) !== true) throw new Error("工时已保存，原待办完成待重试。");
   }
   private readCalendarView() {
-    const next: typeof this.calendarView = { date: this.date, sources: [], calendars: [], rows: [], error: "" };
-    try { if (this.connected) { next.sources = this.bridge.sources(); next.calendars = this.bridge.writableCalendars(); next.rows = this.bridge.timeline(this.date); } }
-    catch (e) { next.error = (e as Error).message; }
-    this.calendarView = next;
+    const previous=this.calendarCache.get(this.date) || {date:this.date,sources:this.calendarView.sources,calendars:this.calendarView.calendars,rows:[],error:""};
+    try {
+      if(!this.connected)throw new Error("日历未连接；保留已加载快照");
+      this.calendarView={...this.calendarQuery.readDay(this.date),error:""};this.calendarCache.set(this.date,this.calendarView);
+      if(this.calendarCache.size>14)this.calendarCache.delete(this.calendarCache.keys().next().value!);
+    }catch(e){this.calendarView={...previous,error:(e as Error).message};}
   }
   async refresh(reconcileDeletions = false) {
     this.items = await this.tasks.list();
+    this.completionEvents=await this.tasks.completions();
     if (this.connected && !this.settings.defaultCalendarId) {
       const matches = this.bridge.writableCalendars().filter(c => c.name.replace(/[^\p{L}\p{N}]/gu, "") === "科研");
       if (matches.length === 1) { this.settings.defaultCalendarId = matches[0].id; await this.saveSettings(); }
@@ -334,14 +356,18 @@ export default class CalendarTaskTimer extends Plugin {
     this.worker?.wake();
   }
   model(): ViewModel {
-    const { sources, calendars, rows: remote, error: calendarError } = this.connected ? this.calendarView : { sources: [], calendars: [], rows: [], error: "" };
+    const { sources, calendars, rows: remote, error: calendarError } = this.calendarView;
     const error = this.error || calendarError; let rows = remote;
     const state = this.controller?.state || blankJournal();
     rows = mergeTimeline(rows, state.records, this.date, state.operations, state.deletions);
     const pending = pendingView(state, this.worker?.view);
-    return { connected: this.connected, busy: this.busy, error, sources, calendars, defaultCalendarId: this.settings.defaultCalendarId, active: state.active, tasks: this.items, date: this.date, rows, pending, sync: this.worker?.view, appearance: appearance(this.settings), categoryPreferences: categoryPreferences(this.settings), taskSort: taskSort(this.settings.taskSort) };
+    return { connected: this.connected, busy: this.busy, error, sources, calendars, defaultCalendarId: this.settings.defaultCalendarId, active: state.active, tasks: this.items, date: this.date, rows, pending, sync: this.worker?.view, appearance: appearance(this.settings), categoryPreferences: categoryPreferences(this.settings), taskSort: taskSort(this.settings.taskSort),appPage:appPage(this.settings.appPage),focusPins:focusRefs(this.settings.focusPins),focusLimit:focusLimit(this.settings.focusLimit),linkedTasks:Object.values(componentTaskBindings(this.settings.componentTaskBindings)),completions:this.completionEvents };
   }
   actions(): Actions { return {
+    page:page=>{this.settings.appPage=page;this.render();void this.saveSettings().catch(e=>new Notice((e as Error).message));},
+    pin:task=>{const pins=focusRefs(this.settings.focusPins),key=refKey(task);this.settings.focusPins=pins.some(p=>refKey(p)===key)?pins.filter(p=>refKey(p)!==key):[...pins,taskRef(task)];this.render();void this.saveSettings().catch(e=>new Notice((e as Error).message));},
+    focusLimit:value=>{this.settings.focusLimit=focusLimit(value);this.render();void this.saveSettings().catch(e=>new Notice((e as Error).message));},
+    openCompletion:event=>{const task=this.items.find(t=>refKey(t)===refKey(event.task));if(task)this.dialogs.task(task,patch=>this.tasks.update(task,patch));else new Notice("原待办已不存在，完成记录已保留。");},
     connect: () => { void this.run(async () => { await this.bridge.connect(true); await this.worker?.resume("auth"); await this.refresh(); }); },
     refresh: () => { void this.run(async () => { if (!this.connected) await this.bridge.connect(true); await this.worker?.resume("auth"); this.bridge.refresh(); await this.refresh(); this.later(() => { void this.refresh(true).catch(e => this.fail(e)); }, 1800); this.later(() => { void this.refresh(true).catch(e => this.fail(e)); }, 5000); }); },
     settings: () => { const setting = (this.app as any).setting; setting.open(); setting.openTabById(this.manifest.id); },
@@ -351,7 +377,7 @@ export default class CalendarTaskTimer extends Plugin {
     reorderTasks: (next, expected) => this.run(async () => { if (taskSort(this.settings.taskSort) !== "manual") throw new Error("请先切换手动排序。"); await this.tasks.reorder(next, expected); this.items = await this.tasks.list(); }),
     add: (title, due, calendarId) => this.run(async () => { this.bridge.assertWritable(calendarId); await this.tasks.add(title, due, calendarId); await this.refreshLocal(); }),
     start: task => { void this.showResult(this.api.start(taskRef(task), { source: "view" })); },
-    complete: task => { void this.run(async () => { await this.tasks.update(task, { completed: true }); await this.refreshLocal(); }); },
+    complete: task => { void this.run(async () => { if(this.controller.state.active?.task.id===task.id&&this.controller.state.active.task.path===task.path)throw new Error("请先结束这项任务的计时。");await this.tasks.setCompleted(task,!task.completed); await this.refreshLocal(); }); },
     editTask: task => this.dialogs.task(task, patch => this.tasks.update(task, patch)),
     pause: id => { void this.showResult(this.api.pause(id ?? this.api.getState().active?.id ?? "")); },
     resume: id => { void this.showResult(this.api.resume(id ?? this.api.getState().active?.id ?? "")); },
@@ -363,7 +389,7 @@ export default class CalendarTaskTimer extends Plugin {
     retry: id => { void this.run(async () => { await this.worker?.retry(syncKey(id)); this.render(); }); },
     keep: id => { void this.run(async () => { await this.controller.keepCalendarOnly(id); await this.refresh(); }); }
   }; }
-  render() { if (this.unloaded) return; for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as TimerView).render?.(); this.tick(); }
+  render() { if (this.unloaded) return; const m=this.model();this.application.set("view",m);this.application.set("tasks",m.tasks);this.application.set("session",m.active);this.application.set("execution",{rows:m.rows,completions:m.completions,date:m.date});this.application.set("sync",{pending:m.pending,error:m.error,sync:m.sync});this.tick(); }
   private tick() { if (this.unloaded) return; this.api?.notify(); for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) (leaf.view as TimerView).ui?.tick();
     if (this.status) updateStatus(this.status, this.controller?.state.active || null, this.items, taskSort(this.settings.taskSort)); }
   async importLegacy() {
@@ -381,7 +407,7 @@ export default class CalendarTaskTimer extends Plugin {
       const backup = path.join(this.pluginDir, "Migration", String(Date.now())); await fs.mkdir(backup, { recursive: true });
       await fs.writeFile(path.join(backup, "legacy-journal.json"), legacyRaw, { mode: 0o600 });
       await fs.writeFile(path.join(backup, "settings.json"), JSON.stringify({ before: this.settings, imported: imported.settings }, null, 2), { mode: 0o600 });
-      await this.store.save(imported.journal); this.controller.state = imported.journal;
+      await this.sessionStore.save(imported.journal); this.controller.state = imported.journal;
       this.settings = { ...this.settings, ...imported.settings }; await this.saveSettings(); await this.refresh(); new Notice("旧设置与当前设备记录已导入，请连接 FCR 授权。");
     } finally { this.importing = false; }
   }

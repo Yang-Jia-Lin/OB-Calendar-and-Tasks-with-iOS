@@ -136,6 +136,37 @@
     return value?.status === 404 || value?.status === 410 || /\bHTTP\s+(?:404|410)\b/i.test(typeof error2 === "string" ? error2 : value?.message || "");
   }
 
+  // Shared/application.ts
+  init_time();
+  var defaultFilters = () => ({ association: "all", status: "open", due: "all", date: dayKey() });
+  var refKey = (task) => JSON.stringify([task.kind, task.path || "", task.id]);
+  var appPage = (value) => value === "timer" || value === "calendar" ? value : "tasks";
+  var focusLimit = (value) => typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(10, Math.round(value))) : 5;
+  function focusRefs(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = /* @__PURE__ */ new Set();
+    return value.flatMap((r) => {
+      if (r?.kind !== "local" || typeof r.path !== "string" || !r.path || typeof r.id !== "string" || !r.id) return [];
+      const key2 = refKey(r);
+      if (seen.has(key2)) return [];
+      seen.add(key2);
+      return [{ kind: "local", path: r.path, id: r.id }];
+    });
+  }
+  function filterTasks(tasks2, filters, linked, today2 = dayKey()) {
+    return tasks2.filter((t) => (filters.status === "all" || t.completed === (filters.status === "done")) && (filters.association === "all" || linked.has(refKey(t)) === (filters.association === "linked")) && (filters.due === "all" || filters.due === "none" && !t.due || filters.due === "today" && t.due === today2 || filters.due === "overdue" && !!t.due && t.due < today2 || filters.due === "date" && t.due === filters.date));
+  }
+  function focusTasks(tasks2, pins2, limit = 5, today2 = dayKey()) {
+    const available = new Map(tasks2.filter((t) => !t.completed).map((t) => [refKey(t), t])), selected = /* @__PURE__ */ new Map();
+    for (const pin of pins2) {
+      const task = available.get(refKey(pin));
+      if (task) selected.set(refKey(task), task);
+    }
+    for (const task of tasks2) if (!task.completed && task.due === today2) selected.set(refKey(task), task);
+    return [...selected.values()].slice(0, focusLimit(limit));
+  }
+  var timerSnapshot = (active, available) => clone({ active, available });
+
   // Clients/Obsidian/api.ts
   var EntryError = class extends Error {
     constructor(code, message) {
@@ -153,6 +184,7 @@
     host;
     version = 1;
     listeners = /* @__PURE__ */ new Set();
+    timerListeners = /* @__PURE__ */ new Set();
     serial = Promise.resolve();
     disposed = false;
     getState() {
@@ -174,10 +206,35 @@
         this.listeners.delete(listener);
       };
     }
+    getTimerState() {
+      return this.host.timerState ? clone({ ...this.host.timerState(), available: !this.disposed }) : timerSnapshot(this.host.controller.state.active, !this.disposed);
+    }
+    subscribeTimer(listener) {
+      if (this.disposed) {
+        listener(this.getTimerState());
+        return () => {
+        };
+      }
+      this.timerListeners.add(listener);
+      try {
+        listener(this.getTimerState());
+      } catch {
+        this.timerListeners.delete(listener);
+      }
+      return () => {
+        this.timerListeners.delete(listener);
+      };
+    }
     notify() {
       for (const listener of this.listeners) {
         try {
           listener(this.getState());
+        } catch {
+        }
+      }
+      for (const listener of this.timerListeners) {
+        try {
+          listener(this.getTimerState());
         } catch {
         }
       }
@@ -186,6 +243,7 @@
       this.disposed = true;
       this.notify();
       this.listeners.clear();
+      this.timerListeners.clear();
     }
     action(fn) {
       const result = this.serial.then(async () => {
@@ -232,10 +290,10 @@
         return { ok: true, sessionId };
       });
     }
-    finish(sessionId, completeTask = false) {
+    finish(sessionId, completeTask2 = false) {
       return this.action(async () => {
         this.session(sessionId);
-        const record = await this.host.controller.finish(completeTask === true, sessionId);
+        const record = await this.host.controller.finish(completeTask2 === true, sessionId);
         let warning = record.error;
         try {
           await this.host.refresh();
@@ -255,12 +313,12 @@
     constructor(doc, host2) {
       this.doc = doc;
       this.host = host2;
-      this.state = host2.api.getState();
+      this.state = host2.api.getTimerState();
       this.observer = new MutationObserver((changes) => {
         if (changes.some((c) => c.type === "attributes" ? c.target.matches(`a[data-href],${VALUE}`) : [...c.addedNodes, ...c.removedNodes].some((n) => n.nodeType === 1))) this.schedule();
       });
       this.observer.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-href", "aria-label"] });
-      this.unsubscribe = host2.api.subscribe((state) => {
+      this.unsubscribe = host2.api.subscribeTimer((state) => {
         this.state = state;
         for (const button2 of this.buttons.values()) this.paint(button2);
       });
@@ -740,6 +798,11 @@ ${DIARY_END}
     sources() {
       return this.api().getCalendarSources().map((s) => ({ id: s.id, name: s.name || s.id, color: s.color, type: s.type }));
     }
+    readDay(date2) {
+      const sources = this.sources(), groups = this.api().getAllEvents();
+      if (sources.some((source) => !groups.some((group) => group.id === source.id))) throw new Error("\u65E5\u5386\u7F13\u5B58\u5C1A\u672A\u5C31\u7EEA\uFF1B\u4FDD\u7559\u5DF2\u52A0\u8F7D\u5FEB\u7167");
+      return { date: date2, sources, calendars: this.writableCalendars(), rows: this.timeline(date2) };
+    }
     writableCalendars() {
       return this.sources().filter((s) => s.type === "caldav" && this.api().getProviderCapabilities(s.id)?.canCreate);
     }
@@ -932,6 +995,7 @@ ${DIARY_END}
     if (!Array.isArray(data.operations) || data.operations.some((o) => !o.id || !o.step?.uid || !["pending", "saved"].includes(o.status))) throw new Error("\u65E5\u7A0B\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
     if (data.deletions && (!Array.isArray(data.deletions) || data.deletions.some((o) => !o.id || !o.uid || !o.calendarId || !o.before || o.before.uid !== o.uid || !Number.isFinite(o.start) || !Number.isFinite(o.end) || !["pending", "saved"].includes(o.status)))) throw new Error("\u5220\u9664\u64CD\u4F5C\u65E5\u5FD7\u635F\u574F\u3002");
     for (const s of [data.active, ...data.records].filter(Boolean)) {
+      if (s.ownerDeviceId !== void 0 && (typeof s.ownerDeviceId !== "string" || !s.ownerDeviceId || s.ownerDeviceId.length > 128)) throw new Error("\u4F1A\u8BDD\u5F52\u5C5E\u65E0\u6548\u3002");
       if (!s.id || !s.task?.id || !s.calendarId || !s.zone || !Number.isFinite(s.startedAt) || !Number.isFinite(s.lastHeartbeat) || !Array.isArray(s.segments) || s.runningSince != null && !Number.isFinite(s.runningSince)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
       new Intl.DateTimeFormat("en", { timeZone: s.zone });
       let end = -Infinity;
@@ -1079,6 +1143,7 @@ ${DIARY_END}
         const now = this.now();
         const active = {
           id: uid(),
+          ownerDeviceId: this.deps.ownerDeviceId,
           title: task.title,
           task: clone(task),
           calendarId,
@@ -1137,15 +1202,15 @@ ${DIARY_END}
         await this.commit({ ...this.state, active: s });
       });
     }
-    finish(completeTask = true, expectedId) {
+    finish(completeTask2 = true, expectedId) {
       return this.lock(async () => {
         this.checkSession(expectedId);
         const now = this.now(), s = pauseSession(this.state.active, now);
         const segments = s.segments.filter((p) => p.end - p.start >= 1e3).map((p, i) => ({ ...p, uid: `simple-task-timer-${s.id}-${i}`, saved: false }));
         validateSegments(segments, now);
-        const record = { ...s, segments, endedAt: now, completeTask, taskSaved: !completeTask, status: "pending", error: "", sync: this.info(), localFirst: !!this.deps.background && s.task.kind === "local" };
+        const record = { ...s, segments, endedAt: now, completeTask: completeTask2, taskSaved: !completeTask2, status: "pending", error: "", sync: this.info(), localFirst: !!this.deps.background && s.task.kind === "local" };
         await this.commit({ ...this.state, active: null, records: [...this.state.records, record] });
-        if (record.localFirst && completeTask) {
+        if (record.localFirst && completeTask2) {
           try {
             await this.deps.tasks.complete(record.task);
             record.taskSaved = true;
@@ -1614,7 +1679,7 @@ ${DIARY_END}
       root.classList.add("ctt-shell");
       root.replaceChildren();
       this.header = el(root, "header", "ctt-header");
-      el(this.header, "div", "ctt-brand", "\u65E5\u5386\u4E0E\u5F85\u529E");
+      el(this.header, "div", "ctt-brand", "\u65E5\u5386\u4E0E\u5F85\u529E\u8BA1\u65F6");
       const tools = el(this.header, "nav", "ctt-tools");
       tools.setAttribute("aria-label", "\u65E5\u5386\u5DE5\u5177");
       this.connect = button(tools, "\u8FDE\u63A5\u65E5\u5386", actions2.connect, "ctt-primary");
@@ -1636,7 +1701,34 @@ ${DIARY_END}
       this.error = el(root, "div", "ctt-error");
       this.error.setAttribute("role", "alert");
       this.error.hidden = true;
-      this.timer = el(root, "section", "ctt-timer");
+      const navigation = el(root, "nav", "ctt-page-tabs");
+      navigation.setAttribute("role", "tablist");
+      navigation.setAttribute("aria-label", "\u529F\u80FD\u9875\u9762");
+      const viewId = `ctt-${crypto.randomUUID()}`;
+      for (const [id, label] of [["timer", "\u8BA1\u65F6"], ["tasks", "\u5F85\u529E"], ["calendar", "\u65E5\u5386"]]) {
+        const b = button(navigation, label, () => this.selectPage(id), "ctt-page-tab");
+        b.id = `${viewId}-tab-${id}`;
+        b.setAttribute("role", "tab");
+        b.setAttribute("aria-controls", `${viewId}-page-${id}`);
+        b.onkeydown = (e) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+          e.preventDefault();
+          const ids = ["timer", "tasks", "calendar"], i = ids.indexOf(id), next = e.key === "Home" ? 0 : e.key === "End" ? 2 : (i + (e.key === "ArrowLeft" ? 2 : 1)) % 3;
+          this.selectPage(ids[next]);
+          this.pageButtons.get(ids[next]).focus();
+        };
+        this.pageButtons.set(id, b);
+      }
+      this.timerBadge = el(this.pageButtons.get("timer"), "span", "ctt-page-timer-badge");
+      this.timerBadge.setAttribute("aria-hidden", "true");
+      for (const id of ["timer", "tasks", "calendar"]) {
+        const panel = el(root, "section", `ctt-page ctt-${id}-page`);
+        panel.id = `${viewId}-page-${id}`;
+        panel.setAttribute("role", "tabpanel");
+        panel.setAttribute("aria-labelledby", `${viewId}-tab-${id}`);
+        this.pages.set(id, panel);
+      }
+      this.timer = el(this.pages.get("timer"), "section", "ctt-timer");
       this.timer.setAttribute("aria-label", "\u5F53\u524D\u8BA1\u65F6");
       this.status = el(this.timer, "div", "ctt-status");
       this.title = el(this.timer, "h2", "ctt-current-title");
@@ -1655,10 +1747,19 @@ ${DIARY_END}
       this.pause = button(this.controls, "\u6682\u505C", () => this.model.active?.runningSince == null ? actions2.resume(this.model.active?.id || "") : actions2.pause(this.model.active?.id || ""));
       button(this.controls, "\u7ED3\u675F\u5E76\u5B8C\u6210", () => actions2.finish(true, this.model.active?.id || ""), "ctt-primary");
       button(this.controls, "\u53EA\u8BB0\u65F6\u95F4", () => actions2.finish(false, this.model.active?.id || ""), "ctt-quiet");
-      const body = el(root, "div", "ctt-body");
+      const focus = el(this.pages.get("timer"), "section", "ctt-focus-section");
+      const focusHead = el(focus, "div", "ctt-panel-heading");
+      el(focusHead, "h3", "", "\u91CD\u8981\u5F85\u529E");
+      this.focusCount = el(focusHead, "select");
+      this.focusCount.setAttribute("aria-label", "\u8BA1\u65F6\u9875\u4EFB\u52A1\u6570\u91CF");
+      for (let i = 1; i <= 10; i++) el(this.focusCount, "option", "", `\u663E\u793A ${i} \u9879`).value = String(i);
+      this.focusCount.onchange = () => this.actions.focusLimit?.(Number(this.focusCount.value));
+      this.focusList = el(focus, "div", "ctt-focus-list");
+      button(focus, "\u67E5\u770B\u5168\u90E8\u5F85\u529E", () => this.selectPage("tasks"), "ctt-quiet");
+      const body = el(this.pages.get("tasks"), "div", "ctt-body");
       const timeline = el(body, "section", "ctt-panel ctt-timeline");
       const top = el(timeline, "div", "ctt-panel-heading");
-      el(top, "h3", "", "\u65F6\u95F4\u8F74");
+      el(top, "h3", "", "\u6267\u884C\u8BB0\u5F55");
       const timelineTools = el(top, "div", "ctt-timeline-tools");
       const nav = el(timelineTools, "div", "ctt-date-nav");
       button(nav, "\u2039", () => actions2.date(shiftDate(this.model.date, -1)), "ctt-icon", "\u524D\u4E00\u5929");
@@ -1670,9 +1771,8 @@ ${DIARY_END}
       };
       button(nav, "\u4ECA\u5929", () => actions2.date(dayKey()), "ctt-quiet");
       button(nav, "\u203A", () => actions2.date(shiftDate(this.model.date, 1)), "ctt-icon", "\u540E\u4E00\u5929");
-      button(timelineTools, "+", actions2.newEvent, "ctt-icon", "\u65B0\u589E\u65E5\u7A0B");
       this.rowList = el(timeline, "div", "ctt-timeline-list");
-      this.rowList.setAttribute("aria-label", "\u5F53\u5929\u65E5\u7A0B\u4E0E\u5DE5\u65F6");
+      this.rowList.setAttribute("aria-label", "\u5F53\u5929\u5DE5\u65F6\u4E0E\u5B8C\u6210\u4E8B\u9879");
       const tasks2 = el(body, "section", "ctt-panel ctt-tasks");
       const taskHead = el(tasks2, "div", "ctt-panel-heading");
       el(taskHead, "h3", "", "\u5F85\u529E");
@@ -1689,6 +1789,29 @@ ${DIARY_END}
       this.sortNotice.setAttribute("aria-live", "polite");
       this.tabs = el(tasks2, "div", "ctt-tabs");
       this.tabs.setAttribute("aria-label", "\u5F85\u529E\u5206\u7C7B\u7B5B\u9009");
+      const filters = el(tasks2, "div", "ctt-task-filters");
+      for (const [key2, label, choices] of [["association", "\u5173\u8054\u7B5B\u9009", { "all": "\u5168\u90E8\u5173\u8054", "linked": "Components \u5DF2\u5173\u8054", "unlinked": "\u672A\u5173\u8054" }], ["status", "\u5B8C\u6210\u72B6\u6001", { "open": "\u672A\u5B8C\u6210", "done": "\u5DF2\u5B8C\u6210", "all": "\u5168\u90E8\u72B6\u6001" }], ["due", "\u622A\u6B62\u65E5\u671F\u7B5B\u9009", { "all": "\u5168\u90E8\u622A\u6B62\u65E5\u671F", "today": "\u4ECA\u5929\u622A\u6B62", "overdue": "\u5DF2\u903E\u671F", "none": "\u65E0\u622A\u6B62\u65E5\u671F", "date": "\u6307\u5B9A\u622A\u6B62\u65E5\u671F" }]]) {
+        const select = el(filters, "select");
+        select.setAttribute("aria-label", label);
+        for (const [value, text] of Object.entries(choices)) el(select, "option", "", text).value = value;
+        select.value = this.filters[key2];
+        select.onchange = () => {
+          this.filters[key2] = select.value;
+          this.filterDate.hidden = this.filters.due !== "date";
+          this.renderTasks();
+          this.tick();
+        };
+      }
+      this.filterDate = el(filters, "input");
+      this.filterDate.type = "date";
+      this.filterDate.value = this.filters.date;
+      this.filterDate.hidden = true;
+      this.filterDate.setAttribute("aria-label", "\u6307\u5B9A\u622A\u6B62\u65E5\u671F");
+      this.filterDate.onchange = () => {
+        this.filters.date = this.filterDate.value;
+        this.renderTasks();
+        this.tick();
+      };
       const taskScroll = el(tasks2, "div", "ctt-task-scroll");
       taskScroll.setAttribute("aria-label", "\u5F85\u529E\u5185\u5BB9");
       const form = el(taskScroll, "form", "ctt-inbox");
@@ -1745,6 +1868,17 @@ ${DIARY_END}
     actions;
     model;
     filter = "";
+    page = "tasks";
+    filters = defaultFilters();
+    pages = /* @__PURE__ */ new Map();
+    pageButtons = /* @__PURE__ */ new Map();
+    pageScroll = { timer: 0, tasks: 0, calendar: 0 };
+    calendar;
+    focusList;
+    focusCount;
+    focusNodes = /* @__PURE__ */ new Map();
+    timerBadge;
+    filterDate;
     observer;
     header;
     connect;
@@ -1785,9 +1919,34 @@ ${DIARY_END}
     dragged;
     taskNodes = /* @__PURE__ */ new Map();
     rowNodes = /* @__PURE__ */ new Map();
+    selectPage(page2, remember = true) {
+      this.pageScroll[this.page] = this.root.scrollTop;
+      this.page = page2;
+      this.root.dataset.page = page2;
+      for (const [id, panel] of this.pages) {
+        panel.hidden = id !== page2;
+        const b = this.pageButtons.get(id);
+        b.setAttribute("aria-selected", String(id === page2));
+        b.tabIndex = id === page2 ? 0 : -1;
+      }
+      if (this.model) {
+        if (page2 === "tasks") {
+          this.renderTasks();
+          this.renderRows();
+        } else if (page2 === "timer") this.renderFocus();
+        else {
+          if (!this.calendar) this.calendar = this.actions.mountCalendar?.(this.pages.get("calendar"));
+          this.calendar?.activate();
+        }
+        this.tick();
+      }
+      this.root.scrollTop = this.pageScroll[page2];
+      if (remember) this.actions.page?.(page2);
+    }
     update(m) {
       const old = this.model;
       this.model = m;
+      if (!old) this.selectPage(appPage(m.appPage), false);
       applyAppearance(this.root, m.appearance);
       this.root.classList.toggle("ctt-active", !!m.active);
       this.root.classList.toggle("ctt-paused", !!m.active && m.active.runningSince == null);
@@ -1806,8 +1965,12 @@ ${DIARY_END}
       options(this.newCategory, m.calendars, !old || !draft || old.defaultCalendarId !== m.defaultCalendarId && !this.taskTitle.value ? this.filter || m.defaultCalendarId : draft);
       if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m.date;
       if (JSON.stringify(old?.calendars) !== JSON.stringify(m.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m.categoryPreferences)) this.renderTabs();
-      this.renderTasks();
-      this.renderRows();
+      this.focusCount.value = String(m.focusLimit || 5);
+      if (this.page === "tasks") {
+        this.renderTasks();
+        this.renderRows();
+      } else if (this.page === "timer") this.renderFocus();
+      else this.calendar?.activate();
       this.syncMenu.hidden = !m.pending.length && !m.sync?.error;
       this.syncSummary.textContent = `${m.sync?.activeKey ? "\u21BB" : m.pending.some((p) => p.error) || m.sync?.error ? "!" : "\u2191"} ${m.pending.length}`;
       this.syncSummary.setAttribute("aria-label", `\u540C\u6B65\u72B6\u6001\uFF08${m.pending.length} \u6761\u5F85\u540C\u6B65\uFF09`);
@@ -1870,7 +2033,7 @@ ${DIARY_END}
       return active && active.task.kind === task.kind && active.task.id === task.id && (task.kind === "local" ? active.task.path === task.path : active.task.calendarId === task.calendarId) ? active : null;
     }
     renderTasks() {
-      const m = this.model, manual = taskSort(m.taskSort) === "manual", tasks2 = sortedTasks(m.tasks.filter((t) => !t.completed && (!this.filter || (t.calendarId || m.defaultCalendarId) === this.filter)), taskSort(m.taskSort));
+      const m = this.model, manual = taskSort(m.taskSort) === "manual" && this.filters.status === "open", linked = new Set((m.linkedTasks || []).map(refKey)), tasks2 = sortedTasks(filterTasks(m.tasks, this.filters, linked).filter((t) => !this.filter || (t.calendarId || m.defaultCalendarId) === this.filter), taskSort(m.taskSort));
       const ids = tasks2.map((t) => t.id);
       const visibleIds = new Set(ids);
       for (const [id, item] of this.taskNodes) if (!visibleIds.has(id)) {
@@ -1887,9 +2050,11 @@ ${DIARY_END}
           check.type = "checkbox";
           const body = el(root, "div", "ctt-task-text"), text = button(body, "", () => {
           }, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta"), timing = el(body, "div", "ctt-task-timing");
+          const pin = button(root, "\u2606", () => {
+          }, "ctt-pin");
           const start = button(root, "\u25B7", () => {
           }, "ctt-start", "\u5F00\u59CB\u8BA1\u65F6");
-          item = { root, handle, check, text, meta, timing, start };
+          item = { root, handle, check, text, meta, timing, pin, start };
           this.taskNodes.set(task.id, item);
         }
         item.root.dataset.taskId = task.id;
@@ -1942,12 +2107,22 @@ ${DIARY_END}
         item.root.classList.toggle("is-paused", paused);
         item.text.textContent = task.title;
         item.text.onclick = () => this.actions.editTask(task);
-        item.check.setAttribute("aria-label", `\u5B8C\u6210 ${task.title}`);
-        item.check.checked = false;
+        item.check.setAttribute("aria-label", `${task.completed ? "\u6062\u590D" : "\u5B8C\u6210"} ${task.title}`);
+        item.check.checked = task.completed;
         item.check.disabled = m.busy || !!active;
         item.check.onchange = () => this.actions.complete(task);
         item.meta.textContent = [category?.name || "\u9009\u62E9\u5206\u7C7B", task.due].filter(Boolean).join(" \xB7 ");
         item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
+        if (task.completed) {
+          const completion = (m.completions || []).filter((e) => refKey(e.task) === refKey(task)).at(-1);
+          item.meta.textContent += completion ? ` \xB7 \u63D2\u4EF6\u5B8C\u6210\u4E8E ${dateParts(completion.completedAt).date} ${dateParts(completion.completedAt).time.slice(0, 5)}` : " \xB7 \u5B8C\u6210\u65F6\u95F4\u672A\u77E5";
+        }
+        const pinned = (m.focusPins || []).some((p) => refKey(p) === refKey(task));
+        item.pin.textContent = pinned ? "\u2605" : "\u2606";
+        item.pin.setAttribute("aria-pressed", String(pinned));
+        item.pin.setAttribute("aria-label", `${pinned ? "\u53D6\u6D88\u7F6E\u9876" : "\u7F6E\u9876\u5230\u8BA1\u65F6\u9875"} ${task.title}`);
+        item.pin.onclick = () => this.actions.pin?.(task);
+        item.pin.disabled = m.busy;
         const label = active ? paused ? "\u7EE7\u7EED\u8BA1\u65F6" : "\u6682\u505C\u8BA1\u65F6" : "\u5F00\u59CB\u8BA1\u65F6";
         item.start.textContent = active && !paused ? "\u2161" : "\u25B7";
         item.start.title = label;
@@ -1958,8 +2133,36 @@ ${DIARY_END}
             else this.actions.pause(active.id);
           } else this.actions.start(task);
         };
-        item.start.disabled = m.busy || !active && (!!m.active || !m.connected || !m.calendars.some((c) => c.id === categoryId));
+        item.start.disabled = task.completed || m.busy || !active && (!!m.active || !m.connected || !m.calendars.some((c) => c.id === categoryId));
         if (this.taskList.children[i] !== item.root) this.taskList.insertBefore(item.root, this.taskList.children[i] || null);
+      });
+    }
+    renderFocus() {
+      const m = this.model, tasks2 = focusTasks(m.tasks, m.focusPins || [], m.focusLimit || 5);
+      const keys = new Set(tasks2.map(refKey));
+      for (const [key2, node] of this.focusNodes) if (!keys.has(key2)) {
+        node.root.remove();
+        this.focusNodes.delete(key2);
+      }
+      this.focusList.querySelector(".ctt-empty")?.remove();
+      if (!tasks2.length) el(this.focusList, "div", "ctt-empty", "\u4ECA\u5929\u6CA1\u6709\u622A\u6B62\u4EFB\u52A1\uFF0C\u53EF\u5728\u5F85\u529E\u9875\u7528 \u2606 \u9009\u62E9\u91CD\u8981\u5F85\u529E\u3002");
+      tasks2.forEach((task, i) => {
+        const key2 = refKey(task);
+        let node = this.focusNodes.get(key2);
+        if (!node) {
+          const row = el(this.focusList, "div", "ctt-focus-task"), text = el(row, "div", "ctt-task-text"), title = el(text, "div", "ctt-task-title"), meta = el(text, "div", "ctt-task-meta"), start = button(row, "\u5F00\u59CB\u8BA1\u65F6", () => {
+          }, "ctt-focus-start");
+          node = { root: row, title, meta, start };
+          this.focusNodes.set(key2, node);
+        }
+        node.root.dataset.taskId = task.id;
+        node.title.textContent = task.title;
+        node.meta.textContent = `${m.sources.find((c) => c.id === (task.calendarId || m.defaultCalendarId))?.name || "\u5F85\u529E"}${task.due ? ` \xB7 \u622A\u6B62 ${task.due}` : ""}`;
+        const active = this.taskSession(task);
+        node.start.textContent = active ? "\u8BA1\u65F6\u4E2D" : "\u5F00\u59CB\u8BA1\u65F6";
+        node.start.onclick = () => this.actions.start(task);
+        node.start.disabled = !!m.active || task.completed || m.busy || !m.connected || !m.calendars.some((c) => c.id === (task.calendarId || m.defaultCalendarId));
+        if (this.focusList.children[i] !== node.root) this.focusList.insertBefore(node.root, this.focusList.children[i] || null);
       });
     }
     clearDrag() {
@@ -1974,15 +2177,18 @@ ${DIARY_END}
     }
     renderRows() {
       const m = this.model;
-      const keys = new Set(m.rows.map((r) => r.key));
+      const works = m.rows.filter((r) => !!r.recordId), completions2 = (m.completions || []).filter((e) => dayKey(e.completedAt) === m.date);
+      const entries2 = [...works.map((work) => ({ key: work.key, at: work.start, work, completion: void 0 })), ...completions2.map((completion) => ({ key: `completion:${completion.id}`, at: completion.completedAt, work: void 0, completion }))].sort((a, b) => a.at - b.at || a.key.localeCompare(b.key));
+      const keys = new Set(entries2.map((r) => r.key));
       for (const [key2, item] of this.rowNodes) if (!keys.has(key2)) {
         item.root.remove();
         this.rowNodes.delete(key2);
       }
       this.rowList.querySelector(".ctt-empty")?.remove();
-      if (!m.rows.length) el(this.rowList, "div", "ctt-empty", m.connected ? "\u5F53\u5929\u6682\u65E0\u65E5\u7A0B" : "\u8FDE\u63A5\u65E5\u5386\u540E\u67E5\u770B\u65E5\u7A0B");
-      m.rows.forEach((row, i) => {
-        let item = this.rowNodes.get(row.key);
+      if (!entries2.length) el(this.rowList, "div", "ctt-empty", "\u5F53\u5929\u6682\u65E0\u5DF2\u8BB0\u5F55\u5DE5\u65F6\u6216\u5B8C\u6210\u4E8B\u9879");
+      entries2.forEach((entry, i) => {
+        const row = entry.work;
+        let item = this.rowNodes.get(entry.key);
         if (!item) {
           const root = button(this.rowList, "", () => {
           }, "ctt-event"), time = el(root, "span", "ctt-event-time");
@@ -1990,7 +2196,20 @@ ${DIARY_END}
           link.setAttribute("aria-hidden", "true");
           const body = el(root, "span", "ctt-event-body"), title = el(body, "span", "ctt-event-title"), meta = el(body, "span", "ctt-event-meta");
           item = { root, start, end, link, title, meta };
-          this.rowNodes.set(row.key, item);
+          this.rowNodes.set(entry.key, item);
+        }
+        if (!row) {
+          const event = entry.completion;
+          item.start.textContent = dateParts(event.completedAt).time.slice(0, 5);
+          item.end.hidden = item.link.hidden = true;
+          item.title.textContent = event.title;
+          item.meta.textContent = "\u5B8C\u6210\u4E8B\u9879";
+          item.root.classList.add("ctt-completion");
+          item.root.classList.remove("is-pending");
+          item.root.title = "\u67E5\u770B\u539F\u5F85\u529E";
+          item.root.onclick = () => this.actions.openCompletion?.(event);
+          if (this.rowList.children[i] !== item.root) this.rowList.insertBefore(item.root, this.rowList.children[i] || null);
+          return;
         }
         const startDate = dayKey(row.start), endDate = dayKey(Math.max(row.start, row.end - 1));
         item.start.textContent = row.allDay ? "\u5168\u5929" : m.date > startDate ? "00:00" : dateParts(row.start).time.slice(0, 5);
@@ -2008,13 +2227,15 @@ ${DIARY_END}
     tick() {
       const ms = elapsed(this.model?.active || null);
       this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
+      this.timerBadge.textContent = this.model?.active ? this.model.active.runningSince == null ? " \xB7 \u5DF2\u6682\u505C" : " \xB7 \u8BA1\u65F6\u4E2D" : "";
       this.hand.style.transform = `rotate(${ms / 6e4 * 360}deg)`;
       const active = this.model?.active;
-      if (active) {
+      if (active && this.page === "tasks") {
         for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D"} \xB7 ${secondsText(ms)}`;
       }
     }
     destroy() {
+      this.calendar?.dispose();
       this.observer.disconnect();
       this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync);
       this.root.ownerDocument.removeEventListener("keydown", this.escapeSync);
@@ -2439,6 +2660,12 @@ ${DIARY_END}
   var busy = false;
   var error = "";
   var offline = false;
+  var page = "tasks";
+  var pins = [];
+  var candidateLimit = 5;
+  var completions = [];
+  var calendarMounts = 0;
+  var calendarDisposals = 0;
   var typography = { ...DEFAULT_APPEARANCE };
   var categories = categoryPreferences();
   var syncDelay = 0;
@@ -2489,6 +2716,21 @@ ${DIARY_END}
   } catch {
   }
   tasks = tasks.map((t) => ({ ...t, path: "preview-tasks.md" }));
+  try {
+    const pref = JSON.parse(localStorage.getItem("ctt-workspace-prefs") || "{}");
+    page = appPage(pref.page);
+    pins = focusRefs(pref.pins);
+    candidateLimit = focusLimit(pref.limit);
+    completions = pref.completions || [];
+  } catch {
+  }
+  var writePrefs = () => localStorage.setItem("ctt-workspace-prefs", JSON.stringify({ page, pins, limit: candidateLimit, completions }));
+  var completeTask = (task, done) => {
+    if (task.completed === done) return;
+    task.completed = done;
+    if (done) completions.push({ id: uid(), task: taskRef(task), title: task.title, calendarId: task.calendarId || defaultCalendarId, completedAt: Date.now() });
+    writePrefs();
+  };
   var write = () => {
     localStorage.setItem(key, JSON.stringify({ journal: controller.state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode }));
   };
@@ -2549,9 +2791,10 @@ ${DIARY_END}
       const found = tasks.find((t) => t.id === task.id);
       if (!found) throw new Error("\u5F85\u529E\u5DF2\u5220\u9664");
       if (!found.completed && found.title !== task.title) throw new Error("\u5F85\u529E\u5DF2\u53D8\u5316");
-      found.completed = true;
+      completeTask(found, true);
       write();
     } },
+    ownerDeviceId: "preview-device",
     onChange: () => {
       render();
       worker?.wake();
@@ -2644,7 +2887,12 @@ ${DIARY_END}
       taskSort: sortMode,
       rows: mergeTimeline(bridge.timeline(date), state.records, date, state.operations, state.deletions),
       pending: pendingView(state, worker?.view),
-      sync: worker?.view
+      sync: worker?.view,
+      appPage: page,
+      focusPins: pins,
+      focusLimit: candidateLimit,
+      linkedTasks: [taskRef(tasks.find((t) => t.id === "t1"))],
+      completions
     };
   }
   function render() {
@@ -2653,6 +2901,35 @@ ${DIARY_END}
     updateStatus(document.querySelector("#preview-status"), controller.state.active, tasks, sortMode);
   }
   var actions = {
+    page: (value) => {
+      page = value;
+      writePrefs();
+    },
+    pin: (task) => {
+      const k = refKey(task);
+      pins = pins.some((p) => refKey(p) === k) ? pins.filter((p) => refKey(p) !== k) : [...pins, taskRef(task)];
+      writePrefs();
+      render();
+    },
+    focusLimit: (value) => {
+      candidateLimit = focusLimit(value);
+      writePrefs();
+      render();
+    },
+    openCompletion: (event) => {
+      notice(`\u67E5\u770B\u5F85\u529E\uFF1A${event.title}`);
+    },
+    mountCalendar: (root) => {
+      calendarMounts++;
+      root.innerHTML = "<h2>\u65E5\u5386 \xB7 FCR \u5D4C\u5165\u9884\u89C8</h2><p>\u6B64\u5904\u4E3A\u6A21\u62DF\u65E5\u5386\uFF1B\u5B9E\u673A\u4F7F\u7528 FCR \u81EA\u5E26\u7684 fc-calendar \u6E32\u67D3\u5668\u3002</p>";
+      const add = button(root, "\u65B0\u589E\u65E5\u7A0B", () => actions.newEvent());
+      return { activate: () => {
+      }, dispose: () => {
+        calendarDisposals++;
+        add.remove();
+        root.replaceChildren();
+      } };
+    },
     connect: () => {
     },
     refresh: () => {
@@ -2738,7 +3015,7 @@ ${DIARY_END}
       void showResult(timerApi.start(taskRef(task), { source: "view" }));
     },
     complete: (task) => {
-      task.completed = true;
+      completeTask(task, !task.completed);
       write();
       render();
     },
@@ -2808,7 +3085,7 @@ ${DIARY_END}
   };
   window.__preview = { controller, bridge, model, render, ui, worker, api: timerApi, taskRef, setDelay: (ms) => {
     syncDelay = ms;
-  }, tasks: () => tasks, entries: () => entries };
+  }, tasks: () => tasks, entries: () => entries, calendarStats: () => ({ mounts: calendarMounts, disposals: calendarDisposals }), completions: () => completions };
   window.addEventListener("beforeunload", () => worker?.stop());
   if (new URLSearchParams(location.search).has("diary")) {
     document.querySelector("#app").style.display = "none";

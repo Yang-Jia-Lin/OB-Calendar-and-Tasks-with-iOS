@@ -15,6 +15,7 @@ export interface Segment {
   snapshot?: CalendarEvent;
 }
 export interface Session {
+  ownerDeviceId?: string;
   id: string; title: string; task: Task; calendarId: string; zone: string;
   startedAt: number; runningSince: number | null; lastHeartbeat: number; segments: Segment[];
 }

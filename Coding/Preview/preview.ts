@@ -15,6 +15,7 @@ import { categoryPreferences, renderCategorySettings } from "../Clients/Obsidian
 import { reorderTaskSlots, taskSort, type TaskSort } from "../Clients/Obsidian/taskOrder";
 import { SyncWorker } from "../Shared/sync";
 import { pendingView, syncKey } from "../Clients/Obsidian/syncStatus";
+import { appPage, focusLimit, focusRefs, refKey, type AppPage, type TaskCompletion, type TaskRef } from "../Shared/application";
 const key = "calendar-task-timer-preview-v2", today = dayKey();
 const calendars = [{ id: "research", name: "科研", type: "caldav", color: "#c8a0b2" }, { id: "work", name: "工作", type: "caldav", color: "#82a6c0" }, { id: "personal", name: "个人", type: "caldav", color: "#9bb69f" }];
 let tasks: Task[] = [
@@ -24,6 +25,8 @@ let tasks: Task[] = [
   { id: "t4", title: "晚间阅读", calendarId: "personal", completed: false, kind: "local" }
 ];
 let entries: Entry[] = [], defaultCalendarId = "research", date = today, busy = false, error = "", offline = false;
+let page:AppPage="tasks", pins:TaskRef[]=[], candidateLimit=5, completions:TaskCompletion[]=[];
+let calendarMounts=0,calendarDisposals=0;
 let typography = { ...DEFAULT_APPEARANCE };
 let categories = categoryPreferences();
 let syncDelay = 0;
@@ -45,6 +48,9 @@ makeEvent("demo-event-2", "项目讨论", "10:30", "11:15", "work"); makeEvent("
 let initial = seed;
 try { const saved = JSON.parse(localStorage.getItem(key) || "null"); if (saved) { initial = validateJournal(saved.journal); tasks = saved.tasks; entries = saved.entries; defaultCalendarId = saved.defaultCalendarId; typography = appearance(saved.typography); categories = categoryPreferences(saved.categories); sortMode = taskSort(saved.taskSort); } } catch { /* Invalid preview fixtures are reset; no real data exists here. */ }
 tasks = tasks.map(t => ({ ...t, path: "preview-tasks.md" }));
+try {const pref=JSON.parse(localStorage.getItem('ctt-workspace-prefs')||'{}');page=appPage(pref.page);pins=focusRefs(pref.pins);candidateLimit=focusLimit(pref.limit);completions=pref.completions||[];}catch{}
+const writePrefs=()=>localStorage.setItem('ctt-workspace-prefs',JSON.stringify({page,pins,limit:candidateLimit,completions}));
+const completeTask=(task:Task,done:boolean)=>{if(task.completed===done)return;task.completed=done;if(done)completions.push({id:uid(),task:taskRef(task),title:task.title,calendarId:task.calendarId||defaultCalendarId,completedAt:Date.now()});writePrefs();};
 const write = () => { localStorage.setItem(key, JSON.stringify({ journal: controller.state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode })); };
 const effect = async () => { if (syncDelay) await new Promise(resolve => setTimeout(resolve, syncDelay)); if (offline) throw new Error("模拟断网：操作已保存在本机，联网后可重试。"); };
 const api: FcrApi = {
@@ -61,7 +67,7 @@ let ui: TimerUI;
 let timerApi: TimerApi | undefined;
 const notice = (text: string) => { const node = document.querySelector<HTMLElement>("#toast")!; node.textContent = text; setTimeout(() => { if (node.textContent === text) node.textContent = ""; }, 4000); };
 const controller = new TimerController({ state: initial, background: true, persist: async state => { localStorage.setItem(key, JSON.stringify({ journal: state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode })); }, calendar: bridge,
-  tasks: { complete: async task => { const found = tasks.find(t => t.id === task.id); if (!found) throw new Error("待办已删除"); if (!found.completed && found.title !== task.title) throw new Error("待办已变化"); found.completed = true; write(); } }, onChange: () => { render(); worker?.wake(); } });
+  tasks: { complete: async task => { const found = tasks.find(t => t.id === task.id); if (!found) throw new Error("待办已删除"); if (!found.completed && found.title !== task.title) throw new Error("待办已变化"); completeTask(found,true); write(); } }, ownerDeviceId:"preview-device",onChange: () => { render(); worker?.wake(); } });
 worker = new SyncWorker(controller, { enabled: () => true, changed: () => render(), settled: () => { write(); render(); } });
 const host: DialogHost = { notice, open: (title, render) => { const restore = document.activeElement; const d = document.createElement("dialog"); document.body.append(d); const root = el(d, "div", "ctt-dialog"); applyAppearance(root, typography); el(root, "h2", "", title); render(root, () => d.close()); d.addEventListener("close", () => { d.remove(); if (restore instanceof HTMLElement && restore.isConnected) restore.focus(); }); d.showModal(); } };
 const dialogs = new Dialogs(host, controller, bridge, () => calendars, () => defaultCalendarId, async () => { write(); render(); }, id => worker!.retry(`delete:${id}`));
@@ -74,10 +80,12 @@ timerApi = new TimerApi({ controller, execute, resolve: async ref => {
 const showResult = async (result: ReturnType<TimerApi["start"]>) => { const r = await result; if (!r.ok) { error = r.message; notice(r.message); render(); } };
 function model(): ViewModel { const state = controller.state;
   return { connected: true, busy, error, sources: calendars, calendars, defaultCalendarId, active: state.active, tasks, date, appearance: typography, categoryPreferences: categories, taskSort: sortMode,
-    rows: mergeTimeline(bridge.timeline(date), state.records, date, state.operations, state.deletions), pending: pendingView(state, worker?.view), sync: worker?.view };
+    rows: mergeTimeline(bridge.timeline(date), state.records, date, state.operations, state.deletions), pending: pendingView(state, worker?.view), sync: worker?.view,appPage:page,focusPins:pins,focusLimit:candidateLimit,linkedTasks:[taskRef(tasks.find(t=>t.id==='t1')!)],completions };
 }
 function render() { timerApi?.notify(); ui?.update(model()); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }
 const actions: Actions = {
+  page:value=>{page=value;writePrefs();},pin:task=>{const k=refKey(task);pins=pins.some(p=>refKey(p)===k)?pins.filter(p=>refKey(p)!==k):[...pins,taskRef(task)];writePrefs();render();},focusLimit:value=>{candidateLimit=focusLimit(value);writePrefs();render();},openCompletion:event=>{notice(`查看待办：${event.title}`);},
+  mountCalendar:root=>{calendarMounts++;root.innerHTML='<h2>日历 · FCR 嵌入预览</h2><p>此处为模拟日历；实机使用 FCR 自带的 fc-calendar 渲染器。</p>';const add=button(root,'新增日程',()=>actions.newEvent());return {activate:()=>{},dispose:()=>{calendarDisposals++;add.remove();root.replaceChildren();}};},
   connect: () => {}, refresh: () => { void run(async () => { bridge.refresh(); await controller.reconcileDeletions(); notice("已刷新示例日历"); }); }, openCalendar: () => { void bridge.openCalendar(); },
   categorySettings: () => host.open("分类排序与显示", (root, close) => {
     const categoryRoot = el(root, "div"); renderCategorySettings(categoryRoot, calendars, categories, async next => { categories = next; write(); render(); });
@@ -95,7 +103,7 @@ const actions: Actions = {
   reorderTasks: (next, expected) => run(async () => { if (sortMode !== "manual") throw new Error("请先切换手动排序。"); const before = tasks; tasks = reorderTaskSlots(tasks, next, expected); try { write(); } catch (e) { tasks = before; throw e; } }),
   add: (title, due, calendarId) => run(async () => { if (!title.trim()) throw new Error("请填写名称。"); bridge.assertWritable(calendarId); tasks.push({ id: uid(), path: "preview-tasks.md", title, due, calendarId, completed: false, kind: "local" }); write(); }),
   start: task => { void showResult(timerApi!.start(taskRef(task), { source: "view" })); },
-  complete: task => { task.completed = true; write(); render(); }, editTask: task => dialogs.task(task, async patch => { Object.assign(task, patch); write(); }),
+  complete: task => { completeTask(task,!task.completed); write(); render(); }, editTask: task => dialogs.task(task, async patch => { Object.assign(task, patch); write(); }),
   pause: id => { void showResult(timerApi!.pause(id || "")); }, resume: id => { void showResult(timerApi!.resume(id || "")); }, finish: (complete, id) => { void showResult(timerApi!.finish(id || "", complete)); },
   editStart: () => dialogs.start(), category: id => { void run(() => controller.updateActive({ calendarId: id })); },
   newEvent: () => dialogs.event(date), editRow: row => { if (row.deleting && row.deletionId) { dialogs.deletion(row.deletionId); return; } if (row.pending && !row.recordId) { notice(row.error || "请先重试待同步操作。"); return; } if (row.recordId) dialogs.record(controller.state.records.find(r => r.id === row.recordId)!, row.segmentUid); else dialogs.event(date, row); },
@@ -111,7 +119,7 @@ document.querySelector<HTMLInputElement>("#offline")!.onchange = e => { offline 
 document.querySelector<HTMLSelectElement>("#sync-delay")!.onchange = e => { syncDelay = Number((e.target as HTMLSelectElement).value); };
 document.querySelector<HTMLInputElement>("#theme")!.onchange = e => document.documentElement.classList.toggle("theme-dark", (e.target as HTMLInputElement).checked);
 document.querySelector<HTMLButtonElement>("#reset")!.onclick = () => { localStorage.removeItem(key); location.reload(); };
-(window as any).__preview = { controller, bridge, model, render, ui, worker, api: timerApi, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries };
+(window as any).__preview = { controller, bridge, model, render, ui, worker, api: timerApi, taskRef, setDelay: (ms: number) => { syncDelay = ms; }, tasks: () => tasks, entries: () => entries,calendarStats:()=>({mounts:calendarMounts,disposals:calendarDisposals}),completions:()=>completions };
 window.addEventListener("beforeunload", () => worker?.stop());
 if (new URLSearchParams(location.search).has("diary")) { document.querySelector<HTMLElement>("#app")!.style.display = "none"; (window as any).__diaryPreview = diaryFixture(); }
 if (new URLSearchParams(location.search).has("components")) (window as any).__preview.native = componentsFixture(timerApi!, {

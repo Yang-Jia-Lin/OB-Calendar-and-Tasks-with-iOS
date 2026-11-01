@@ -2,6 +2,30 @@ import type { App, TFile } from "obsidian";
 import { uid, type Task } from "../../Shared/contracts";
 import { orderByIds, reorderTaskSlots } from "./taskOrder";
 import type { TaskRef } from "./api";
+import type { TaskCompletion, TaskRepository } from "../../Shared/application";
+const COMPLETIONS = /^\s*<!-- ctt-completions:([^\s<>]+) -->\s*$/;
+export function parseCompletions(text: string): TaskCompletion[] {
+  if (text.split(/\r?\n/).some(line => line.includes("<!-- ctt-completions:") && !COMPLETIONS.test(line))) throw new Error("完成记录元数据损坏，保留原文件。");
+  const lines = text.split(/\r?\n/).filter(line => COMPLETIONS.test(line));
+  if (!lines.length) return [];
+  if (lines.length !== 1) throw new Error("完成记录元数据重复，保留原文件。");
+  let events: unknown; try { events = JSON.parse(decodeURIComponent(lines[0].match(COMPLETIONS)![1])); } catch { throw new Error("完成记录元数据损坏，保留原文件。"); }
+  if (!Array.isArray(events) || events.some(e => !e || typeof e.id !== "string" || typeof e.title !== "string" || typeof e.calendarId !== "string" || !Number.isFinite(e.completedAt) || e.completedAt < 0 || e.task?.kind !== "local" || typeof e.task.path !== "string" || typeof e.task.id !== "string") || new Set(events.map(e=>e.id)).size !== events.length) throw new Error("完成记录元数据无效，保留原文件。");
+  return events;
+}
+export function setTaskCompletionText(text: string, task: Task, completed: boolean, now = Date.now(), makeId: () => string = uid) {
+  const matches = parseTasks(text,task.path || "").filter(t=>t.id===task.id);
+  if (matches.length !== 1) throw new Error("原待办不存在或 ID 重复。");
+  const current = matches[0], events = parseCompletions(text);
+  if (current.completed === completed) return text;
+  const updated = updateTaskText(text,task,{completed},true);
+  if (!completed) return updated;
+  if (!Number.isFinite(now) || now < 0) throw new Error("完成时间无效。");
+  events.push({id:makeId(),task:{kind:"local",path:task.path || "",id:task.id},title:current.title,calendarId:current.calendarId || "",completedAt:now});
+  const marker = `<!-- ctt-completions:${encodeURIComponent(JSON.stringify(events))} -->`, eol = text.includes("\r\n") ? "\r\n" : "\n";
+  if (text.split(/\r?\n/).some(line=>COMPLETIONS.test(line))) return updated.split(/\r?\n/).map(line=>COMPLETIONS.test(line)?marker:line).join(eol);
+  return updated + (updated.endsWith(eol)?"":eol) + marker + eol;
+}
 const LINE = /^(\s*-\s+\[)([ xX])(\]\s+)(.*)$/;
 const MARK = /\s*<!--\s*simple-task:([a-zA-Z0-9-]+)\s*-->\s*$/;
 const CATEGORY = /\s*<!--\s*ctt-category:([^\s<>]+)\s*-->/;
@@ -58,7 +82,7 @@ export function updateTaskText(text: string, task: Task, patch: Partial<Task>, c
     return m?.[4].match(MARK)?.[1] === task.id ? ((line.match(/^\s*/)?.[0] || "") + taskLine(next.title, next.due, next.id, next.calendarId, next.completed).replace(/\n/g, eol)) : line;
   });
 }
-export class MarkdownTasks {
+export class MarkdownTasks implements TaskRepository {
   constructor(private app: App, private getPath: () => string) {}
   path() { const p = (this.getPath() || "待办计时/待办.md").replace(/\\/g, "/");
     if (p.startsWith("/") || p.split("/").some(s => s === ".." || s.startsWith(".")) || !p.endsWith(".md") || p.includes(":")) throw new Error("请使用笔记库内的普通 Markdown 文件路径。"); return p; }
@@ -88,14 +112,20 @@ export class MarkdownTasks {
     const file = this.app.vault.getAbstractFileByPath(task.path || ""); if (!file || !("extension" in file)) throw new Error("找不到原待办文件。");
     await this.app.vault.process(file as TFile, current => updateTaskText(current, task, patch, check));
   }
-  complete(task: Task) { return this.update(task, { completed: true }, false); }
+  complete(task: Task) { return this.setCompleted(task,true); }
+  async completions() { const file = await this.file(); return file ? parseCompletions(await this.app.vault.read(file)) : []; }
+  async setCompleted(task: Task, completed: boolean) {
+    if (task.path !== this.path()) throw new Error("任务不属于当前待办文件。");
+    const file = await this.file(); if (!file) throw new Error("找不到原待办文件。");
+    await this.app.vault.process(file,text=>setTaskCompletionText(text,task,completed));
+  }
   async completeLocal(task: Task) {
     const file = this.app.vault.getAbstractFileByPath(task.path || ""); if (!file || !("extension" in file)) throw new Error("本地待办已删除或移动，请核对完成状态。");
     await this.app.vault.process(file as TFile, current => {
       const existing = parseTasks(current, file.path).find(t => t.id === task.id);
       if (!existing) throw new Error("本地待办已删除，请核对完成状态。");
       if (existing.completed) return current; // Crash after Markdown commit but before journal acknowledgement.
-      return updateTaskText(current, task, { completed: true }, true);
+      return setTaskCompletionText(current, task, true);
     });
   }
   async reorder(nextIds: string[], expectedIds: string[]) {
