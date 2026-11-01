@@ -1,13 +1,14 @@
+import { Temporal } from "temporal-polyfill";
 import { clone, uid, isMissingResource, type Task, type Calendar, type WorkRecord, type TimelineRow } from "../../Shared/contracts";
-import { localInput, parseLocal } from "../../Shared/time";
+import { localInput, parseLocal, dateParts } from "../../Shared/time";
 import type { TimerController } from "../../Shared/timer";
-import type { FcrBridge } from "../../Providers/Fcr/bridge";
+import type { CalendarService } from "../../Providers/Calendar/bridge";
 import { el, button, field, options } from "./dom";
 export interface DialogHost { open(title: string, render: (root: HTMLElement, close: () => void) => void): void; notice(text: string): void }
 interface FormActions { save: () => Promise<void>; remove?: { label: string; message: string; run: () => Promise<void> } }
 export class Dialogs {
-  constructor(private host: DialogHost, private controller: TimerController, private bridge: FcrBridge,
-    private calendars: () => Calendar[], private defaultCategory: () => string, private changed: () => Promise<void>, private retryDeletion?: (id: string) => Promise<unknown>) {}
+  constructor(private host: DialogHost, private controller: TimerController, private bridge: CalendarService,
+    private calendars: () => Calendar[], private defaultCategory: () => string, private changed: () => Promise<void>, private retryDeletion?: (id: string) => Promise<unknown>,private displayZone:()=>string=()=>Intl.DateTimeFormat().resolvedOptions().timeZone) {}
   private form(title: string, render: (form: HTMLElement) => (() => Promise<void>) | FormActions) {
     this.host.open(title, (root, close) => {
       root.classList.add("ctt-dialog"); const form = el(root, "form", "ctt-dialog"); const result = render(form);
@@ -75,6 +76,33 @@ export class Dialogs {
     this.form("修改开始时间", form => {
       const start = field(form, "开始时间", "datetime-local", localInput(active.startedAt)); start.required = true;
       return () => this.controller.updateActive({ startedAt: parseLocal(start.value) }, active.id);
+    });
+  }
+  calendar(start:number,end:number,allDay:boolean,row?:TimelineRow) {
+    if(!this.bridge.prepareCalendarEvent){this.event(localInput(start).slice(0,10),row);return;}
+    if(row?.pending){this.host.notice("请先完成这项日程的同步。");return;}
+    const original=clone(row?.original),event=original?.event;
+    const series=event?.type==="recurring";if(series){start=row!.seriesStart??start;end=row!.seriesEnd??end;}
+    const eventUid=event?.uid||`ctt-event-${uid()}`,zone=series&&event?.timezone?String(event.timezone):this.displayZone(),input=(ms:number)=>{const p=dateParts(ms,zone);return p.date+"T"+p.time;};
+    this.form(series?"编辑周期日程（整个系列）":original?"编辑日历内容":"新建日历内容",form=>{
+      const title=field(form,"标题","text",event?.title||"");title.required=true;
+      const kind=el(form,"label","ctt-field");el(kind,"span","","类型");const type=el(kind,"select");for(const [value,text]of [["event","日程"],["task","日历待办"]])el(type,"option","",text).value=value;type.value=event?.isTask?"task":"event";type.disabled=!!original;type.setAttribute("aria-label","日历内容类型");
+      const category=this.category(form,row?.calendarId||this.defaultCategory());
+      const day=field(form,"全天","checkbox","");day.checked=allDay;
+      const a=field(form,"开始","datetime-local",allDay?localInput(start):input(start)),b=field(form,"结束","datetime-local",allDay?localInput(end):input(end));a.required=b.required=true;
+      const ruleLabel=el(form,"label","ctt-field");el(ruleLabel,"span","","重复");const rule=el(ruleLabel,"select");rule.setAttribute("aria-label","重复规则");
+      for(const [value,text]of [["","不重复"],["FREQ=DAILY","每天"],["FREQ=WEEKLY","每周"],["FREQ=MONTHLY","每月"],["FREQ=YEARLY","每年"]])el(rule,"option","",text).value=value;
+      const oldRule=String(event?.rrule||"");if(oldRule&&!Array.from(rule.options).some(o=>o.value===oldRule)||series&&!oldRule){el(rule,"option","","保留当前自定义周期").value="keep";rule.value="keep";}else rule.value=oldRule;
+      if(series)el(form,"p","ctt-muted",`此处修改整个系列；原有例外日期和提醒信息会保留。${allDay?"":` 时间使用 ${zone}。`}`);
+      const description=field(form,"备注","text",String(event?.description||"")),location=field(form,"地点","text",String(event?.location||""));
+      const completed=field(form,"标记完成（周期待办为整个系列）","checkbox","");completed.checked=!!event?.completed;
+      const update=()=>{const isTask=type.value==="task",sources=this.bridge.sources().filter(s=>s.type===(isTask?"caldavtasks":"caldav"));options(category,sources,category.value&&sources.some(s=>s.id===category.value)?category.value:sources.find(s=>s.id===this.defaultCategory())?.id||"");completed.parentElement!.hidden=!isTask;const av=a.value,bv=b.value;a.type=b.type=day.checked?"date":"datetime-local";a.value=day.checked?av.slice(0,10):av.length===10?av+"T09:00:00":av;b.value=day.checked?bv.slice(0,10):bv.length===10?bv+"T10:00:00":bv;b.parentElement!.hidden=isTask;b.required=!isTask;};
+      type.onchange=day.onchange=update;update();
+      return {save:async()=>{
+        const parse=(value:string)=>day.checked?+new Date(value+"T00:00:00"):Temporal.ZonedDateTime.from(value+`[${zone}]`,{disambiguation:"reject"}).epochMilliseconds,first=parse(a.value),last=type.value==="task"?first+(day.checked?86400000:3600000):parse(b.value);
+        const step=this.bridge.prepareCalendarEvent!({title:title.value,start:first,end:last,calendarId:category.value,allDay:day.checked,timezone:zone,task:type.value==="task",completed:completed.checked,rrule:rule.value==="keep"?undefined:rule.value,description:description.value,location:location.value,uid:eventUid},original);
+        await this.controller.saveEvent(step);this.host.notice("日历修改已保存在本机，后台同步。");
+      },remove:original&&this.bridge.canDelete(original)?{label:series?"删除整个系列":"删除日历内容",message:series?"删除整个周期系列？所有实例都会移除，原待办和其他工时保留。":"删除这项日历内容？原待办和其他工时保留。",run:async()=>{await this.controller.deleteEvent(this.bridge.prepareDeletion(original),{start,end});this.host.notice("删除请求已在本机保存，后台同步。");}}:undefined};
     });
   }
   record(record: WorkRecord, selectedUid?: string) {

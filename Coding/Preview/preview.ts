@@ -1,8 +1,11 @@
+import { CalendarPanel } from "../Clients/Obsidian/calendarPanel";
+import { calendarPreferences } from "../Providers/Calendar/config";
+import { readResource, writeResource, expandResource } from "../Providers/Calendar/ical";
 import { mountNoteTaskForm } from "../Clients/Obsidian/noteTaskForm";
 import { TimerApi, taskRef } from "../Clients/Obsidian/api";
 import { componentsFixture } from "./componentsFixture";
 import { diaryFixture } from "./diaryFixture";
-import { FcrBridge, type FcrApi } from "../Providers/Fcr/bridge";
+import { CalendarBridge, type CalendarApi } from "../Providers/Calendar/bridge";
 import { clone, uid, type Task, type Entry } from "../Shared/contracts";
 import { TimerController, blankJournal, validateJournal } from "../Shared/timer";
 import { dayKey, dateParts, eventForSegment } from "../Shared/time";
@@ -27,7 +30,7 @@ let tasks: Task[] = [
 ];
 let entries: Entry[] = [], defaultCalendarId = "research", date = today, busy = false, error = "", offline = false;
 let page:AppPage="tasks", pins:TaskRef[]=[], candidateLimit=5, completions:TaskCompletion[]=[];
-let calendarMounts=0,calendarDisposals=0;
+let calendarMounts=0,calendarDisposals=0;const calendarListeners=new Set<()=>void>();
 let typography = { ...DEFAULT_APPEARANCE };
 let categories = categoryPreferences();
 let syncDelay = 0;
@@ -54,16 +57,16 @@ const writePrefs=()=>localStorage.setItem('ctt-workspace-prefs',JSON.stringify({
 const completeTask=(task:Task,done:boolean)=>{if(task.completed===done)return;task.completed=done;if(done)completions.push({id:uid(),task:taskRef(task),title:task.title,calendarId:task.calendarId||defaultCalendarId,completedAt:Date.now()});writePrefs();};
 const write = () => { localStorage.setItem(key, JSON.stringify({ journal: controller.state, tasks, entries, defaultCalendarId, typography, categories, taskSort: sortMode })); };
 const effect = async () => { if (syncDelay) await new Promise(resolve => setTimeout(resolve, syncDelay)); if (offline) throw new Error("模拟断网：操作已保存在本机，联网后可重试。"); };
-const api: FcrApi = {
+const api: CalendarApi = {
   getCalendarSources: () => clone(calendars), getProviderCapabilities: () => ({ canCreate: true, canEdit: true, canDelete: true }),
   getAllEvents: () => calendars.map(c => ({ ...c, events: entries.filter(e => e.calendarId === c.id).map(e => ({ id: e.id, event: clone(e.event) })) })),
   getEvents: () => entries.map(e => ({ id: e.id, startMillis: +new Date(`${e.event.date}T${e.event.startTime}${e.event.timezone === "UTC" ? "Z" : ""}`), endMillis: +new Date(`${e.event.endDate || e.event.date}T${e.event.endTime}${e.event.timezone === "UTC" ? "Z" : ""}`), isTask: false })),
   createEvent: async (calendarId, event) => { await effect(); entries.push({ id: uid(), calendarId, event: clone(event) }); write(); return true; },
   updateEvent: async (id, event) => { await effect(); const found = entries.find(e => e.id === id); if (!found) return false; found.event = clone(event); write(); return true; },
   deleteEvent: async id => { await effect(); entries = entries.filter(e => e.id !== id); write(); },
-  revalidateRemoteCalendars: () => {}, openCalendar: async () => { notice("预览仅展示时间轴；真实插件会打开 FCR。"); }
+  revalidateRemoteCalendars: () => {}, openCalendar: async () => { notice("请切换至日历页。"); }
 };
-const bridge = new FcrBridge({}, () => null, async () => {}); bridge.authorized = api;
+const bridge = new CalendarBridge(api); bridge.authorized = api;
 let ui: TimerUI;
 let timerApi: TimerApi | undefined;
 const notice = (text: string) => { const node = document.querySelector<HTMLElement>("#toast")!; node.textContent = text; setTimeout(() => { if (node.textContent === text) node.textContent = ""; }, 4000); };
@@ -86,10 +89,10 @@ function model(): ViewModel { const state = controller.state;
   return { connected: true, busy, error, sources: calendars, calendars, defaultCalendarId, active: state.active, tasks, date, appearance: typography, categoryPreferences: categories, taskSort: sortMode,
     rows: mergeTimeline(bridge.timeline(date), state.records, date, state.operations, state.deletions), pending: pendingView(state, worker?.view), sync: worker?.view,appPage:page,focusPins:pins,focusLimit:candidateLimit,linkedTasks:[{kind:"local",path:"preview-tasks.md",id:"t1"}],completions };
 }
-function render() { timerApi?.notify(); ui?.update(model()); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }
+function render() { for(const fn of calendarListeners)fn();timerApi?.notify(); ui?.update(model()); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }
 const actions: Actions = {
   page:value=>{page=value;writePrefs();},pin:task=>{const k=refKey(task);pins=pins.some(p=>refKey(p)===k)?pins.filter(p=>refKey(p)!==k):[...pins,taskRef(task)];writePrefs();render();},focusLimit:value=>{candidateLimit=focusLimit(value);writePrefs();render();},openCompletion:event=>{notice(`查看待办：${event.title}`);},
-  mountCalendar:root=>{calendarMounts++;root.innerHTML='<h2>日历 · FCR 嵌入预览</h2><p>此处为模拟日历；实机使用 FCR 自带的 fc-calendar 渲染器。</p>';const add=button(root,'新增日程',()=>actions.newEvent());return {activate:()=>{},dispose:()=>{calendarDisposals++;add.remove();root.replaceChildren();}};},
+  mountCalendar:root=>{calendarMounts++;const panel=new CalendarPanel(root,{preferences:()=>calendarPreferences(undefined),sources:()=>calendars,state:()=>({syncing:false,error:offline?"模拟离线，保留快照":"",lastSync:Date.now()}),writable:()=>true,subscribe:fn=>{calendarListeners.add(fn);return()=>{calendarListeners.delete(fn);};},rows:(from,to)=>{const rows=entries.flatMap(entry=>{const parsed=readResource({href:entry.id,etag:"",data:writeResource(entry.event)});return parsed?expandResource(parsed,from,to,Intl.DateTimeFormat().resolvedOptions().timeZone).map(o=>({key:entry.id+":"+(o.recurrenceId||"single"),title:o.title,calendarId:entry.calendarId,color:calendars.find(c=>c.id===entry.calendarId)?.color,start:o.start,end:o.end,allDay:o.allDay,original:entry,...(o.recurrenceId?{recurrenceId:o.recurrenceId}: {})})):[];});const out=new Map();for(let d=new Date(from);+d<to;d.setDate(d.getDate()+1))for(const row of mergeTimeline(rows,controller.state.records,dayKey(+d),controller.state.operations,controller.state.deletions))out.set(row.key,row);return [...out.values()];},create:(a,b,allDay)=>dialogs.calendar(a,b,allDay),edit:row=>row.recordId?actions.editRow(row):dialogs.calendar(row.start,row.end,!!row.allDay,row),move:async(row,start,end,allDay)=>{await controller.saveEvent(bridge.prepareCalendarEvent({title:row.title,start,end,allDay,calendarId:row.calendarId},row.original));render();},notice});return{activate:()=>panel.activate(),dispose:()=>{calendarDisposals++;panel.dispose();}};},
   connect: () => {}, refresh: () => { void run(async () => { bridge.refresh(); await controller.reconcileDeletions(); notice("已刷新示例日历"); }); }, openCalendar: () => { void bridge.openCalendar(); },
   categorySettings: () => host.open("分类排序与显示", (root, close) => {
     const categoryRoot = el(root, "div"); renderCategorySettings(categoryRoot, calendars, categories, async next => { categories = next; write(); render(); });

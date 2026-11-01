@@ -1,3 +1,4 @@
+import { Temporal } from "temporal-polyfill";
 import { clone, sameEventContent, type TimelineRow, type WorkRecord, type EventOperation, type DeleteOperation } from "./contracts";
 import { dayKey } from "./time";
 export function mergeTimeline(remote: TimelineRow[], records: WorkRecord[], date: string, operations: EventOperation[] = [], deletions: DeleteOperation[] = []): TimelineRow[] {
@@ -22,12 +23,13 @@ export function mergeTimeline(remote: TimelineRow[], records: WorkRecord[], date
   for (const op of operations.filter(o => o.status === "pending")) {
     const step = op.step, event = step.after;
     // prepareEvent always serializes manual edits in UTC.
-    const start = Date.parse(`${event.date}T${event.startTime}Z`), end = Date.parse(`${event.endDate || event.date}T${event.endTime}Z`);
+    const instant=(date:string,time:string|undefined)=>{try{return event.allDay?+new Date(date+"T00:00:00"):event.timezone&&event.timezone!=="UTC"?Temporal.ZonedDateTime.from(`${date}T${time}[${event.timezone}]`).epochMilliseconds:Date.parse(`${date}T${time}${event.timezone==="UTC"?"Z":""}`);}catch{return NaN;}};
+    const start=instant(event.date,event.startTime),end=event.isTask?start+(event.allDay?86400000:3600000):instant(event.endDate||event.date,event.endTime);
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
     const known = rows.filter(r => r.original?.event.uid === step.uid && [step.fromCalendarId, step.toCalendarId].includes(r.calendarId));
     known.forEach(r => rows.splice(rows.indexOf(r), 1));
     if (date < dayKey(start) || date > dayKey(Math.max(start, end - 1))) continue;
-    rows.push({ key: `event-operation:${op.id}`, title: event.title, calendarId: step.toCalendarId, start, end, pending: true, error: op.error });
+    rows.push({ key: `event-operation:${op.id}`, title: event.title, calendarId: step.toCalendarId, start, end, allDay:!!event.allDay, pending: true, error: op.error });
   }
   for (const op of deletions.filter(o => o.status !== "saved")) {
     const known = rows.filter(r => (r.original?.event.uid === op.uid && r.calendarId === op.calendarId) || (r.recordId === op.recordId && r.segmentUid === op.uid));

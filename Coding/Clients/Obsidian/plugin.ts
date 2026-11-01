@@ -5,7 +5,11 @@ import { TimerController, blankJournal } from "../../Shared/timer";
 import { uid, type Task, type TimelineRow, type Calendar } from "../../Shared/contracts";
 import { dayKey } from "../../Shared/time";
 import { mergeTimeline } from "../../Shared/timeline";
-import { FcrBridge } from "../../Providers/Fcr/bridge";
+import { CalendarBridge } from "../../Providers/Calendar/bridge";
+import { CalendarEngine } from "../../Providers/Calendar/engine";
+import { calendarSources, calendarPreferences, type CalendarSource, type CalendarPreferences } from "../../Providers/Calendar/config";
+import { setupCalendarEngine, CalendarCacheFile } from "./calendarStorage";
+import { renderCalendarSettings } from "./calendarSettings";
 import { MarkdownTasks } from "./tasks";
 import { JournalStore, prepareLegacyImport, type Settings } from "./journal";
 import { TimerUI, type ViewModel, type Actions } from "./ui";
@@ -21,7 +25,7 @@ import { componentTaskBindings, componentTaskSnapshots, nativeTimerLabels, toggl
 import { ComponentsTimerButtons, type NativeButtonScope } from "./componentsButtons";
 import { DiaryUpdater, diaryDate, diaryPath, DEFAULT_DIARY_FOLDER, DEFAULT_DIARY_LAYOUT, DEFAULT_DIARY_LAYOUT_PATH } from "./diary";
 import { mountDiaryButton } from "./diaryButton";
-import { FcrCalendarPanel } from "./calendarPanel";
+import { CalendarPanel } from "./calendarPanel";
 import { mountNoteTaskForm } from "./noteTaskForm";
 import { ApplicationState, appPage, focusLimit, focusRefs, refKey, type TaskCompletion, type SessionStore, type CalendarQuery } from "../../Shared/application";
 const VIEW = "calendar-task-timer-view";
@@ -34,7 +38,7 @@ class TimerView extends ItemView {
   getViewType() { return VIEW; } getDisplayText() { return "日历与待办计时"; } getIcon() { return "timer"; }
   async onOpen() {
     this.ui = new TimerUI(mountTimerView(this.contentEl), {...this.owner.actions(),mountCalendar:root=>{
-      const panel=this.addChild(new FcrCalendarPanel(this.app,root));return {activate:()=>{void panel.activate();},dispose:()=>{this.removeChild(panel);panel.unload();}};
+      return this.owner.mountCalendar(root);
     }});
     for(const key of ["tasks","session","execution","sync"] as const)this.unsubs.push(this.owner.application.subscribe(key,()=>{if(this.queued)return;this.queued=true;queueMicrotask(()=>{this.queued=false;this.render();});}));
     this.render();
@@ -67,8 +71,7 @@ class TimerSettings extends PluginSettingTab {
   constructor(app: CalendarTaskTimer["app"], private owner: CalendarTaskTimer) { super(app, owner); }
   display() {
     const p = this.owner, root = this.containerEl; root.replaceChildren();
-    new Setting(root).setName("日历连接").setDesc("使用 FCR 已配置的日历。")
-      .addButton(b => b.setButtonText("连接 FCR").onClick(() => { void p.run(async () => { await p.bridge.connect(true); await p.worker?.resume("auth"); await p.refresh(); this.display(); }); }));
+    renderCalendarSettings(root,p,()=>this.display());
     let calendars: { id: string; name: string }[] = []; try { calendars = p.bridge.writableCalendars(); } catch {}
     new Setting(root).setName("默认分类").setDesc("新待办预填此分类。日历失效时不会自动改投。")
       .addDropdown(d => { d.addOption("", "选择分类"); for (const c of calendars) d.addOption(c.id, c.name); d.setValue(p.settings.defaultCalendarId).onChange(async value => { p.settings.defaultCalendarId = value; await p.saveSettings(); p.render(); }); });
@@ -102,7 +105,7 @@ class TimerSettings extends PluginSettingTab {
 }
 export default class CalendarTaskTimer extends Plugin {
   settings: Settings = { defaultCalendarId: "", tasksPath: "待办计时/待办.md", importedLegacy: false, ...DEFAULT_APPEARANCE };
-  controller!: TimerController; bridge!: FcrBridge; tasks!: MarkdownTasks; dialogs!: Dialogs;
+  controller!: TimerController; bridge!: CalendarBridge; engine!:CalendarEngine; private calendarStore?:CalendarCacheFile; tasks!: MarkdownTasks; dialogs!: Dialogs;
   worker?: SyncWorker;
   api!: TimerApi;
   readonly application = new ApplicationState<{view:ViewModel|null;tasks:Task[];session:ViewModel["active"];execution:object|null;sync:object|null}>({view:null,tasks:[],session:null,execution:null,sync:null});
@@ -117,13 +120,14 @@ export default class CalendarTaskTimer extends Plugin {
   private busy = false; private error = ""; private date = dayKey(); private items: Task[] = [];
   private store!: JournalStore; private base = ""; private vaultId = ""; private pluginDir = ""; private status?: HTMLElement;
   private sessionStore!: SessionStore; private calendarQuery!: CalendarQuery;
-  private token: string | null = null; private importing = false; private timers = new Set<number>();
+  private importing = false; private timers = new Set<number>();
   private unloaded = false; private snapshotQueued = false;
   private calendarView: { date: string; sources: ViewModel["sources"]; calendars: ViewModel["calendars"]; rows: TimelineRow[]; error: string } = { date: "", sources: [], calendars: [], rows: [], error: "" };
   async onload() {
     const data = await this.loadData() || {};
     for (const k of ["defaultCalendarId", "tasksPath"] as const) if (typeof data[k] === "string") this.settings[k] = data[k];
     this.settings.importedLegacy = data.importedLegacy === true;
+    this.settings.calendarSources=calendarSources(data.calendarSources);this.settings.calendarPreferences=calendarPreferences(data.calendarPreferences);if(typeof data.calendarMigration==="string")this.settings.calendarMigration=data.calendarMigration;
     Object.assign(this.settings, appearance(data));
     Object.assign(this.settings, categoryPreferences(data));
     this.settings.taskSort = taskSort(data.taskSort);
@@ -139,9 +143,8 @@ export default class CalendarTaskTimer extends Plugin {
     let device = window.localStorage.getItem(key); if (!/^[a-f0-9-]{36}$/i.test(device || "")) { device = uid(); window.localStorage.setItem(key, device); }
     this.store = new JournalStore(path.join(this.pluginDir, "sessions", `${device}.json`));
     this.sessionStore = this.store;
-    const secretKey = `calendar-task-timer-${this.vaultId}`, secretStorage = (this.app as any).secretStorage;
-    this.bridge = new FcrBridge(this.app as any, () => secretStorage?.getSecret?.(secretKey) || this.token,
-      async token => { if (secretStorage?.setSecret) await secretStorage.setSecret(secretKey, token); else this.token = token; });
+    const calendar=await setupCalendarEngine(this,this.pluginDir,()=>{if(!this.unloaded){this.scheduleSnapshot();this.worker?.wake();}},async()=>{this.settings.appPage="calendar";await this.openView();this.render();for(const leaf of this.app.workspace.getLeavesOfType(VIEW))(leaf.view as TimerView).ui?.selectPage("calendar");});
+    this.engine=calendar.engine;this.calendarStore=calendar.store;this.bridge=new CalendarBridge(this.engine);
     this.calendarQuery = this.bridge;
     this.tasks = new MarkdownTasks(this.app, () => this.settings.tasksPath);
     const state = await this.sessionStore.load();
@@ -157,7 +160,7 @@ export default class CalendarTaskTimer extends Plugin {
     this.worker = new SyncWorker(this.controller, { channel: this.store.file.toLowerCase(), enabled: () => this.connected && !this.importing && !this.unloaded && navigator.onLine !== false,
       changed: () => this.render(), settled: () => { this.readCalendarView(); this.scheduleSnapshot(); } });
     const host: DialogHost = { open: (title, render) => new FormModal(this.app, title, (root, close) => { applyAppearance(root, this.settings); render(root, close); }).open(), notice: text => { new Notice(text); } };
-    this.dialogs = new Dialogs(host, this.controller, this.bridge, () => this.bridge.writableCalendars(), () => this.settings.defaultCalendarId, () => this.refreshLocal(), id => this.worker!.retry(`delete:${id}`));
+    this.dialogs = new Dialogs(host, this.controller, this.bridge, () => this.bridge.writableCalendars(), () => this.settings.defaultCalendarId, () => this.refreshLocal(), id => this.worker!.retry(`delete:${id}`),()=>calendarPreferences(this.settings.calendarPreferences).timezone);
     this.registerView(VIEW, leaf => new TimerView(leaf, this)); this.addRibbonIcon("timer", "日历与待办计时", () => { void this.openView(); });
     this.addCommand({ id: "open", name: "打开计时与时间轴", callback: () => { void this.openView(); } });
     this.addCommand({ id: "start-note-task", name: "开始当前课题的计时任务", callback: () => { void this.startFromNote(this.app.workspace.getActiveFile()?.path || ""); } });
@@ -180,8 +183,9 @@ export default class CalendarTaskTimer extends Plugin {
       if (file.path.endsWith(".components")) void this.refreshComponentButtons();
     }));
     this.registerEvent(this.app.workspace.on("layout-change", () => { void this.refreshComponentButtons(); }));
-    this.app.workspace.onLayoutReady(() => { void (async () => { try { await this.bridge.connect(false); await this.worker?.resume("auth"); } catch {} await this.refresh(); if (recovered) new Notice("上次计时已恢复为暂停。"); })().catch(e => this.fail(e)); });
-    const online = () => { void this.worker?.resume("network").catch(e => this.fail(e)); };
+    this.app.workspace.onLayoutReady(() => { void (async () => { try { await this.bridge.connect(false); await this.worker?.resume("auth"); } catch {} await this.refresh();void this.engine.refresh().catch(e=>this.fail(e)); if (recovered) new Notice("上次计时已恢复为暂停。"); })().catch(e => this.fail(e)); });
+    this.registerInterval(window.setInterval(()=>{if(!this.unloaded&&navigator.onLine!==false)void this.engine.refresh().catch(e=>this.fail(e));},120000));
+    const online = () => { void this.engine.refresh().catch(e=>this.fail(e)); void this.worker?.resume("network").catch(e => this.fail(e)); };
     window.addEventListener("online", online); this.register(() => window.removeEventListener("online", online));
     // Save an extra heartbeat when hidden; crash recovery stops at the last durable heartbeat.
     const visibility = () => { if (document.visibilityState === "hidden") void this.controller.heartbeat().catch(e => this.fail(e)); };
@@ -189,7 +193,7 @@ export default class CalendarTaskTimer extends Plugin {
     await this.refresh();
     await this.refreshComponentButtons();
   }
-  onunload() { this.unloaded = true; this.application.dispose();this.componentButtons?.dispose(); this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
+  onunload() { this.unloaded = true;this.engine?.stop();this.calendarStore?.stop(); this.application.dispose();this.componentButtons?.dispose(); this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
   private diaryFile(note: string): TFile {
     const file = this.app.vault.getAbstractFileByPath(note);
     if (!file || !("extension" in file) || file.extension !== "md") throw new Error("请先打开一篇日记。");
@@ -207,7 +211,7 @@ export default class CalendarTaskTimer extends Plugin {
         return this.app.vault.read(file as TFile); },
       snapshot: async date => {
         if (!this.connected) throw new Error("请先在插件中连接日历，原时间轴已保留。");
-        const calendars = this.bridge.sources(), groups = this.bridge.api().getAllEvents();
+        const calendars = this.bridge.sources().filter(c=>c.type!=="caldavtasks"), groups = this.bridge.api().getAllEvents();
         if (!calendars.length || calendars.some(c => !groups.some(g => g.id === c.id))) throw new Error("部分日历尚未加载，请在日历同步完成后重试；原时间轴已保留。");
         const state = this.controller.state;
         return { calendars, rows: mergeTimeline(this.bridge.timeline(date), state.records, date, state.operations, state.deletions) };
@@ -254,6 +258,12 @@ export default class CalendarTaskTimer extends Plugin {
       state: () => ({ available: !this.unloaded, active: this.controller.state.active, tasks: this.items, pending: this.controller.jobs().length, sync: this.worker?.view }) });
   }
   async openView() { let leaf = this.app.workspace.getLeavesOfType(VIEW)[0]; if (!leaf) { leaf = this.app.workspace.getLeaf("tab"); await leaf.setViewState({ type: VIEW, active: true }); } await this.app.workspace.revealLeaf(leaf); }
+  openCalendarForm(title:string,render:(root:HTMLElement,close:()=>void)=>void){new FormModal(this.app,title,(root,close)=>{applyAppearance(root,this.settings);render(root,close);}).open();}
+  calendarNotice(message:string){new Notice(message);}
+  async setSources(sources:CalendarSource[]){const next=calendarSources(sources),before=this.settings.calendarSources;this.settings.calendarSources=next;try{await this.saveSettings();}catch(e){this.settings.calendarSources=before;throw e;}this.engine.migrationError="";this.engine.configure(next);if(next.some(s=>s.enabled!==false))await this.bridge.connect();else this.bridge.authorized=null;this.error="";await this.refresh();void this.engine.refresh().then(()=>this.engine.refresh()).catch(e=>this.fail(e));await this.worker?.resume("auth");}
+  async setCalendarPreferences(prefs:CalendarPreferences){const before=this.settings.calendarPreferences;this.settings.calendarPreferences=calendarPreferences(prefs);try{await this.saveSettings();}catch(e){this.settings.calendarPreferences=before;throw e;}this.engine.configure(this.engine.sourceConfigs());this.render();}
+  calendarRows(from:number,to:number){const state=this.controller.state,remote=this.engine.rows(from,to),rows=new Map<string,TimelineRow>();let date=new Date(from);date.setHours(0,0,0,0);for(let i=0;i<400&&+date<to;i++){for(const row of mergeTimeline(remote,state.records,dayKey(+date),state.operations,state.deletions))if(row.start<to&&row.end>from)rows.set(row.key,row);date.setDate(date.getDate()+1);}return [...rows.values()];}
+  mountCalendar(root:HTMLElement){return new CalendarPanel(root,{preferences:()=>calendarPreferences(this.settings.calendarPreferences),sources:()=>this.engine.getCalendarSources(),rows:(a,b)=>this.calendarRows(a,b),state:()=>this.engine.state,writable:id=>this.engine.getProviderCapabilities(id).canEdit,subscribe:fn=>{const a=this.engine.subscribe(fn),b=this.application.subscribe("execution",fn);return ()=>{a();b();};},create:(start,end,allDay)=>this.dialogs.calendar(start,end,allDay),edit:row=>{if(row.recordId||row.pending)this.actions().editRow(row);else this.dialogs.calendar(row.start,row.end,!!row.allDay,row);},move:async(row,start,end,allDay)=>{if(!row.original||row.pending||row.original.event.type==="recurring")throw new Error("请打开日程编辑整个周期系列。");await this.execute(async()=>{if(row.recordId){const record=this.controller.state.records.find(r=>r.id===row.recordId)!;const segments=record.segments.map(s=>s.uid===row.segmentUid?{start,end}:{start:s.start,end:s.end});await this.controller.editRecord(record.id,{title:record.title,calendarId:record.calendarId,segments},record);}else{const event=row.original!.event,step=this.bridge.prepareCalendarEvent({title:event.title,start,end,allDay,calendarId:row.calendarId,rrule:String(event.rrule||""),description:event.description,location:String(event.location||"")},row.original);await this.controller.saveEvent(step);}await this.refreshLocal();});},notice:message=>new Notice(message)});}
   async saveSettings() { await this.saveData(this.settings); }
   configureNoteTask(notePath: string): Promise<TaskRef | null> {
     const existing = this.noteChoices.get(notePath); if (existing) return existing;
@@ -391,7 +401,7 @@ export default class CalendarTaskTimer extends Plugin {
     pin:task=>{const pins=focusRefs(this.settings.focusPins),key=refKey(task);this.settings.focusPins=pins.some(p=>refKey(p)===key)?pins.filter(p=>refKey(p)!==key):[...pins,taskRef(task)];this.render();void this.saveSettings().catch(e=>new Notice((e as Error).message));},
     focusLimit:value=>{this.settings.focusLimit=focusLimit(value);this.render();void this.saveSettings().catch(e=>new Notice((e as Error).message));},
     openCompletion:event=>{const task=this.items.find(t=>refKey(t)===refKey(event.task));if(task)this.dialogs.task(task,patch=>this.tasks.update(task,patch),()=>this.removeTask(task));else new Notice("原待办已不存在，完成记录已保留。");},
-    connect: () => { void this.run(async () => { await this.bridge.connect(true); await this.worker?.resume("auth"); await this.refresh(); }); },
+    connect: () => { if(this.engine&&!this.engine.sourceConfigs().length){this.actions().settings();return;}void this.run(async () => { await this.bridge.connect(true); await this.worker?.resume("auth"); await this.refresh(); }); },
     refresh: () => { void this.run(async () => { if (!this.connected) await this.bridge.connect(true); await this.worker?.resume("auth"); this.bridge.refresh(); await this.refresh(); this.later(() => { void this.refresh(true).catch(e => this.fail(e)); }, 1800); this.later(() => { void this.refresh(true).catch(e => this.fail(e)); }, 5000); }); },
     settings: () => { const setting = (this.app as any).setting; setting.open(); setting.openTabById(this.manifest.id); },
     categorySettings: () => this.openCategorySettings(),
@@ -431,7 +441,7 @@ export default class CalendarTaskTimer extends Plugin {
       await fs.writeFile(path.join(backup, "legacy-journal.json"), legacyRaw, { mode: 0o600 });
       await fs.writeFile(path.join(backup, "settings.json"), JSON.stringify({ before: this.settings, imported: imported.settings }, null, 2), { mode: 0o600 });
       await this.sessionStore.save(imported.journal); this.controller.state = imported.journal;
-      this.settings = { ...this.settings, ...imported.settings }; await this.saveSettings(); await this.refresh(); new Notice("旧设置与当前设备记录已导入，请连接 FCR 授权。");
+      this.settings = { ...this.settings, ...imported.settings }; await this.saveSettings(); await this.refresh(); new Notice("旧设置与当前设备记录已导入，请检查日历连接。");
     } finally { this.importing = false; }
   }
 }

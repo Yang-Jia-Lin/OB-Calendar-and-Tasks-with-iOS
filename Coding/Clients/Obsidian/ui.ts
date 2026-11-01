@@ -44,6 +44,7 @@ export class TimerUI {
   private filterSummary: HTMLElement;
   private observer: ResizeObserver;
   private header: HTMLElement;
+  private scroll:HTMLElement;
   private connect: HTMLButtonElement;
   private error: HTMLElement;
   private timer: HTMLElement;
@@ -88,7 +89,8 @@ export class TimerUI {
     toolButton(tools,"刷新",actions.refresh,["M20 7v5h-5","M19.5 12a7.5 7.5 0 1 1-2-5.1L20 9"]);
     toolButton(tools,"设置",actions.settings,["M4 7h5m4 0h7M4 17h9m4 0h3","M13 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]);
     tools.append(this.syncMenu);
-    this.error = el(root, "div", "ctt-error"); this.error.setAttribute("role", "alert"); this.error.hidden = true;
+    this.scroll=el(root,"div","ctt-scroll");
+    this.error = el(this.scroll, "div", "ctt-error"); this.error.setAttribute("role", "alert"); this.error.hidden = true;
     const navigation = el(this.header,"nav","ctt-page-tabs"); this.header.prepend(navigation); navigation.setAttribute("role","tablist"); navigation.setAttribute("aria-label","功能页面");
     const viewId=`ctt-${crypto.randomUUID()}`;
     for (const [id,label] of [["timer","计时"],["tasks","待办"],["calendar","日历"]] as const) {
@@ -97,7 +99,7 @@ export class TimerUI {
       this.pageButtons.set(id,b);
     }
     this.timerBadge=el(this.pageButtons.get("timer")!,"span","ctt-page-timer-badge"); this.timerBadge.setAttribute("aria-hidden","true");
-    for(const id of ["timer","tasks","calendar"] as const){const panel=el(root,"section",`ctt-page ctt-${id}-page`);panel.id=`${viewId}-page-${id}`;panel.setAttribute("role","tabpanel");panel.setAttribute("aria-labelledby",`${viewId}-tab-${id}`);this.pages.set(id,panel);}
+    for(const id of ["timer","tasks","calendar"] as const){const panel=el(this.scroll,"section",`ctt-page ctt-${id}-page`);panel.id=`${viewId}-page-${id}`;panel.setAttribute("role","tabpanel");panel.setAttribute("aria-labelledby",`${viewId}-tab-${id}`);this.pages.set(id,panel);}
     this.timer = el(this.pages.get("timer")!, "section", "ctt-timer"); this.timer.setAttribute("aria-label", "当前计时");
     this.status = el(this.timer, "div", "ctt-status");
     this.title = el(this.timer, "h2", "ctt-current-title");
@@ -110,7 +112,7 @@ export class TimerUI {
     this.pause = button(this.controls, "暂停", () => this.model.active?.runningSince == null ? actions.resume(this.model.active?.id || "") : actions.pause(this.model.active?.id || ""));
     button(this.controls, "结束并完成", () => actions.finish(true, this.model.active?.id || ""), "ctt-primary"); button(this.controls, "只记时间", () => actions.finish(false, this.model.active?.id || ""), "ctt-quiet");
     const body = el(this.pages.get("tasks")!, "div", "ctt-body");
-    const timeline = el(body, "section", "ctt-panel ctt-timeline");
+    const timeline = el(this.pages.get("timer")!, "section", "ctt-panel ctt-timeline");
     const top = el(timeline, "div", "ctt-panel-heading"); el(top, "h3", "", "执行记录");
     const timelineTools = el(top, "div", "ctt-timeline-tools");
     const nav = el(timelineTools, "div", "ctt-date-nav"); button(nav, "‹", () => actions.date(shiftDate(this.model.date, -1)), "ctt-icon", "前一天");
@@ -144,14 +146,14 @@ export class TimerUI {
     }); this.observer.observe(root);
   }
   selectPage(page: AppPage, remember = true) {
-    this.pageScroll[this.page]=this.root.scrollTop; this.page=page; this.root.dataset.page=page;
+    this.pageScroll[this.page]=this.scroll.scrollTop; this.page=page; this.root.dataset.page=page;
     for(const [id,panel] of this.pages) {panel.hidden=id!==page;const b=this.pageButtons.get(id)!;b.setAttribute("aria-selected",String(id===page));b.tabIndex=id===page?0:-1;}
-    if(this.model){if(page==="tasks"){this.renderTasks();this.renderRows();}else if(page==="calendar"){if(!this.calendar)this.calendar=this.actions.mountCalendar?.(this.pages.get("calendar")!);this.calendar?.activate();}this.tick();}
-    this.root.scrollTop=this.pageScroll[page]; if(remember)this.actions.page?.(page);
+    if(this.model){if(page==="tasks"){this.renderTasks();}else if(page==="timer"){this.renderRows();}else if(page==="calendar"){if(!this.calendar)this.calendar=this.actions.mountCalendar?.(this.pages.get("calendar")!);this.calendar?.activate();}this.tick();}
+    this.scroll.scrollTop=this.pageScroll[page]; if(remember)this.actions.page?.(page);
   }
   update(m: ViewModel) {
     const old = this.model; this.model = m;
-    if(!old)this.selectPage(appPage(m.appPage),false);
+    if(!old){this.renderRows();this.selectPage(appPage(m.appPage),false);}
     applyAppearance(this.root, m.appearance);
     this.root.classList.toggle("ctt-active", !!m.active); this.root.classList.toggle("ctt-paused", !!m.active && m.active.runningSince == null);
     this.root.setAttribute("aria-busy", String(m.busy)); this.connect.hidden = m.connected;
@@ -165,7 +167,7 @@ export class TimerUI {
     options(this.newCategory, m.calendars, (!old || !draft || (old.defaultCalendarId !== m.defaultCalendarId && !this.taskTitle.value)) ? (this.filter || m.defaultCalendarId) : draft);
     if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m.date;
     if (JSON.stringify(old?.calendars) !== JSON.stringify(m.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m.categoryPreferences)) this.renderTabs();
-    if(this.page==="tasks"){this.renderTasks();this.renderRows();}else if(this.page==="calendar")this.calendar?.activate();
+    if(this.page==="tasks"){this.renderTasks();}else if(this.page==="timer"){this.renderRows();}else if(this.page==="calendar")this.calendar?.activate();
     this.syncMenu.hidden = !m.pending.length && !m.sync?.error;
     this.syncSummary.textContent = `${m.sync?.activeKey ? "↻" : m.pending.some(p => p.error) || m.sync?.error ? "!" : "↑"} ${m.pending.length}`;
     this.syncSummary.setAttribute("aria-label", `同步状态（${m.pending.length} 条待同步）`);

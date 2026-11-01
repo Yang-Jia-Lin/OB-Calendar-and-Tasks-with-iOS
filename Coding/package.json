@@ -1,6 +1,6 @@
 {
   "name": "calendar-task-timer-workspace",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "private": true,
   "scripts": {
     "check": "tsc --noEmit",
@@ -8,7 +8,7 @@
     "release": "pwsh -NoProfile -File Build/release.ps1",
     "test": "node Build/test.mjs",
     "preview": "node Preview/server.mjs",
-    "test:ui": "node Tests/ui.mjs && node Tests/native-toggle-ui.mjs && node Tests/diary-ui.mjs && node Tests/task-link-ui.mjs && node Tests/note-task-ui.mjs"
+    "test:ui": "node Tests/ui.mjs && node Tests/native-toggle-ui.mjs && node Tests/diary-ui.mjs && node Tests/task-link-ui.mjs && node Tests/note-task-ui.mjs && node Tests/calendar-ui.mjs"
   },
   "devDependencies": {
     "@types/node": "25.9.9",
@@ -16,5 +16,11 @@
     "obsidian": "1.14.4",
     "playwright": "1.56.1",
     "typescript": "6.0.3"
+  },
+  "dependencies": {
+    "fast-xml-parser": "5.11.2",
+    "fullcalendar": "7.1.3",
+    "ical.js": "2.2.1",
+    "temporal-polyfill": "1.0.1"
   }
 }

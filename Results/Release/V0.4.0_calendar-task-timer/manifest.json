@@ -1,0 +1,9 @@
+{
+  "id": "calendar-task-timer",
+  "name": "日历与待办计时",
+  "version": "0.4.0",
+  "minAppVersion": "1.12.7",
+  "description": "计时、待办与独立 CalDAV 日历，共享工时和后台同步。",
+  "author": "Personal tools",
+  "isDesktopOnly": true
+}

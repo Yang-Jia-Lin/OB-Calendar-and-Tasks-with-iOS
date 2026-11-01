@@ -1,0 +1,35 @@
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
+const browser=await chromium.launch({executablePath:process.env.CTT_CHROME||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
+const page=await browser.newPage({viewport:{width:1280,height:850},timezoneId:'Asia/Shanghai'}),checks=[],errors=[];
+page.on('pageerror',e=>errors.push(e.message));const check=(name,value)=>{assert.ok(value,name);checks.push(name);};
+const tab=name=>page.getByRole('tab',{name,exact:true});
+try{
+ await page.goto('http://127.0.0.1:4173');await page.waitForSelector('.ctt-task-row');
+ check('Tasks page has no execution-history panel',await page.locator('.ctt-tasks-page .ctt-timeline').count()===0);
+ await tab('计时').click();check('Execution history follows the immersive timer',await page.locator('.ctt-timer-page').evaluate(e=>{const t=e.querySelector('.ctt-timer'),h=e.querySelector('.ctt-timeline');return t.nextElementSibling===h&&h.getBoundingClientRect().top>=t.getBoundingClientRect().bottom;}));
+ await tab('日历').click();await page.waitForSelector('.ctt-calendar-engine[data-view="dayGridMonth"]');
+ check('Owned FullCalendar is rendered without an FCR placeholder',await page.locator('.ctt-calendar-engine .ctt-calendar-day').count()>28&&!await page.locator('.ctt-calendar-page').textContent().then(t=>t.includes('FCR')));
+ const top=await page.locator('.ctt-header').evaluate(e=>e.getBoundingClientRect().top);await page.locator('.ctt-scroll').evaluate(e=>e.scrollTop=400);
+ check('Navigation remains at the top outside the content scroll region',await page.locator('.ctt-header').evaluate((e,y)=>Math.abs(e.getBoundingClientRect().top-y)<1&&!e.closest('.ctt-scroll'),top));
+ check('Navigation has no leading blank block',await page.locator('.ctt-shell').evaluate(e=>Math.abs(e.getBoundingClientRect().top-e.querySelector('.ctt-header').getBoundingClientRect().top)<1));
+ await page.locator('.ctt-scroll').evaluate(e=>e.scrollTop=0);
+ await page.locator('.ctt-calendar-engine button').filter({hasText:/^周$/}).click();await page.waitForSelector('.ctt-calendar-engine[data-view="timeGridWeek"]');check('Owned calendar switches to week view',await page.locator('.ctt-calendar-engine[data-view="timeGridWeek"]').isVisible());
+ await page.locator('.ctt-calendar-engine button').filter({hasText:/^日$/}).click();await page.waitForSelector('.ctt-calendar-engine[data-view="timeGridDay"]');check('Owned calendar switches to day view',await page.locator('.ctt-calendar-engine[data-view="timeGridDay"]').isVisible());
+ await page.locator('.ctt-calendar-engine button').filter({hasText:/^列表$/}).click();await page.waitForSelector('.ctt-calendar-engine[data-view="listWeek"]');check('Owned calendar switches to list view',await page.locator('.ctt-calendar-engine[data-view="listWeek"]').isVisible());
+ await page.locator('.ctt-calendar-engine button').filter({hasText:/^月$/}).click();
+ await page.getByRole('button',{name:'新建日程',exact:true}).click();await page.locator('dialog input[aria-label="标题"]').fill('独立全天测试');await page.getByLabel('全天',{exact:true}).check();await page.getByLabel('开始',{exact:true}).fill('2026-11-02');await page.getByLabel('结束',{exact:true}).fill('2026-11-03');await page.locator('dialog button[type=submit]').click();await page.waitForFunction(()=>window.__preview.entries().some(e=>e.event.title==='独立全天测试'));
+ check('All-day creation uses the shared durable controller and keeps its exclusive end',await page.evaluate(()=>{const e=window.__preview.entries().find(e=>e.event.title==='独立全天测试').event;return e.allDay&&e.date==='2026-11-02'&&e.endDate==='2026-11-03';}));
+ await page.locator('.ctt-calendar-event').filter({hasText:'独立全天测试'}).first().click();await page.getByLabel('标题',{exact:true}).fill('独立全天已编辑');await page.locator('dialog button[type=submit]').click();await page.waitForFunction(()=>window.__preview.entries().some(e=>e.event.title==='独立全天已编辑'));
+ check('Event clicks open the owned editing form',await page.locator('.ctt-calendar-event').filter({hasText:'独立全天已编辑'}).count()>0);
+ await page.locator('.ctt-calendar-event').filter({hasText:'独立全天已编辑'}).first().click();await page.getByRole('button',{name:'删除日历内容',exact:true}).click();check('Calendar deletion requires explicit confirmation',await page.getByRole('button',{name:'确认删除',exact:true}).isVisible());await page.getByRole('button',{name:'确认删除',exact:true}).click();await page.waitForFunction(()=>!window.__preview.entries().some(e=>e.event.title==='独立全天已编辑'));
+ await page.getByRole('button',{name:'新建日程',exact:true}).click();await page.getByLabel('标题',{exact:true}).fill('独立周期测试');await page.getByLabel('开始',{exact:true}).fill('2026-11-02T09:00');await page.getByLabel('结束',{exact:true}).fill('2026-11-02T10:00');await page.getByLabel('重复规则').selectOption('FREQ=DAILY');await page.locator('dialog button[type=submit]').click();await page.waitForFunction(()=>window.__preview.entries().some(e=>e.event.title==='独立周期测试'));
+ check('Recurring events retain wall-clock timezone and render multiple instances',await page.evaluate(()=>window.__preview.entries().find(e=>e.event.title==='独立周期测试').event.timezone==='Asia/Shanghai')&&await page.locator('.ctt-calendar-event').filter({hasText:'独立周期测试'}).count()>5);
+ await page.locator('.ctt-calendar-sources summary').click();await page.getByLabel('显示日历 科研',{exact:true}).uncheck();check('Calendar visibility filters hide events without deleting data',await page.locator('.ctt-calendar-event').filter({hasText:'独立周期测试'}).count()===0&&await page.evaluate(()=>window.__preview.entries().some(e=>e.event.title==='独立周期测试')));await page.getByLabel('显示日历 科研',{exact:true}).check();await page.locator('.ctt-calendar-sources summary').click();
+ await page.locator('#offline').check();check('Offline calendar keeps the last valid events visible',await page.locator('.ctt-calendar-event').filter({hasText:'独立周期测试'}).count()>5);await page.locator('#offline').uncheck();
+ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(150);check('Owned calendar fits a narrow pane',await page.locator('.ctt-shell').evaluate(e=>e.scrollWidth<=e.clientWidth+1));await page.screenshot({path:'../Agents/Tests/Visuals/40-calendar-narrow.png'});
+ await page.locator('#theme').check();await page.screenshot({path:'../Agents/Tests/Visuals/41-calendar-dark.png'});await tab('计时').click();await page.screenshot({path:'../Agents/Tests/Visuals/42-timer-history.png'});
+ const mounts=await page.evaluate(()=>window.__preview.calendarStats().mounts);for(let i=0;i<5;i++){await tab('待办').click();await tab('日历').click();}check('Owned calendar is reused across tab switches',await page.evaluate(()=>window.__preview.calendarStats().mounts)===mounts);
+ check('No owned-calendar browser errors',errors.length===0);await writeFile('../Agents/Tests/calendar-ui.json',JSON.stringify({passed:checks.length,checks,errors},null,2));console.log(`Owned calendar UI: ${checks.length} checks passed`);
+}finally{await browser.close();}

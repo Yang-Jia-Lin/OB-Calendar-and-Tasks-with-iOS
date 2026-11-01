@@ -54,6 +54,7 @@ export interface CalendarPort {
 }
 export interface TaskPort { complete(task: Task): Promise<void> }
 export interface TimelineRow {
+  recurrenceId?:string; seriesStart?:number; seriesEnd?:number;
   key: string; title: string; calendarId: string; color?: string;
   start: number; end: number; allDay?: boolean; original?: Entry;
   recordId?: string; segmentUid?: string; deletionId?: string; pending?: boolean; deleting?: boolean; error?: string; unsupported?: boolean;
