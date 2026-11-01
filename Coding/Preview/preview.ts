@@ -73,14 +73,17 @@ const host: DialogHost = { notice, open: (title, render) => { const restore = do
 const dialogs = new Dialogs(host, controller, bridge, () => calendars, () => defaultCalendarId, async () => { write(); render(); }, id => worker!.retry(`delete:${id}`));
 async function execute<T>(fn: () => Promise<T>): Promise<T> { if (busy) throw new Error("请稍后重试"); busy = true; error = ""; render(); try { return await fn(); } finally { busy = false; render(); } }
 async function run(fn: () => Promise<unknown>) { try { await execute(fn); return true; } catch (e) { error = (e as Error).message; render(); return false; } }
-timerApi = new TimerApi({ controller, execute, resolve: async ref => {
-  const found = tasks.find(t => t.id === ref.id && t.path === ref.path); if (!found) throw new Error("任务不存在"); return clone(found);
+const taskSeeds = new Map(tasks.map(t=>[t.id,clone(t)]));
+timerApi = new TimerApi({ controller, execute, resolve: async (ref,context) => {
+  let found = tasks.find(t => t.id === ref.id && t.path === ref.path);
+  if(context?.source==="components" && ["research.md","reading.md"].includes(context.path || "")){if(controller.state.active&&controller.state.active.task.id!==ref.id)throw new Error("请先结束当前计时");if(!found){const seed=taskSeeds.get(ref.id);if(!seed)throw new Error("绑定已失效");found={...seed,completed:false};tasks.push(found);}else if(found.completed)completeTask(found,false);write();render();}
+  if (!found) throw new Error("任务不存在"); return clone(found);
 }, prepare: async task => { bridge.assertWritable(task.calendarId || defaultCalendarId); return { ...task, calendarId: task.calendarId || defaultCalendarId }; },
   refresh: async () => { write(); render(); }, state: () => ({ available: true, active: controller.state.active, tasks, pending: controller.jobs().length, sync: worker?.view }) });
 const showResult = async (result: ReturnType<TimerApi["start"]>) => { const r = await result; if (!r.ok) { error = r.message; notice(r.message); render(); } };
 function model(): ViewModel { const state = controller.state;
   return { connected: true, busy, error, sources: calendars, calendars, defaultCalendarId, active: state.active, tasks, date, appearance: typography, categoryPreferences: categories, taskSort: sortMode,
-    rows: mergeTimeline(bridge.timeline(date), state.records, date, state.operations, state.deletions), pending: pendingView(state, worker?.view), sync: worker?.view,appPage:page,focusPins:pins,focusLimit:candidateLimit,linkedTasks:[taskRef(tasks.find(t=>t.id==='t1')!)],completions };
+    rows: mergeTimeline(bridge.timeline(date), state.records, date, state.operations, state.deletions), pending: pendingView(state, worker?.view), sync: worker?.view,appPage:page,focusPins:pins,focusLimit:candidateLimit,linkedTasks:[{kind:"local",path:"preview-tasks.md",id:"t1"}],completions };
 }
 function render() { timerApi?.notify(); ui?.update(model()); updateStatus(document.querySelector<HTMLElement>("#preview-status")!, controller.state.active, tasks, sortMode); }
 const actions: Actions = {
@@ -103,7 +106,7 @@ const actions: Actions = {
   reorderTasks: (next, expected) => run(async () => { if (sortMode !== "manual") throw new Error("请先切换手动排序。"); const before = tasks; tasks = reorderTaskSlots(tasks, next, expected); try { write(); } catch (e) { tasks = before; throw e; } }),
   add: (title, due, calendarId) => run(async () => { if (!title.trim()) throw new Error("请填写名称。"); bridge.assertWritable(calendarId); tasks.push({ id: uid(), path: "preview-tasks.md", title, due, calendarId, completed: false, kind: "local" }); write(); }),
   start: task => { void showResult(timerApi!.start(taskRef(task), { source: "view" })); },
-  complete: task => { completeTask(task,!task.completed); write(); render(); }, editTask: task => dialogs.task(task, async patch => { Object.assign(task, patch); write(); }),
+  complete: task => { completeTask(task,!task.completed); write(); render(); }, editTask: task => dialogs.task(task, async patch => { Object.assign(task, patch); write(); },async()=>{if(controller.state.active?.task.id===task.id)throw new Error("请先结束这项任务的计时，再删除待办。");taskSeeds.set(task.id,clone(task));tasks=tasks.filter(t=>t.id!==task.id);write();}),
   pause: id => { void showResult(timerApi!.pause(id || "")); }, resume: id => { void showResult(timerApi!.resume(id || "")); }, finish: (complete, id) => { void showResult(timerApi!.finish(id || "", complete)); },
   editStart: () => dialogs.start(), category: id => { void run(() => controller.updateActive({ calendarId: id })); },
   newEvent: () => dialogs.event(date), editRow: row => { if (row.deleting && row.deletionId) { dialogs.deletion(row.deletionId); return; } if (row.pending && !row.recordId) { notice(row.error || "请先重试待同步操作。"); return; } if (row.recordId) dialogs.record(controller.state.records.find(r => r.id === row.recordId)!, row.segmentUid); else dialogs.event(date, row); },

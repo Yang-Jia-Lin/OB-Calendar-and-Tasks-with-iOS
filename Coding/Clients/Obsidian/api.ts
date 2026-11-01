@@ -26,7 +26,7 @@ export class TimerApi {
   private disposed = false;
   constructor(private host: {
     controller: TimerController;
-    resolve(ref: TaskRef): Promise<Task>;
+    resolve(ref: TaskRef, context?: EntryContext): Promise<Task>;
     prepare(task: Task): Promise<Task>;
     execute<T>(action: () => Promise<T>): Promise<T>;
     state(): TimerState;
@@ -59,9 +59,9 @@ export class TimerApi {
     });
     this.serial = result; return result;
   }
-  start(ref: TaskRef, _context?: EntryContext) { return this.action(async () => {
+  start(ref: TaskRef, context?: EntryContext) { return this.action(async () => {
     if (!ref || ref.kind !== "local" || !ref.id || !ref.path) throw new EntryError("invalid-task", "请提供待办文件路径和稳定任务 ID。");
-    const current = await this.host.resolve(ref);
+    const current = await this.host.resolve(ref,context);
     if (current.completed) throw new EntryError("invalid-task", "此任务已完成，请选择未完成任务。");
     const active = this.host.controller.state.active;
     if (active) {

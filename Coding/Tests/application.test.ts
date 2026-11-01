@@ -1,12 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ApplicationState, filterTasks, focusTasks, focusRefs, refKey, defaultFilters } from "../Shared/application";
-import { parseTasks, parseCompletions, setTaskCompletionText, taskLine, updateTaskText } from "../Clients/Obsidian/tasks";
+import { parseTasks, parseCompletions, setTaskCompletionText, taskLine, updateTaskText, removeTaskText, restoreBoundTaskText } from "../Clients/Obsidian/tasks";
 import { TimerController, validateJournal } from "../Shared/timer";
 import { TimerApi } from "../Clients/Obsidian/api";
 import type { Task } from "../Shared/contracts";
 const path="tasks.md", text="# Tasks\r\n\r\n"+taskLine("原任务","2026-11-01","one","research").replaceAll("\n","\r\n")+"\r\n\r\n保留笔记正文。\r\n";
 const task=()=>parseTasks(text,path)[0];
+test("deleting a task preserves notes, completion history and other stable tasks",()=>{
+  const completed=setTaskCompletionText(text+taskLine("Other","","two","work")+"\r\n",task(),true,1234,()=>"done"),current=parseTasks(completed,path).find(t=>t.id==="one")!;
+  const removed=removeTaskText(completed,current);assert.deepEqual(parseTasks(removed,path).map(t=>t.id),["two"]);assert.equal(parseCompletions(removed).length,1);assert.ok(removed.includes("保留笔记正文。"));
+  assert.throws(()=>removeTaskText(completed,task()),/其他位置修改/);
+});
+test("a bound task is recreated by exact reference and repeated restoration is idempotent",()=>{
+  const ref={kind:"local" as const,path,id:"one"},seed={title:"原任务",due:"2026-11-01",calendarId:"research"};
+  const removed=removeTaskText(text,task()),restored=restoreBoundTaskText(removed,ref,seed);
+  assert.equal(parseTasks(restored,path)[0].id,"one");assert.equal(parseTasks(restored,path)[0].title,"原任务");assert.equal(restoreBoundTaskText(restored,ref,seed),restored);
+  assert.throws(()=>restoreBoundTaskText(removed,ref,seed,()=>{throw Error("readonly");}),/readonly/);
+  assert.throws(()=>restoreBoundTaskText(text+taskLine("Duplicate","","one"),ref,seed),/重复/);
+});
+test("starting an already completed bound task reopens it without fabricating another completion",()=>{
+  const completed=setTaskCompletionText(text,task(),true,1234,()=>"done"),ref={kind:"local" as const,path,id:"one"};
+  const opened=restoreBoundTaskText(completed,ref,{title:"ignored",calendarId:"work"});assert.equal(parseTasks(opened,path)[0].completed,false);assert.equal(parseTasks(opened,path)[0].calendarId,"research");assert.equal(parseCompletions(opened).length,1);
+});
 test("completion flag and accurate event are produced by the same atomic text update",()=>{
   const updated=setTaskCompletionText(text,task(),true,1234,()=>"event-one");assert.equal(parseTasks(updated,path)[0].completed,true);const events=parseCompletions(updated);assert.equal(events.length,1);assert.deepEqual(events[0],{id:"event-one",task:{kind:"local",path,id:"one"},title:"原任务",calendarId:"research",completedAt:1234});assert.ok(updated.includes("保留笔记正文。\r\n"));assert.ok(!updated.replaceAll("\r\n","").includes("\n"));
 });

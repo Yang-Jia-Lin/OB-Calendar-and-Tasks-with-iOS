@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import Module from "node:module";
 import { FcrBridge, type FcrApi } from "../Providers/Fcr/bridge";
 import { TimerController, blankJournal } from "../Shared/timer";
+import { MarkdownTasks, taskLine, parseTasks, setTaskCompletionText, parseCompletions } from "../Clients/Obsidian/tasks";
 
 function connection(saved: string | null = null) {
   let token = saved, requests = 0, refreshes = 0, opens = 0;
@@ -118,8 +119,8 @@ test("native card entry starts its configured task through the same host API wit
   h.getScoped().getCalendarSources = () => [{ id: "research", name: "科研", type: "caldav" }];
   h.getScoped().getProviderCapabilities = () => ({ canCreate: true });
   const task = { id: "task", path: "tasks.md", title: "Existing", kind: "local" as const, completed: false, calendarId: "research" };
-  p.app = { vault: { getAbstractFileByPath: (path: string) => ({ path, extension: "md" }) }, plugins: { getPlugin: () => null } };
-  p.tasks = { resolve: async () => ({ ...task }) };
+  p.app = { vault: { getAbstractFileByPath: (path: string) => ({ path, name: path, extension: "md" }) }, plugins: { getPlugin: () => null } };
+  p.tasks = { resolve: async () => ({ ...task }), restoreBound: async () => ({...task}), list:async()=>[task],completions:async()=>[] };
   p.settings.componentTaskBindings = { "research.md": { kind: "local", path: "tasks.md", id: "task" } };
   p.controller = new TimerController({ background: true, calendar: h.bridge, persist: async () => {}, tasks: { complete: async () => {} } });
   p.initializeApi(); p.openView = () => { throw new Error("must stay on Home"); };
@@ -130,6 +131,22 @@ test("cancelling a native button task choice starts no timer and raises no error
   const p = pluginHarness(connection()); p.app = { vault: { getAbstractFileByPath: () => ({ extension: "md" }) } };
   p.configureNoteTask = async () => null;
   const result = await p.startFromNote("research.md"); assert.equal(result.code, "cancelled"); assert.equal(p.error, "");
+});
+test("real card entry reopens completed tasks, recreates deleted bindings and rejects a competing session",async()=>{
+  const h=connection("old"),p=pluginHarness(h);await h.bridge.connect();
+  h.getScoped().getCalendarSources=()=>[{id:"research",name:"科研",type:"caldav"}];h.getScoped().getProviderCapabilities=()=>({canCreate:true});
+  let text=taskLine("Original","","task","research"),now=Date.now();text=setTaskCompletionText(text,parseTasks(text,"tasks.md")[0],true,now,()=>"done");
+  const file={path:"tasks.md",name:"tasks.md",extension:"md"};p.app={vault:{getAbstractFileByPath:(path:string)=>({...file,path,name:path}),read:async()=>text,process:async(_file:unknown,fn:(text:string)=>string)=>{text=fn(text);}},plugins:{getPlugin:()=>null}};
+  p.settings.tasksPath="tasks.md";p.settings.defaultCalendarId="research";p.settings.componentTaskBindings={"research.md":{kind:"local",path:"tasks.md",id:"task"}};p.settings.componentTaskSnapshots={"research.md":{title:"Original",calendarId:"research",due:""}};
+  p.tasks=new MarkdownTasks(p.app,()=>"tasks.md");p.controller=new TimerController({background:true,calendar:h.bridge,persist:async()=>{},tasks:{complete:async()=>{}},now:()=>now});p.initializeApi();
+  assert.equal((await p.startFromNote("research.md")).ok,true);assert.equal(parseTasks(text,"tasks.md")[0].completed,false);assert.equal(parseCompletions(text).length,1);
+  await assert.rejects(p.removeTask(parseTasks(text,"tasks.md")[0]),/先结束/);assert.equal(parseTasks(text,"tasks.md").length,1);
+  now+=1000;await p.controller.finish(false);await p.tasks.remove(parseTasks(text,"tasks.md")[0]);
+  assert.equal((await p.startFromNote("research.md")).ok,true);assert.equal(parseTasks(text,"tasks.md")[0].id,"task");assert.equal(parseTasks(text,"tasks.md")[0].title,"Original");assert.equal(parseCompletions(text).length,1);
+  now+=1000;await p.controller.finish(false);await p.tasks.remove(parseTasks(text,"tasks.md")[0]);await p.controller.start({id:"other",path:"tasks.md",kind:"local",title:"Other",completed:false,calendarId:"research"},"research");
+  assert.equal((await p.startFromNote("research.md")).ok,false);assert.equal(parseTasks(text,"tasks.md").length,0);
+  now+=1000;await p.controller.finish(false);p.controller.state.records[0].completeTask=true;p.controller.state.records[0].taskSaved=false;
+  const pending=await p.startFromNote("research.md");assert.equal(pending.ok,false);assert.match(pending.message,/完成状态待确认/);assert.equal(parseTasks(text,"tasks.md").length,0);
 });
 
 test("rapid native toggle invocations share one flight instead of starting then immediately ending", async () => {

@@ -62,12 +62,12 @@ export class Dialogs {
       button(controls, "关闭", close);
     });
   }
-  task(task: Task, save: (draft: Partial<Task>) => Promise<void>) {
+  task(task: Task, save: (draft: Partial<Task>) => Promise<void>, remove?: () => Promise<void>) {
     const expected = clone(task);
     this.form("编辑待办", form => {
       const title = field(form, "标题", "text", expected.title); title.required = true;
       const category = this.category(form, expected.calendarId || this.defaultCategory()); const due = field(form, "日期", "date", expected.due || "");
-      return async () => { this.bridge.assertWritable(category.value); await save({ title: title.value, calendarId: category.value, due: due.value }); };
+      return {save:async () => { this.bridge.assertWritable(category.value); await save({ title: title.value, calendarId: category.value, due: due.value }); },remove:remove?{label:"删除待办",message:"删除这项待办？已有工时和完成记录会保留；关联的课题卡片下次开始时会重建此待办。",run:remove}:undefined};
     });
   }
   start() {

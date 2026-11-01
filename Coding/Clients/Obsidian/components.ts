@@ -1,4 +1,9 @@
 import { sameTask, type ActionResult, type TaskRef, type TimerState } from "./api";
+import type { TaskSeed } from "./journal";
+export function componentTaskSnapshots(value: unknown): Record<string,TaskSeed> {
+  if(!value||typeof value!=="object"||Array.isArray(value))return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([note,v])=>{const s=v as TaskSeed;return note.endsWith(".md")&&s&&typeof s.title==="string"&&s.title.trim()&&typeof s.calendarId==="string"&&(!s.due||typeof s.due==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(s.due))?[[note,{title:s.title,due:s.due||"",calendarId:s.calendarId}]]:[];}));
+}
 
 /** Expected identity is captured when the native button is painted/clicked, before async work. */
 export async function toggleNoteTimer(note: string, expected: string | null | undefined, host: {

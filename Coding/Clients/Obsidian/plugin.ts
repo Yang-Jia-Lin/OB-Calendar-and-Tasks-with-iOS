@@ -16,8 +16,8 @@ import { categoryPreferences, renderCategorySettings, type CategoryPreferences }
 import { taskSort, TASK_SORT_LABELS, type TaskSort } from "./taskOrder";
 import { SyncWorker } from "../../Shared/sync";
 import { pendingView, syncKey } from "./syncStatus";
-import { TimerApi, taskRef, type ActionResult, type TaskRef } from "./api";
-import { componentTaskBindings, nativeTimerLabels, toggleNoteTimer } from "./components";
+import { TimerApi, taskRef, sameTask, type ActionResult, type TaskRef } from "./api";
+import { componentTaskBindings, componentTaskSnapshots, nativeTimerLabels, toggleNoteTimer } from "./components";
 import { ComponentsTimerButtons, type NativeButtonScope } from "./componentsButtons";
 import { DiaryUpdater, diaryDate, diaryPath, DEFAULT_DIARY_FOLDER, DEFAULT_DIARY_LAYOUT, DEFAULT_DIARY_LAYOUT_PATH } from "./diary";
 import { mountDiaryButton } from "./diaryButton";
@@ -81,8 +81,6 @@ class TimerSettings extends PluginSettingTab {
     renderCategorySettings(categoryRoot, calendars, p.settings, next => p.saveCategoryPreferences(next));
     new Setting(root).setName("待办显示顺序").setDesc("手动模式可拖动任务左侧手柄，或用 Alt + ↑ / ↓ 排序。")
       .addDropdown(d => d.addOptions(TASK_SORT_LABELS).setValue(taskSort(p.settings.taskSort)).onChange(value => { void p.run(() => p.saveTaskSort(taskSort(value))); }));
-    new Setting(root).setName("计时页重要待办数量").setDesc("置顶优先，再补充今天截止的未完成任务。")
-      .addSlider(s=>s.setLimits(1,10,1).setValue(focusLimit(p.settings.focusLimit)).setDynamicTooltip().onChange(value=>{p.settings.focusLimit=focusLimit(value);p.render();void p.saveSettings().catch(e=>new Notice((e as Error).message));}));
     new Setting(root).setName("页面字号").setDesc("计时、待办和时间轴一起调整。")
       .addSlider(s => s.setLimits(13, 20, 1).setValue(appearance(p.settings).fontSize).setDynamicTooltip().onChange(async value => { p.settings.fontSize = value; p.render(); await p.saveSettings(); }));
     new Setting(root).setName("页面字重").addDropdown(d => d.addOptions({ "400": "常规", "500": "适中", "600": "加粗" }).setValue(String(appearance(p.settings).fontWeight)).onChange(async value => { p.settings.fontWeight = Number(value); p.render(); await p.saveSettings(); }));
@@ -134,6 +132,7 @@ export default class CalendarTaskTimer extends Plugin {
     Object.assign(this.settings, categoryPreferences(data));
     this.settings.taskSort = taskSort(data.taskSort);
     this.settings.componentTaskBindings = componentTaskBindings(data.componentTaskBindings);
+    this.settings.componentTaskSnapshots = componentTaskSnapshots(data.componentTaskSnapshots);
     this.settings.appPage=appPage(data.appPage);this.settings.focusPins=focusRefs(data.focusPins);this.settings.focusLimit=focusLimit(data.focusLimit);
     for (const [key, fallback] of [["diaryFolder", DEFAULT_DIARY_FOLDER], ["diaryLayoutPath", DEFAULT_DIARY_LAYOUT_PATH]] as const) {
       try { this.settings[key] = diaryPath(data[key], fallback); } catch { this.settings[key] = fallback; }
@@ -237,7 +236,19 @@ export default class CalendarTaskTimer extends Plugin {
     if (!this.unloaded && revision === this.componentRevision) this.componentButtons?.setScopes(scopes);
   }
   private initializeApi() {
-    this.api = new TimerApi({ controller: this.controller, resolve: ref => this.tasks.resolve(ref),
+    this.api = new TimerApi({ controller: this.controller, resolve: async (ref,context) => {
+      if(context?.source!=="components")return this.tasks.resolve(ref);
+      const note=context.path || "",binding=componentTaskBindings(this.settings.componentTaskBindings)[note],file=this.app.vault.getAbstractFileByPath(note);
+      if(!binding||refKey(binding)!==refKey(ref)||!file||!("extension" in file)||file.extension!=="md")throw new Error("课题绑定无效，请重新选择任务。");
+      const active=this.controller.state.active;
+      if(active){if(sameTask(active.task,ref))return active.task;throw new Error("请先结束当前计时，再开始另一个课题。");}
+      if(this.controller.state.records.some(r=>r.completeTask&&!r.taskSaved&&sameTask(r.task,ref)))throw new Error("此任务还有完成状态待确认，请先处理同步队列。");
+      if((this.app as any).plugins?.getPlugin?.("simple-task-timer")?.controller?.state?.active)throw new Error("旧插件仍在计时，请先结束旧版会话。");
+      if(!this.connected)throw new Error("请先连接日历。");
+      const seed=componentTaskSnapshots(this.settings.componentTaskSnapshots)[note] || this.items.find(t=>sameTask(t,ref)) || {title:file.name.replace(/\.md$/i,""),calendarId:this.settings.defaultCalendarId,due:""};
+      const task=await this.tasks.restoreBound(ref,seed,current=>this.bridge.assertWritable(current.calendarId || this.settings.defaultCalendarId));
+      await this.refreshLocal();return task;
+    },
       prepare: async task => {
         if ((this.app as any).plugins?.getPlugin?.("simple-task-timer")?.controller?.state?.active) throw new Error("旧插件仍在计时，请先结束旧版会话。");
         const category = task.calendarId || this.settings.defaultCalendarId; this.bridge.assertWritable(category);
@@ -264,9 +275,10 @@ export default class CalendarTaskTimer extends Plugin {
       this.register(() => modal.close()); modal.open();
     });
     if (!selected || this.unloaded) return null;
-    const before = componentTaskBindings(this.settings.componentTaskBindings), next = { ...before, [notePath]: selected };
+    const before = componentTaskBindings(this.settings.componentTaskBindings), beforeSnapshots=componentTaskSnapshots(this.settings.componentTaskSnapshots), next = { ...before, [notePath]: selected };
     this.settings.componentTaskBindings = next;
-    try { await this.saveSettings(); } catch (e) { if (this.settings.componentTaskBindings === next) this.settings.componentTaskBindings = before; throw e; }
+    const task=tasks.find(t=>sameTask(t,selected));if(task)this.settings.componentTaskSnapshots={...componentTaskSnapshots(this.settings.componentTaskSnapshots),[notePath]:{title:task.title,due:task.due||"",calendarId:task.calendarId||this.settings.defaultCalendarId}};
+    try { await this.saveSettings(); } catch (e) { if (this.settings.componentTaskBindings === next) {this.settings.componentTaskBindings = before;this.settings.componentTaskSnapshots=beforeSnapshots;} throw e; }
     return selected;
   }
   async startFromNote(notePath: string, chooseTask = false, notify = true): Promise<ActionResult> {
@@ -279,6 +291,15 @@ export default class CalendarTaskTimer extends Plugin {
       result = ref ? await this.api.start(ref, { source: "components", path: notePath }) : { ok: false, code: "cancelled", message: "已取消选择任务。" };
     } catch (e) { result = { ok: false, code: "action-error", message: (e as Error).message }; }
     if (notify) await this.showResult(Promise.resolve(result)); return result;
+  }
+  private async removeTask(task: Task) {
+    await this.execute(async()=>{
+      if(this.controller.state.active && sameTask(this.controller.state.active.task,taskRef(task)))throw new Error("请先结束这项任务的计时，再删除待办。");
+      if(this.controller.state.records.some(r=>r.completeTask&&!r.taskSaved&&sameTask(r.task,taskRef(task))))throw new Error("此任务还有完成状态待确认，请先处理同步队列。");
+      const snapshots=componentTaskSnapshots(this.settings.componentTaskSnapshots);
+      for(const [note,ref] of Object.entries(componentTaskBindings(this.settings.componentTaskBindings)))if(sameTask(task,ref))snapshots[note]={title:task.title,due:task.due||"",calendarId:task.calendarId||this.settings.defaultCalendarId};
+      this.settings.componentTaskSnapshots=snapshots;await this.saveSettings();await this.tasks.remove(task);await this.refreshLocal();
+    });
   }
   toggleFromNote(notePath: string, chooseTask = false, expectedSession?: string | null): Promise<ActionResult> {
     if (this.unloaded) return Promise.resolve({ ok: false, code: "unavailable", message: "计时插件已卸载。" });
@@ -367,7 +388,7 @@ export default class CalendarTaskTimer extends Plugin {
     page:page=>{this.settings.appPage=page;this.render();void this.saveSettings().catch(e=>new Notice((e as Error).message));},
     pin:task=>{const pins=focusRefs(this.settings.focusPins),key=refKey(task);this.settings.focusPins=pins.some(p=>refKey(p)===key)?pins.filter(p=>refKey(p)!==key):[...pins,taskRef(task)];this.render();void this.saveSettings().catch(e=>new Notice((e as Error).message));},
     focusLimit:value=>{this.settings.focusLimit=focusLimit(value);this.render();void this.saveSettings().catch(e=>new Notice((e as Error).message));},
-    openCompletion:event=>{const task=this.items.find(t=>refKey(t)===refKey(event.task));if(task)this.dialogs.task(task,patch=>this.tasks.update(task,patch));else new Notice("原待办已不存在，完成记录已保留。");},
+    openCompletion:event=>{const task=this.items.find(t=>refKey(t)===refKey(event.task));if(task)this.dialogs.task(task,patch=>this.tasks.update(task,patch),()=>this.removeTask(task));else new Notice("原待办已不存在，完成记录已保留。");},
     connect: () => { void this.run(async () => { await this.bridge.connect(true); await this.worker?.resume("auth"); await this.refresh(); }); },
     refresh: () => { void this.run(async () => { if (!this.connected) await this.bridge.connect(true); await this.worker?.resume("auth"); this.bridge.refresh(); await this.refresh(); this.later(() => { void this.refresh(true).catch(e => this.fail(e)); }, 1800); this.later(() => { void this.refresh(true).catch(e => this.fail(e)); }, 5000); }); },
     settings: () => { const setting = (this.app as any).setting; setting.open(); setting.openTabById(this.manifest.id); },
@@ -378,7 +399,7 @@ export default class CalendarTaskTimer extends Plugin {
     add: (title, due, calendarId) => this.run(async () => { this.bridge.assertWritable(calendarId); await this.tasks.add(title, due, calendarId); await this.refreshLocal(); }),
     start: task => { void this.showResult(this.api.start(taskRef(task), { source: "view" })); },
     complete: task => { void this.run(async () => { if(this.controller.state.active?.task.id===task.id&&this.controller.state.active.task.path===task.path)throw new Error("请先结束这项任务的计时。");await this.tasks.setCompleted(task,!task.completed); await this.refreshLocal(); }); },
-    editTask: task => this.dialogs.task(task, patch => this.tasks.update(task, patch)),
+    editTask: task => this.dialogs.task(task, patch => this.tasks.update(task, patch),()=>this.removeTask(task)),
     pause: id => { void this.showResult(this.api.pause(id ?? this.api.getState().active?.id ?? "")); },
     resume: id => { void this.showResult(this.api.resume(id ?? this.api.getState().active?.id ?? "")); },
     finish: (complete, id) => { void this.showResult(this.api.finish(id ?? this.api.getState().active?.id ?? "", complete)); },

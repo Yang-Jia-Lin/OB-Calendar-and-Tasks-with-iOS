@@ -26,6 +26,21 @@ export function setTaskCompletionText(text: string, task: Task, completed: boole
   if (text.split(/\r?\n/).some(line=>COMPLETIONS.test(line))) return updated.split(/\r?\n/).map(line=>COMPLETIONS.test(line)?marker:line).join(eol);
   return updated + (updated.endsWith(eol)?"":eol) + marker + eol;
 }
+export function removeTaskText(text: string, task: Task) {
+  const matches = parseTasks(text,task.path || "").filter(t=>t.id===task.id);
+  if (matches.length !== 1) throw new Error("原待办不存在或 ID 重复。");
+  updateTaskText(text,task,{},true); // Reject a stale editor before deleting its exact task.
+  const eol=text.includes("\r\n")?"\r\n":"\n";
+  return text.split(/\r?\n/).filter(line=>line.match(LINE)?.[4].match(MARK)?.[1]!==task.id&&line.match(CATEGORY_LINE)?.[1]!==task.id).join(eol);
+}
+export function restoreBoundTaskText(text: string, ref: TaskRef, seed: {title:string;due?:string;calendarId?:string}, validate: (task:Task)=>void = ()=>{}) {
+  const matches=parseTasks(text,ref.path).filter(t=>t.id===ref.id);
+  if(matches.length>1)throw new Error("任务 ID 重复，请先核对原待办。");
+  const task=matches[0] || {...seed,id:ref.id,kind:"local" as const,path:ref.path,completed:false};validate(task);
+  if(matches.length)return task.completed?setTaskCompletionText(text,task,false):text;
+  const eol=text.includes("\r\n")?"\r\n":"\n";
+  return text+(text.endsWith(eol)?"":eol)+taskLine(task.title,task.due,ref.id,task.calendarId)+eol;
+}
 const LINE = /^(\s*-\s+\[)([ xX])(\]\s+)(.*)$/;
 const MARK = /\s*<!--\s*simple-task:([a-zA-Z0-9-]+)\s*-->\s*$/;
 const CATEGORY = /\s*<!--\s*ctt-category:([^\s<>]+)\s*-->/;
@@ -118,6 +133,16 @@ export class MarkdownTasks implements TaskRepository {
     if (task.path !== this.path()) throw new Error("任务不属于当前待办文件。");
     const file = await this.file(); if (!file) throw new Error("找不到原待办文件。");
     await this.app.vault.process(file,text=>setTaskCompletionText(text,task,completed));
+  }
+  async remove(task: Task) {
+    if(task.path!==this.path())throw new Error("任务不属于当前待办文件。");
+    const file=await this.file();if(!file)throw new Error("找不到原待办文件。");
+    await this.app.vault.process(file,text=>removeTaskText(text,task));
+  }
+  async restoreBound(ref: TaskRef, seed: {title:string;due?:string;calendarId?:string}, validate: (task:Task)=>void) {
+    if(ref.path!==this.path()||ref.kind!=="local"||!/^[a-zA-Z0-9-]+$/.test(ref.id))throw new Error("绑定已失效，请重新选择任务。");
+    const file=(await this.file(true))!;
+    await this.app.vault.process(file,text=>restoreBoundTaskText(text,ref,seed,validate));return this.resolve(ref);
   }
   async completeLocal(task: Task) {
     const file = this.app.vault.getAbstractFileByPath(task.path || ""); if (!file || !("extension" in file)) throw new Error("本地待办已删除或移动，请核对完成状态。");

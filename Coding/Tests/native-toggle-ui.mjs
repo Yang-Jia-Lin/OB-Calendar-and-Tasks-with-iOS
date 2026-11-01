@@ -58,7 +58,7 @@ try {
   await button.evaluate(e => e.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true })));
   check('Holding the activation key does not repeatedly toggle the timer', await page.evaluate(id => window.__preview.controller.state.active.id === id, second));
   await page.locator('[data-note="reading.md"] .ctt-components-timer-button').click();
-  check('Clicking another card cannot end or switch the active task', await page.evaluate(id => window.__preview.controller.state.active.id === id, second) && (await page.locator('[data-note="reading.md"] .ctt-components-timer-button').getAttribute('title')).includes('正在计时'));
+  check('Clicking another card cannot end or switch the active task', await page.evaluate(id => window.__preview.controller.state.active.id === id, second) && /计时/.test(await page.locator('[data-note="reading.md"] .ctt-components-timer-button').getAttribute('title')));
   await page.evaluate(() => {
     const card = document.querySelector('[data-note="research.md"]'), template = document.createElement('template');
     template.innerHTML = card.outerHTML.replace(/ctt-components-timer-(field|button|header)/g, '');
@@ -86,6 +86,17 @@ try {
   await page.evaluate(() => document.body.append(window.__preview.native.root));
   await page.waitForFunction(() => window.__preview.native.manager.buttons.size === 2);
   check('Reopening a view attaches to the existing session without creating another timer', await page.evaluate(id => window.__preview.controller.state.active.id === id, second));
+  await page.waitForTimeout(800);await page.waitForFunction(()=>document.querySelector('[data-note="research.md"] .ctt-components-timer-button')?.dataset.cttState==='running');await button.click();await page.waitForFunction(()=>!window.__preview.controller.state.active);
+  await page.locator('#ctt-native-fixture').evaluate(e=>{e.style.pointerEvents='none';});
+  await page.getByRole('tab',{name:'待办',exact:true}).click();await page.locator('.ctt-task-row[data-task-id=t1]').getByRole('checkbox').click();
+  await page.locator('#ctt-native-fixture').evaluate(e=>{e.style.pointerEvents='';});await button.click();await page.waitForFunction(()=>window.__preview.controller.state.active);
+  check('Card start reopens its completed task without another completion event',await page.evaluate(()=>window.__preview.tasks().find(t=>t.id==='t1').completed===false&&window.__preview.completions().filter(e=>e.task.id==='t1').length===1));
+  await page.waitForTimeout(1200);await button.click();await page.waitForFunction(()=>!window.__preview.controller.state.active);
+  await page.locator('#ctt-native-fixture').evaluate(e=>{e.style.pointerEvents='none';});await page.locator('.ctt-task-row[data-task-id=t1] .ctt-task-title').click();await page.getByRole('button',{name:'删除待办',exact:true}).click();
+  check('Task deletion asks for confirmation and keeps the task until confirmed',await page.locator('dialog').getByRole('button',{name:'确认删除',exact:true}).isVisible()&&await page.evaluate(()=>window.__preview.tasks().some(t=>t.id==='t1')));
+  await page.getByRole('button',{name:'确认删除',exact:true}).click();await page.waitForFunction(()=>!window.__preview.tasks().some(t=>t.id==='t1'));
+  await page.locator('#ctt-native-fixture').evaluate(e=>{e.style.pointerEvents='';});await button.click();await page.waitForFunction(()=>window.__preview.controller.state.active);
+  check('Card start recreates one deleted task with the bound identity',await page.evaluate(()=>window.__preview.tasks().filter(t=>t.id==='t1').length===1&&window.__preview.controller.state.active.task.id==='t1'));
   check('Disposing the enhancement restores native labels and unsubscribes', await page.evaluate(() => { const p = window.__preview, before = p.api.timerListeners.size; p.native.manager.dispose(); return p.api.timerListeners.size === before - 1 && !document.querySelector('.ctt-components-timer-button') && [...p.native.root.querySelectorAll('.components--DynamicDataView-ButtonLabel')].every(e => e.textContent === '开始计时'); }));
   check('No native toggle browser errors', errors.length === 0);
   await writeFile('../Agents/Tests/native-toggle-ui.json', JSON.stringify({ passed: checks.length, checks, errors }, null, 2));
