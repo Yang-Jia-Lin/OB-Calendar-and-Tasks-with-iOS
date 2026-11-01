@@ -40,7 +40,7 @@
 .ctt-category { background: transparent !important; border-color: transparent !important; max-width: 150px !important; }
 .ctt-timer-controls { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; max-width: 100%; }
 .ctt-timer-controls button { min-height: 38px; font-size: var(--ctt-font-size, 15px); }
-.ctt-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); grid-template-rows: minmax(0, 1fr); gap: 32px; flex: 1 0 280px; min-height: 280px; }
+.ctt-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); grid-template-rows: auto; align-items: start; gap: 32px; flex: 0 0 auto; min-height: 280px; }
 .ctt-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .ctt-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 5px; min-height: 34px; margin-bottom: 12px; flex-shrink: 0; }
 .ctt-panel-heading h3 { font-size: calc(var(--ctt-font-size, 15px) + 5px); font-weight: 650; color: var(--text-normal); }
@@ -50,9 +50,8 @@
 .ctt-date-nav input { flex-shrink: 0; width: calc(var(--ctt-font-size, 15px) * 5 + 70px); background: transparent; border: 0; font-size: calc(var(--ctt-font-size, 15px) - 2px); padding: 0 3px; }
 .ctt-date-nav button { font-size: calc(var(--ctt-font-size, 15px) - 2px); padding: 0 5px; }
 .ctt-date-nav .ctt-icon { width: 22px; }
-.ctt-timeline-list, .ctt-task-scroll { flex: 1; overflow-y: auto; min-height: 0; scrollbar-gutter: stable; padding: 3px 6px 6px 2px; overscroll-behavior: contain; }
+.ctt-timeline-list, .ctt-task-scroll { flex: 0 0 auto; overflow: visible; padding: 3px 6px 6px 2px; }
 .ctt-task-list { overflow: visible; }
-.ctt-timeline-list.is-compact { --ctt-event-min-height: 75px; --ctt-event-pad-y: 8px; --ctt-event-gap: 10px; }
 .ctt-shell .ctt-event { position: relative; display: grid; grid-template-columns: 65px minmax(0,1fr); width: 100%; height: auto; min-height: var(--ctt-event-min-height, 85px); padding: var(--ctt-event-pad-y, 13px) 14px; margin: 0 0 var(--ctt-event-gap, 14px); align-items: center; gap: 15px; border: 1px solid var(--ctt-border); border-left: 3px solid var(--ctt-category-color); border-radius: 10px; box-shadow: var(--ctt-shadow); background: var(--background-primary); text-align: left; }
 .ctt-shell .ctt-event:last-child { margin-bottom: 0; }
 .ctt-event::after { content: ''; position: absolute; top: calc(100% + 1px); left: 33px; height: calc(var(--ctt-event-gap, 14px) - 1px); width: 1px; background: var(--ctt-border); pointer-events: none; }
@@ -112,10 +111,9 @@
 .ctt-pending-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ctt-muted { color: var(--text-muted); font-size: 12px; }
 .ctt-stacked { padding: 18px 18px 8px; }
-.ctt-stacked .ctt-body { display: flex; flex-direction: column; flex: 0 0 auto; gap: 24px; }
+.ctt-stacked .ctt-body { display: flex; flex-direction: column; align-items: stretch; flex: 0 0 auto; gap: 24px; }
 .ctt-stacked .ctt-tasks { order: 0; }
 .ctt-stacked .ctt-timeline { order: 1; }
-.ctt-stacked .ctt-task-scroll, .ctt-stacked .ctt-timeline-list { flex: 0 0 auto; overflow: visible; overscroll-behavior: auto; }
 .ctt-stacked .ctt-tasks, .ctt-stacked .ctt-timeline { min-height: 100px; }
 .ctt-stacked.ctt-active .ctt-readout { font-size: calc(var(--ctt-font-size, 15px) * 2.4); }
 .ctt-stacked .ctt-brand { font-size: calc(var(--ctt-font-size, 15px) + 2px); }

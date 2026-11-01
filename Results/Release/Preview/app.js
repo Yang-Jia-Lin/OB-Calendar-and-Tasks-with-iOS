@@ -1738,19 +1738,14 @@ ${DIARY_END}
         const { width, height } = entries2[0].contentRect;
         root.classList.toggle("ctt-stacked", width < 840 || width / Math.max(1, height) < 1.15);
         root.style.setProperty("--ctt-focus-height", `${Math.max(380, Math.min(660, height * 0.62, height - 330))}px`);
-        this.scheduleDensity();
       });
       this.observer.observe(root);
-      this.densityObserver = new ResizeObserver(() => this.scheduleDensity());
-      this.densityObserver.observe(this.rowList);
     }
     root;
     actions;
     model;
     filter = "";
     observer;
-    densityObserver;
-    densityFrame = 0;
     header;
     connect;
     error;
@@ -2009,19 +2004,6 @@ ${DIARY_END}
         item.root.onclick = () => this.actions.editRow(row);
         if (this.rowList.children[i] !== item.root) this.rowList.insertBefore(item.root, this.rowList.children[i] || null);
       });
-      this.scheduleDensity();
-    }
-    scheduleDensity() {
-      if (this.densityFrame) return;
-      this.densityFrame = requestAnimationFrame(() => {
-        this.densityFrame = 0;
-        const list = this.rowList;
-        if (!list.clientWidth || !list.clientHeight) return;
-        const style = getComputedStyle(list), wasCompact = list.classList.contains("is-compact");
-        const cards = [...this.rowNodes.values()].map((item) => item.root);
-        const natural = cards.reduce((height, card) => height + Math.max(85, card.offsetHeight + (wasCompact ? 10 : 0)), 0) + Math.max(0, cards.length - 1) * 14 + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-        list.classList.toggle("is-compact", cards.length > 0 && ["auto", "scroll"].includes(style.overflowY) && natural > list.clientHeight + 2);
-      });
     }
     tick() {
       const ms = elapsed(this.model?.active || null);
@@ -2034,8 +2016,6 @@ ${DIARY_END}
     }
     destroy() {
       this.observer.disconnect();
-      this.densityObserver.disconnect();
-      if (this.densityFrame) cancelAnimationFrame(this.densityFrame);
       this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync);
       this.root.ownerDocument.removeEventListener("keydown", this.escapeSync);
       this.root.replaceChildren();

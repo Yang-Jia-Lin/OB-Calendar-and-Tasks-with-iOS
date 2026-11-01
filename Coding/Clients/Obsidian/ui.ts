@@ -26,8 +26,6 @@ export class TimerUI {
   private model!: ViewModel;
   private filter = "";
   private observer: ResizeObserver;
-  private densityObserver: ResizeObserver;
-  private densityFrame = 0;
   private header: HTMLElement;
   private connect: HTMLButtonElement;
   private error: HTMLElement;
@@ -114,9 +112,7 @@ export class TimerUI {
     this.observer = new ResizeObserver(entries => { const { width, height } = entries[0].contentRect;
       root.classList.toggle("ctt-stacked", width < 840 || width / Math.max(1, height) < 1.15);
       root.style.setProperty("--ctt-focus-height", `${Math.max(380, Math.min(660, height * .62, height - 330))}px`);
-      this.scheduleDensity();
     }); this.observer.observe(root);
-    this.densityObserver = new ResizeObserver(() => this.scheduleDensity()); this.densityObserver.observe(this.rowList);
   }
   update(m: ViewModel) {
     const old = this.model; this.model = m;
@@ -260,21 +256,6 @@ export class TimerUI {
       item.root.classList.toggle("is-pending", !!row.pending); item.root.title = row.error || "编辑日程"; item.root.onclick = () => this.actions.editRow(row);
       if (this.rowList.children[i] !== item.root) this.rowList.insertBefore(item.root, this.rowList.children[i] || null);
     });
-    this.scheduleDensity();
-  }
-  private scheduleDensity() {
-    if (this.densityFrame) return;
-    this.densityFrame = requestAnimationFrame(() => {
-      this.densityFrame = 0;
-      const list = this.rowList; if (!list.clientWidth || !list.clientHeight) return;
-      const style = getComputedStyle(list), wasCompact = list.classList.contains("is-compact");
-      const cards = [...this.rowNodes.values()].map(item => item.root);
-      // Estimate the normal height even while compressed, so a newly fitting
-      // list doesn't alternate between normal and compact on every refresh.
-      const natural = cards.reduce((height, card) => height + Math.max(85, card.offsetHeight + (wasCompact ? 10 : 0)), 0)
-        + Math.max(0, cards.length - 1) * 14 + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-      list.classList.toggle("is-compact", cards.length > 0 && ["auto", "scroll"].includes(style.overflowY) && natural > list.clientHeight + 2);
-    });
   }
   tick() {
     const ms = elapsed(this.model?.active || null); this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
@@ -282,5 +263,5 @@ export class TimerUI {
     const active = this.model?.active;
     if (active) for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "已暂停" : "计时中"} · ${secondsText(ms)}`;
   }
-  destroy() { this.observer.disconnect(); this.densityObserver.disconnect(); if (this.densityFrame) cancelAnimationFrame(this.densityFrame); this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync); this.root.ownerDocument.removeEventListener("keydown", this.escapeSync); this.root.replaceChildren(); }
+  destroy() { this.observer.disconnect(); this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync); this.root.ownerDocument.removeEventListener("keydown", this.escapeSync); this.root.replaceChildren(); }
 }
