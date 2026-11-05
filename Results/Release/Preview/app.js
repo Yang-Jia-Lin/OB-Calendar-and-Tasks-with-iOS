@@ -108,613 +108,1707 @@
     }
   });
 
-  // node_modules/preact/dist/preact.module.js
-  var n;
-  var l;
-  var u;
-  var t;
-  var i;
-  var r;
-  var o;
-  var e;
-  var f;
-  var c;
-  var a;
-  var s;
-  var h;
-  var p;
-  var v;
-  var y;
-  var d = {};
-  var w = [];
-  var _ = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
-  var g = Array.isArray;
-  function m(n2, l3) {
-    for (var u4 in l3) n2[u4] = l3[u4];
-    return n2;
+  // Shared/contracts.ts
+  var clone = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
+  var uid = () => globalThis.crypto.randomUUID();
+  function sameEvent(a3, b2) {
+    const stable = (v3) => Array.isArray(v3) ? v3.map(stable) : v3 && typeof v3 === "object" ? Object.fromEntries(Object.entries(v3).filter(([, x4]) => x4 !== void 0).sort(([a4], [b3]) => a4.localeCompare(b3)).map(([k3, x4]) => [k3, stable(x4)])) : v3;
+    return JSON.stringify(stable(a3)) === JSON.stringify(stable(b2));
   }
-  function b(n2) {
-    n2 && n2.parentNode && n2.parentNode.removeChild(n2);
-  }
-  function k(l3, u4, t3) {
-    var i3, r3, o2, e3 = {};
-    for (o2 in u4) "key" == o2 ? i3 = u4[o2] : "ref" == o2 ? r3 = u4[o2] : e3[o2] = u4[o2];
-    if (arguments.length > 2 && (e3.children = arguments.length > 3 ? n.call(arguments, 2) : t3), "function" == typeof l3 && null != l3.defaultProps) for (o2 in l3.defaultProps) void 0 === e3[o2] && (e3[o2] = l3.defaultProps[o2]);
-    return x(l3, e3, i3, r3, null);
-  }
-  function x(n2, t3, i3, r3, o2) {
-    var e3 = { type: n2, props: t3, key: i3, ref: r3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: null == o2 ? ++u : o2, __i: -1, __u: 0 };
-    return null == o2 && null != l.vnode && l.vnode(e3), e3;
-  }
-  function M() {
-    return { current: null };
-  }
-  function S(n2) {
-    return n2.children;
-  }
-  function C(n2, l3) {
-    this.props = n2, this.context = l3;
-  }
-  function $(n2, l3) {
-    if (null == l3) return n2.__ ? $(n2.__, n2.__i + 1) : null;
-    for (var u4; l3 < n2.__k.length; l3++) if (null != (u4 = n2.__k[l3]) && null != u4.__e) return u4.__e;
-    return "function" == typeof n2.type ? $(n2) : null;
-  }
-  function I(n2) {
-    if (n2.__P && n2.__d) {
-      var u4 = n2.__v, t3 = u4.__e, i3 = [], r3 = [], o2 = m({}, u4);
-      o2.__v = u4.__v + 1, l.vnode && l.vnode(o2), q(n2.__P, o2, u4, n2.__n, n2.__P.namespaceURI, 32 & u4.__u ? [t3] : null, i3, null == t3 ? $(u4) : t3, !!(32 & u4.__u), r3), o2.__v = u4.__v, o2.__.__k[o2.__i] = o2, D(i3, o2, r3), u4.__e = u4.__ = null, o2.__e != t3 && P(o2);
-    }
-  }
-  function P(n2) {
-    if (null != (n2 = n2.__) && null != n2.__c) return n2.__e = n2.__c.base = null, n2.__k.some(function(l3) {
-      if (null != l3 && null != l3.__e) return n2.__e = n2.__c.base = l3.__e;
-    }), P(n2);
-  }
-  function A(n2) {
-    (!n2.__d && (n2.__d = true) && i.push(n2) && !H.__r++ || r != l.debounceRendering) && ((r = l.debounceRendering) || o)(H);
-  }
-  function H() {
-    try {
-      for (var n2, l3 = 1; i.length; ) i.length > l3 && i.sort(e), n2 = i.shift(), l3 = i.length, I(n2);
-    } finally {
-      i.length = H.__r = 0;
-    }
-  }
-  function L(n2, l3, u4, t3, i3, r3, o2, e3, f4, c3, a3) {
-    var s2, h3, p3, v3, y3, _3, g4 = t3 && t3.__k || w, m3 = l3.length;
-    for (f4 = T(u4, l3, g4, f4, m3), s2 = 0; s2 < m3; s2++) null != (p3 = u4.__k[s2]) && (h3 = -1 != p3.__i && g4[p3.__i] || d, p3.__i = s2, _3 = q(n2, p3, h3, i3, r3, o2, e3, f4, c3, a3), v3 = p3.__e, p3.ref && h3.ref != p3.ref && (h3.ref && J(h3.ref, null, p3), a3.push(p3.ref, p3.__c || v3, p3)), null == y3 && null != v3 && (y3 = v3), 4 & p3.__u ? (f4 = j(p3, f4, n2), h3.__e && (h3.__e = null)) : "function" == typeof p3.type && void 0 !== _3 ? f4 = _3 : v3 && (f4 = v3.nextSibling), p3.__u &= -7);
-    return u4.__e = y3, f4;
-  }
-  function T(n2, l3, u4, t3, i3) {
-    var r3, o2, e3, f4, c3, a3 = u4.length, s2 = a3, h3 = 0;
-    for (n2.__k = new Array(i3), r3 = 0; r3 < i3; r3++) null != (o2 = l3[r3]) && "boolean" != typeof o2 && "function" != typeof o2 ? ("string" == typeof o2 || "number" == typeof o2 || "bigint" == typeof o2 || o2.constructor == String ? o2 = n2.__k[r3] = x(null, o2, null, null, null) : g(o2) ? o2 = n2.__k[r3] = x(S, { children: o2 }, null, null, null) : void 0 === o2.constructor && o2.__b > 0 ? o2 = n2.__k[r3] = x(o2.type, o2.props, o2.key, o2.ref ? o2.ref : null, o2.__v) : n2.__k[r3] = o2, f4 = r3 + h3, o2.__ = n2, o2.__b = n2.__b + 1, e3 = null, -1 != (c3 = o2.__i = O(o2, u4, f4, s2)) && (s2--, (e3 = u4[c3]) && (e3.__u |= 2)), null == e3 || null == e3.__v ? (-1 == c3 && (i3 > a3 ? h3-- : i3 < a3 && h3++), "function" != typeof o2.type && (o2.__u |= 4)) : c3 != f4 && (c3 == f4 - 1 ? h3-- : c3 == f4 + 1 ? h3++ : (c3 > f4 ? h3-- : h3++, o2.__u |= 4))) : n2.__k[r3] = null;
-    if (s2) for (r3 = 0; r3 < a3; r3++) null != (e3 = u4[r3]) && 0 == (2 & e3.__u) && (e3.__e == t3 && (t3 = $(e3)), K(e3, e3));
-    return t3;
-  }
-  function j(n2, l3, u4) {
-    var t3, i3;
-    if ("function" == typeof n2.type) {
-      for (t3 = n2.__k, i3 = 0; t3 && i3 < t3.length; i3++) t3[i3] && (t3[i3].__ = n2, l3 = j(t3[i3], l3, u4));
-      return l3;
-    }
-    n2.__e != l3 && (l3 && n2.type && !l3.parentNode && (l3 = $(n2)), l3 = u4.insertBefore(n2.__e, l3 || null));
-    do {
-      l3 = l3 && l3.nextSibling;
-    } while (null != l3 && 8 == l3.nodeType);
-    return l3;
-  }
-  function F(n2, l3) {
-    return l3 = l3 || [], null == n2 || "boolean" == typeof n2 || (g(n2) ? n2.some(function(n3) {
-      F(n3, l3);
-    }) : l3.push(n2)), l3;
-  }
-  function O(n2, l3, u4, t3) {
-    var i3, r3, o2, e3 = n2.key, f4 = n2.type, c3 = l3[u4], a3 = null != c3 && 0 == (2 & c3.__u);
-    if (null === c3 && null == e3 || a3 && e3 == c3.key && f4 == c3.type) return u4;
-    if (t3 > (a3 ? 1 : 0)) {
-      for (i3 = u4 - 1, r3 = u4 + 1; i3 >= 0 || r3 < l3.length; ) if (null != (c3 = l3[o2 = i3 >= 0 ? i3-- : r3++]) && 0 == (2 & c3.__u) && e3 == c3.key && f4 == c3.type) return o2;
-    }
-    return -1;
-  }
-  function z(n2, l3, u4) {
-    "-" == l3[0] ? n2.setProperty(l3, null == u4 ? "" : u4) : n2[l3] = null == u4 ? "" : "number" != typeof u4 || _.test(l3) ? u4 : u4 + "px";
-  }
-  function N(n2, l3, u4, t3, i3) {
-    var r3, o2;
-    n: if ("style" == l3) if ("string" == typeof u4) n2.style.cssText = u4;
-    else {
-      if ("string" == typeof t3 && (n2.style.cssText = t3 = ""), t3) for (l3 in t3) u4 && l3 in u4 || z(n2.style, l3, "");
-      if (u4) for (l3 in u4) t3 && u4[l3] == t3[l3] || z(n2.style, l3, u4[l3]);
-    }
-    else if ("o" == l3[0] && "n" == l3[1]) r3 = l3 != (l3 = l3.replace(s, "$1")), o2 = l3.toLowerCase(), l3 = o2 in n2 || "onFocusOut" == l3 || "onFocusIn" == l3 ? o2.slice(2) : l3.slice(2), n2.l || (n2.l = {}), n2.l[l3 + r3] = u4, u4 ? t3 ? u4[a] = t3[a] : (u4[a] = h, n2.addEventListener(l3, r3 ? v : p, r3)) : n2.removeEventListener(l3, r3 ? v : p, r3);
-    else {
-      if ("http://www.w3.org/2000/svg" == i3) l3 = l3.replace(/xlink(H|:h)/, "h").replace(/sName$/, "s");
-      else if ("width" != l3 && "height" != l3 && "href" != l3 && "list" != l3 && "form" != l3 && "tabIndex" != l3 && "download" != l3 && "rowSpan" != l3 && "colSpan" != l3 && "role" != l3 && "popover" != l3 && l3 in n2) try {
-        n2[l3] = null == u4 ? "" : u4;
-        break n;
-      } catch (n3) {
+  function comparableEventContent(event) {
+    const { etag: _tag, caldavHref: _href, ...value } = event;
+    if (value.type === "single" && (value.allDay === false || value.allDay == null)) {
+      value.allDay ??= false;
+      value.isTask ??= false;
+      value.endDate ??= value.date;
+      for (const field2 of ["startTime", "endTime"]) {
+        const time = value[field2];
+        if (typeof time === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) value[field2] = `${time}:00`;
       }
-      "function" == typeof u4 || (null == u4 || false === u4 && "-" != l3[4] ? n2.removeAttribute(l3) : n2.setAttribute(l3, "popover" == l3 && 1 == u4 ? "" : u4));
     }
+    return value;
   }
-  function V(n2) {
-    return function(u4) {
-      if (this.l) {
-        var t3 = this.l[u4.type + n2];
-        if (null == u4[c]) u4[c] = h++;
-        else if (u4[c] < t3[a]) return;
-        return t3(l.event ? l.event(u4) : u4);
-      }
-    };
+  function sameEventContent(a3, b2) {
+    return sameEvent(comparableEventContent(a3), comparableEventContent(b2));
   }
-  function q(n2, u4, t3, i3, r3, o2, e3, f4, c3, a3) {
-    var s2, h3, p3, v3, y3, d3, _3, k3, x4, M3, I2, P4, A4, H3, T4, j4, F3 = u4.type;
-    if (void 0 !== u4.constructor) return null;
-    128 & t3.__u && (c3 = !!(32 & t3.__u), o2 = [f4 = u4.__e = t3.__e]), (s2 = l.__b) && s2(u4);
-    n: if ("function" == typeof F3) {
-      h3 = e3.length;
-      try {
-        if (x4 = u4.props, M3 = F3.prototype && F3.prototype.render, I2 = (s2 = F3.contextType) && i3[s2.__c], P4 = s2 ? I2 ? I2.props.value : s2.__ : i3, t3.__c ? k3 = (p3 = u4.__c = t3.__c).__ = p3.__E : (M3 ? u4.__c = p3 = new F3(x4, P4) : (u4.__c = p3 = new C(x4, P4), p3.constructor = F3, p3.render = Q), I2 && I2.sub(p3), p3.state || (p3.state = {}), p3.__n = i3, v3 = p3.__d = true, p3.__h = [], p3._sb = []), M3 && null == p3.__s && (p3.__s = p3.state), M3 && null != F3.getDerivedStateFromProps && (p3.__s == p3.state && (p3.__s = m({}, p3.__s)), m(p3.__s, F3.getDerivedStateFromProps(x4, p3.__s))), y3 = p3.props, d3 = p3.state, p3.__v = u4, v3) M3 && null == F3.getDerivedStateFromProps && null != p3.componentWillMount && p3.componentWillMount(), M3 && null != p3.componentDidMount && p3.__h.push(p3.componentDidMount);
-        else {
-          if (M3 && null == F3.getDerivedStateFromProps && x4 !== y3 && null != p3.componentWillReceiveProps && p3.componentWillReceiveProps(x4, P4), u4.__v == t3.__v || !p3.__e && null != p3.shouldComponentUpdate && false === p3.shouldComponentUpdate(x4, p3.__s, P4)) {
-            u4.__v != t3.__v && (p3.props = x4, p3.state = p3.__s, p3.__d = false), u4.__e = t3.__e, u4.__k = t3.__k, u4.__k.some(function(n3) {
-              n3 && (n3.__ = u4);
-            }), w.push.apply(p3.__h, p3._sb), p3._sb = [], p3.__h.length && e3.push(p3), f4 = $(t3);
-            break n;
-          }
-          null != p3.componentWillUpdate && p3.componentWillUpdate(x4, p3.__s, P4), M3 && null != p3.componentDidUpdate && p3.__h.push(function() {
-            p3.componentDidUpdate(y3, d3, _3);
-          });
-        }
-        if (p3.context = P4, p3.props = x4, p3.__P = n2, p3.__e = false, A4 = l.__r, H3 = 0, M3) p3.state = p3.__s, p3.__d = false, A4 && A4(u4), s2 = p3.render(p3.props, p3.state, p3.context), w.push.apply(p3.__h, p3._sb), p3._sb = [];
-        else do {
-          p3.__d = false, A4 && A4(u4), s2 = p3.render(p3.props, p3.state, p3.context), p3.state = p3.__s;
-        } while (p3.__d && ++H3 < 25);
-        p3.state = p3.__s, null != p3.getChildContext && (i3 = m(m({}, i3), p3.getChildContext())), M3 && !v3 && null != p3.getSnapshotBeforeUpdate && (_3 = p3.getSnapshotBeforeUpdate(y3, d3)), T4 = null != s2 && s2.type === S && null == s2.key ? E(s2.props.children) : s2, f4 = L(n2, g(T4) ? T4 : [T4], u4, t3, i3, r3, o2, e3, f4, c3, a3), p3.base = u4.__e, u4.__u &= -161, p3.__h.length && e3.push(p3), k3 && (p3.__E = p3.__ = null);
-      } catch (n3) {
-        if (e3.length = h3, u4.__v = null, c3 || null != o2) {
-          if (n3.then) {
-            for (u4.__u |= c3 ? 160 : 128; f4 && 8 == f4.nodeType && f4.nextSibling; ) f4 = f4.nextSibling;
-            null != o2 && (o2[o2.indexOf(f4)] = null), u4.__e = f4;
-          } else if (null != o2) for (j4 = o2.length; j4--; ) b(o2[j4]);
-        } else u4.__e = t3.__e;
-        null == u4.__k && (u4.__k = t3.__k || []), n3.then || B(u4), l.__e(n3, u4, t3);
-      }
-    } else null == o2 && u4.__v == t3.__v ? (u4.__k = t3.__k, u4.__e = t3.__e) : f4 = u4.__e = G(t3.__e, u4, t3, i3, r3, o2, e3, c3, a3);
-    return (s2 = l.diffed) && s2(u4), 128 & u4.__u ? void 0 : f4;
+  function isMissingResource(error2) {
+    const value = error2;
+    return value?.status === 404 || value?.status === 410 || /\bHTTP\s+(?:404|410)\b/i.test(typeof error2 === "string" ? error2 : value?.message || "");
   }
-  function B(n2) {
-    n2 && (n2.__c && (n2.__c.__e = true), n2.__k && n2.__k.some(B));
-  }
-  function D(n2, u4, t3) {
-    for (var i3 = 0; i3 < t3.length; i3++) J(t3[i3], t3[++i3], t3[++i3]);
-    l.__c && l.__c(u4, n2), n2.some(function(u5) {
-      try {
-        n2 = u5.__h, u5.__h = [], n2.some(function(n3) {
-          n3.call(u5);
-        });
-      } catch (n3) {
-        l.__e(n3, u5.__v);
-      }
+
+  // Shared/application.ts
+  init_time();
+  var defaultFilters = () => ({ source: "all", association: "all", status: "open", due: "all", date: dayKey() });
+  var refKey = (task) => JSON.stringify([task.kind, task.path || "", task.id]);
+  var appPage = (value) => value === "timer" || value === "calendar" ? value : "tasks";
+  var focusLimit = (value) => typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(10, Math.round(value))) : 5;
+  function focusRefs(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = /* @__PURE__ */ new Set();
+    return value.flatMap((r3) => {
+      if (!["local", "reminder"].includes(r3?.kind) || typeof r3.path !== "string" || !r3.path || typeof r3.id !== "string" || !r3.id) return [];
+      const key2 = refKey(r3);
+      if (seen.has(key2)) return [];
+      seen.add(key2);
+      return [{ kind: r3.kind, path: r3.path, id: r3.id }];
     });
   }
-  function E(n2) {
-    return "object" != typeof n2 || null == n2 || n2.__b > 0 ? n2 : g(n2) ? n2.map(E) : void 0 !== n2.constructor ? null : m({}, n2);
+  function filterTasks(tasks2, filters, linked, today2 = dayKey()) {
+    return tasks2.filter((t3) => (!filters.source || filters.source === "all" || t3.kind === filters.source) && (filters.status === "all" || t3.completed === (filters.status === "done")) && (filters.association === "all" || linked.has(refKey(t3)) === (filters.association === "linked")) && (filters.due === "all" || filters.due === "none" && !t3.due || filters.due === "today" && t3.due === today2 || filters.due === "overdue" && (t3.dueInstant != null ? t3.dueInstant < Date.now() : !!t3.due && t3.due < today2) || filters.due === "date" && t3.due === filters.date));
   }
-  function G(u4, t3, i3, r3, o2, e3, f4, c3, a3) {
-    var s2, h3, p3, v3, y3, w3, _3, m3 = i3.props || d, k3 = t3.props, x4 = t3.type;
-    if ("svg" == x4 ? o2 = "http://www.w3.org/2000/svg" : "math" == x4 ? o2 = "http://www.w3.org/1998/Math/MathML" : o2 || (o2 = "http://www.w3.org/1999/xhtml"), null != e3) {
-      for (s2 = 0; s2 < e3.length; s2++) if ((y3 = e3[s2]) && "setAttribute" in y3 == !!x4 && (x4 ? y3.localName == x4 : 3 == y3.nodeType)) {
-        u4 = y3, e3[s2] = null;
-        break;
+  var timerSnapshot = (active, available) => clone({ active, available });
+
+  // Providers/Reminders/provider.ts
+  var blankReminders = () => ({ version: 1, accountId: "", lists: [], items: [], deleted: [], operations: [], aliases: {}, rebuilds: {}, order: [], syncedAt: 0 });
+  var reminderRef = (t3) => ({ kind: "reminder", path: t3.path, id: t3.id });
+  var RemindersProvider = class {
+    constructor(rpc, options2) {
+      this.rpc = rpc;
+      this.options = options2;
+    }
+    rpc;
+    options;
+    data = blankReminders();
+    error = "";
+    syncing = false;
+    tail = Promise.resolve();
+    remote;
+    stopped = false;
+    load(value) {
+      const d3 = value;
+      if (d3?.version === 1 && Array.isArray(d3.items) && Array.isArray(d3.operations) && d3.aliases && d3.rebuilds && Array.isArray(d3.lists) && Array.isArray(d3.deleted) && Array.isArray(d3.order) && !d3.operations.some((o2) => !o2.id || !o2.task?.id || !["create", "update", "delete"].includes(o2.action) || !["pending", "saved"].includes(o2.status))) this.data = clone(d3);
+      else if (value != null) throw new Error("\u63D0\u9192\u4E8B\u9879\u7F13\u5B58\u6216\u961F\u5217\u635F\u574F\uFF0C\u539F\u6587\u4EF6\u5DF2\u4FDD\u7559\u3002");
+    }
+    get enabled() {
+      const s2 = this.options.settings();
+      return s2.enabled && !!s2.accountId && this.data.accountId === s2.accountId;
+    }
+    lock(fn2) {
+      const p3 = this.tail.catch(() => {
+      }).then(() => {
+        if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
+        return fn2();
+      });
+      this.tail = p3;
+      return p3;
+    }
+    async commit(next) {
+      if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
+      await this.options.persist(clone(next));
+      if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
+      this.data = next;
+      this.options.changed();
+    }
+    async connect(args) {
+      const result = await this.rpc.call("connect", args);
+      if (this.data.accountId && this.data.accountId !== result.accountId) throw new Error("\u8BF7\u4FDD\u7559\u5F53\u524D\u8D26\u6237\u6570\u636E\uFF1B\u672C\u7248\u4E0D\u652F\u6301\u76F4\u63A5\u5207\u6362\u5230\u53E6\u4E00\u4E2A\u8D26\u6237\u3002");
+      await this.lock(() => this.commit({ ...this.data, accountId: result.accountId }));
+      return result;
+    }
+    list() {
+      if (!this.enabled) return [];
+      const hidden = new Set(this.data.operations.filter((o2) => o2.migration && o2.status !== "saved").map((o2) => o2.task.id));
+      const map = new Map(this.data.items.filter((t3) => !this.data.deleted.includes(t3.id) && this.data.lists.some((l3) => l3.id === t3.listId)).map((t3) => [t3.id, clone(t3)]));
+      for (const o2 of this.data.operations.filter((o3) => o3.status === "pending")) {
+        if (o2.action === "delete") map.delete(o2.task.id);
+        else map.set(o2.task.id, { ...map.get(o2.task.id) || o2.task, ...o2.patch, pending: true });
       }
-    }
-    if (null == u4) {
-      if (null == x4) return document.createTextNode(k3);
-      u4 = document.createElementNS(o2, x4, k3.is && k3), c3 && (l.__m && l.__m(t3, e3), c3 = false), e3 = null;
-    }
-    if (null == x4) m3 === k3 || c3 && u4.data == k3 || (u4.data = k3);
-    else {
-      if (e3 = "textarea" == x4 && null != k3.defaultValue ? null : e3 && n.call(u4.childNodes), !c3 && null != e3) for (m3 = {}, s2 = 0; s2 < u4.attributes.length; s2++) m3[(y3 = u4.attributes[s2]).name] = y3.value;
-      for (s2 in m3) y3 = m3[s2], "dangerouslySetInnerHTML" == s2 ? p3 = y3 : "children" == s2 || s2 in k3 || "value" == s2 && "defaultValue" in k3 || "checked" == s2 && "defaultChecked" in k3 || N(u4, s2, null, y3, o2);
-      for (s2 in k3) y3 = k3[s2], "children" == s2 ? v3 = y3 : "dangerouslySetInnerHTML" == s2 ? h3 = y3 : "value" == s2 ? w3 = y3 : "checked" == s2 ? _3 = y3 : c3 && "function" != typeof y3 || m3[s2] === y3 || N(u4, s2, y3, m3[s2], o2);
-      if (h3) c3 || p3 && (h3.__html == p3.__html || h3.__html == u4.innerHTML) || (u4.innerHTML = h3.__html), t3.__k = [];
-      else if (p3 && (u4.innerHTML = ""), L("template" == t3.type ? u4.content : u4, g(v3) ? v3 : [v3], t3, i3, r3, "foreignObject" == x4 ? "http://www.w3.org/1999/xhtml" : o2, e3, f4, e3 ? e3[0] : i3.__k && $(i3, 0), c3, a3), null != e3) for (s2 = e3.length; s2--; ) b(e3[s2]);
-      c3 && "textarea" != x4 || (s2 = "value", "progress" == x4 && null == w3 ? u4.removeAttribute("value") : null != w3 && (w3 !== u4[s2] || "progress" == x4 && !w3 || "option" == x4 && w3 != m3[s2]) && N(u4, s2, w3, m3[s2], o2), s2 = "checked", null != _3 && _3 != u4[s2] && N(u4, s2, _3, m3[s2], o2));
-    }
-    return u4;
-  }
-  function J(n2, u4, t3) {
-    try {
-      if ("function" == typeof n2) {
-        var i3 = "function" == typeof n2.__u;
-        i3 && n2.__u(), i3 && null == u4 || (n2.__u = n2(u4));
-      } else n2.current = u4;
-    } catch (n3) {
-      l.__e(n3, t3);
-    }
-  }
-  function K(n2, u4, t3) {
-    var i3, r3;
-    if (l.unmount && l.unmount(n2), (i3 = n2.ref) && (i3.current && i3.current != n2.__e || J(i3, null, u4)), null != (i3 = n2.__c)) {
-      if (i3.componentWillUnmount) try {
-        i3.componentWillUnmount();
-      } catch (n3) {
-        l.__e(n3, u4);
-      }
-      i3.base = i3.__P = i3.__n = null;
-    }
-    if (i3 = n2.__k) for (r3 = 0; r3 < i3.length; r3++) i3[r3] && K(i3[r3], u4, t3 || "function" != typeof n2.type);
-    t3 || b(n2.__e), n2.__c = n2.__ = n2.__e = void 0;
-  }
-  function Q(n2, l3, u4) {
-    return this.constructor(n2, u4);
-  }
-  function R(u4, t3, i3) {
-    var r3, o2, e3, f4;
-    t3 == document && (t3 = document.documentElement), l.__ && l.__(u4, t3), o2 = (r3 = "function" == typeof i3) ? null : i3 && i3.__k || t3.__k, e3 = [], f4 = [], q(t3, u4 = (!r3 && i3 || t3).__k = k(S, null, [u4]), o2 || d, d, t3.namespaceURI, !r3 && i3 ? [i3] : o2 ? null : t3.firstChild ? n.call(t3.childNodes) : null, e3, !r3 && i3 ? i3 : o2 ? o2.__e : t3.firstChild, r3, f4), D(e3, u4, f4), u4.props.children = null;
-  }
-  function X(n2) {
-    function l3(n3) {
-      var u4, t3;
-      return this.getChildContext || (u4 = /* @__PURE__ */ new Set(), (t3 = {})[l3.__c] = this, this.getChildContext = function() {
-        return t3;
-      }, this.componentWillUnmount = function() {
-        u4 = null;
-      }, this.shouldComponentUpdate = function(n4) {
-        this.props.value != n4.value && u4.forEach(function(n5) {
-          n5.__e = true, A(n5);
-        });
-      }, this.sub = function(n4) {
-        u4.add(n4);
-        var l4 = n4.componentWillUnmount;
-        n4.componentWillUnmount = function() {
-          u4 && u4.delete(n4), l4 && l4.call(n4);
+      const parents = new Set([...map.values()].map((t3) => t3.parentId).filter(Boolean));
+      return [...map.values()].filter((t3) => !hidden.has(t3.id)).map((t3) => ({ ...t3, calendarId: this.options.calendar(t3.listId), readonlyReason: t3.readonlyReason || (parents.has(t3.id) ? "\u5305\u542B\u5B50\u4EFB\u52A1\uFF0C\u8BF7\u5728\u63D0\u9192\u4E8B\u9879\u4E2D\u7F16\u8F91\uFF0F\u5B8C\u6210" : "") })).sort((a3, b2) => {
+        const rank = (id) => {
+          const n2 = this.data.order.indexOf(id);
+          return n2 < 0 ? Infinity : n2;
         };
-      }), n3.children;
+        return rank(a3.id) - rank(b2.id);
+      });
     }
-    return l3.__c = "__cC" + y++, l3.__ = n2, l3.Provider = l3.__l = (l3.Consumer = function(n3, l4) {
-      return n3.children(l4);
-    }).contextType = l3, l3;
-  }
-  n = w.slice, l = { __e: function(n2, l3, u4, t3) {
-    for (var i3, r3, o2; l3 = l3.__; ) if ((i3 = l3.__c) && !i3.__) try {
-      if ((r3 = i3.constructor) && null != r3.getDerivedStateFromError && (i3.setState(r3.getDerivedStateFromError(n2)), o2 = i3.__d), null != i3.componentDidCatch && (i3.componentDidCatch(n2, t3 || {}), o2 = i3.__d), o2) return i3.__E = i3;
-    } catch (l4) {
-      n2 = l4;
+    resolve(ref) {
+      if (!this.enabled || ref.path !== `icloud:${this.data.accountId}`) throw new Error("\u63D0\u9192\u4E8B\u9879\u8D26\u6237\u672A\u8FDE\u63A5\u6216\u4EFB\u52A1\u5F15\u7528\u4E0D\u5C5E\u4E8E\u5F53\u524D\u8D26\u6237\u3002");
+      const alias = this.data.rebuilds[refKey(ref)] || ref;
+      const task = this.list().find((t3) => t3.id === alias.id);
+      if (!task) throw new Error(this.data.deleted.includes(alias.id) ? "\u63D0\u9192\u4E8B\u9879\u5DF2\u5220\u9664" : "\u63D0\u9192\u4E8B\u9879\u5C1A\u672A\u52A0\u8F7D\uFF0C\u8BF7\u540C\u6B65\u540E\u91CD\u8BD5\u3002");
+      return clone(task);
     }
-    throw n2;
-  } }, u = 0, t = function(n2) {
-    return null != n2 && void 0 === n2.constructor;
-  }, C.prototype.setState = function(n2, l3) {
-    var u4;
-    u4 = null != this.__s && this.__s != this.state ? this.__s : this.__s = m({}, this.state), "function" == typeof n2 && (n2 = n2(m({}, u4), this.props)), n2 && m(u4, n2), null != n2 && this.__v && (l3 && this._sb.push(l3), A(this));
-  }, C.prototype.forceUpdate = function(n2) {
-    this.__v && (this.__e = true, n2 && this.__h.push(n2), A(this));
-  }, C.prototype.render = S, i = [], o = "function" == typeof Promise ? Promise.prototype.then.bind(Promise.resolve()) : setTimeout, e = function(n2, l3) {
-    return n2.__v.__b - l3.__v.__b;
-  }, H.__r = 0, f = Math.random().toString(8), c = "__d" + f, a = "__a" + f, s = /(PointerCapture)$|Capture$/i, h = 0, p = V(false), v = V(true), y = 0;
-
-  // node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
-  var f2 = 0;
-  function u2(e3, t3, n2, o2, i3, u4) {
-    t3 || (t3 = {});
-    var a3, c3, p3 = t3;
-    if ("ref" in p3) for (c3 in p3 = {}, t3) "ref" == c3 ? a3 = t3[c3] : p3[c3] = t3[c3];
-    var l3 = { type: e3, props: p3, key: n2, ref: a3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: --f2, __i: -1, __u: 0, __source: i3, __self: u4 };
-    if ("function" == typeof e3 && (a3 = e3.defaultProps)) for (c3 in a3) void 0 === p3[c3] && (p3[c3] = a3[c3]);
-    return l.vnode && l.vnode(l3), l3;
-  }
-
-  // node_modules/preact/hooks/dist/hooks.module.js
-  var t2;
-  var r2;
-  var u3;
-  var i2;
-  var f3 = [];
-  var c2 = l;
-  var e2 = c2.__b;
-  var a2 = c2.__r;
-  var v2 = c2.diffed;
-  var l2 = c2.__c;
-  var m2 = c2.unmount;
-  var p2 = c2.__;
-  function j2() {
-    for (var n2; n2 = f3.shift(); ) {
-      var t3 = n2.__H;
-      if (n2.__P && t3) try {
-        t3.__h.some(z2), t3.__h.some(B2), t3.__h = [];
-      } catch (r3) {
-        t3.__h = [], c2.__e(r3, n2.__v);
-      }
+    assertEditable(task) {
+      const current = this.resolve(reminderRef(task));
+      if (current.readonlyReason) throw new Error(current.readonlyReason);
+      return current;
     }
-  }
-  c2.__b = function(n2) {
-    r2 = null, e2 && e2(n2);
-  }, c2.__ = function(n2, t3) {
-    n2 && t3.__k && t3.__k.__m && (n2.__m = t3.__k.__m), p2 && p2(n2, t3);
-  }, c2.__r = function(n2) {
-    a2 && a2(n2), t2 = 0;
-    var i3 = (r2 = n2.__c).__H;
-    i3 && (u3 === r2 ? (i3.__h = [], r2.__h = [], i3.__.some(function(n3) {
-      n3.__N && (n3.__ = n3.__N), n3.u = n3.__N = void 0;
-    })) : (i3.__h.some(z2), i3.__h.some(B2), i3.__h = [], t2 = 0)), u3 = r2;
-  }, c2.diffed = function(n2) {
-    v2 && v2(n2);
-    var t3 = n2.__c;
-    t3 && t3.__H && (t3.__H.__h.length && (1 !== f3.push(t3) && i2 === c2.requestAnimationFrame || ((i2 = c2.requestAnimationFrame) || w2)(j2)), t3.__H.__.some(function(n3) {
-      n3.u && (n3.__H = n3.u, n3.u = void 0);
-    })), u3 = r2 = null;
-  }, c2.__c = function(n2, t3) {
-    t3.some(function(n3) {
-      try {
-        n3.__h.some(z2), n3.__h = n3.__h.filter(function(n4) {
-          return !n4.__ || B2(n4);
-        });
-      } catch (r3) {
-        t3.some(function(n4) {
-          n4.__h && (n4.__h = []);
-        }), t3 = [], c2.__e(r3, n3.__v);
-      }
-    }), l2 && l2(n2, t3);
-  }, c2.unmount = function(n2) {
-    m2 && m2(n2);
-    var t3, r3 = n2.__c;
-    r3 && r3.__H && (r3.__H.__.some(function(n3) {
-      try {
-        z2(n3);
-      } catch (n4) {
-        t3 = n4;
-      }
-    }), r3.__H = void 0, t3 && c2.__e(t3, r3.__v));
-  };
-  var k2 = "function" == typeof requestAnimationFrame;
-  function w2(n2) {
-    var t3, r3 = function() {
-      clearTimeout(u4), k2 && cancelAnimationFrame(t3), setTimeout(n2);
-    }, u4 = setTimeout(r3, 35);
-    k2 && (t3 = requestAnimationFrame(r3));
-  }
-  function z2(n2) {
-    var t3 = r2, u4 = n2.__c;
-    "function" == typeof u4 && (n2.__c = void 0, u4()), r2 = t3;
-  }
-  function B2(n2) {
-    var t3 = r2;
-    n2.__c = n2.__(), r2 = t3;
-  }
-
-  // node_modules/preact/compat/dist/compat.module.js
-  function g3(n2, t3) {
-    for (var e3 in t3) n2[e3] = t3[e3];
-    return n2;
-  }
-  function E2(n2, t3) {
-    for (var e3 in n2) if ("__source" !== e3 && !(e3 in t3)) return true;
-    for (var r3 in t3) if ("__source" !== r3 && n2[r3] !== t3[r3]) return true;
-    return false;
-  }
-  function M2(n2, t3) {
-    this.props = n2, this.context = t3;
-  }
-  (M2.prototype = new C()).isPureReactComponent = true, M2.prototype.shouldComponentUpdate = function(n2, t3) {
-    return E2(this.props, n2) || E2(this.state, t3);
-  };
-  var T3 = l.__b;
-  l.__b = function(n2) {
-    n2.type && n2.type.__f && n2.ref && (n2.props.ref = n2.ref, n2.ref = null), T3 && T3(n2);
-  };
-  var A3 = "undefined" != typeof Symbol && Symbol.for && /* @__PURE__ */ Symbol.for("react.forward_ref") || 3911;
-  var O2 = l.__e;
-  l.__e = function(n2, t3, e3, r3) {
-    if (n2.then) {
-      for (var u4, o2 = t3; o2 = o2.__; ) if ((u4 = o2.__c) && u4.__c) return null == t3.__e && (t3.__e = e3.__e, t3.__k = e3.__k || []), u4.__c(n2, t3);
-    }
-    O2(n2, t3, e3, r3);
-  };
-  var U2 = l.unmount;
-  function V2(n2, t3, e3) {
-    return n2 && (n2.__c && n2.__c.__H && (n2.__c.__H.__.forEach(function(n3) {
-      "function" == typeof n3.__c && n3.__c();
-    }), n2.__c.__H = null), null != (n2 = g3({}, n2)).__c && (n2.__c.__P === e3 && (n2.__c.__P = t3), n2.__c.__e = true, n2.__c = null), n2.__k = n2.__k && n2.__k.map(function(n3) {
-      return V2(n3, t3, e3);
-    })), n2;
-  }
-  function W2(n2, t3, e3) {
-    return n2 && e3 && (n2.__v = null, n2.__k = n2.__k && n2.__k.map(function(n3) {
-      return W2(n3, t3, e3);
-    }), n2.__c && n2.__c.__P === t3 && (n2.__e && e3.appendChild(n2.__e), n2.__c.__e = true, n2.__c.__P = e3)), n2;
-  }
-  function P3() {
-    this.__u = 0, this.o = null, this.__b = null;
-  }
-  function j3(n2) {
-    var t3 = n2.__ && n2.__.__c;
-    return t3 && t3.__a && t3.__a(n2);
-  }
-  function B3() {
-    this.i = null, this.l = null;
-  }
-  l.unmount = function(n2) {
-    var t3 = n2.__c;
-    t3 && (t3.__z = true), t3 && t3.__R && t3.__R(), t3 && 32 & n2.__u && (n2.type = null), U2 && U2(n2);
-  }, (P3.prototype = new C()).__c = function(n2, t3) {
-    var e3 = t3.__c, r3 = this;
-    null == r3.o && (r3.o = []), r3.o.push(e3);
-    var u4 = j3(r3.__v), o2 = false, i3 = function() {
-      o2 || r3.__z || (o2 = true, e3.__R = null, u4 ? u4(f4) : f4());
-    };
-    e3.__R = i3;
-    var l3 = e3.__P;
-    e3.__P = null;
-    var f4 = function() {
-      if (!--r3.__u) {
-        if (r3.state.__a) {
-          var n3 = r3.state.__a;
-          r3.__v.__k[0] = W2(n3, n3.__c.__P, n3.__c.__O);
+    async create(title, listId, patch = {}, migration, fixedId) {
+      if (!this.enabled || !this.data.lists.some((l3) => l3.id === listId)) throw new Error("\u8BF7\u9009\u62E9\u6709\u6548\u7684\u63D0\u9192\u4E8B\u9879\u5217\u8868\u3002");
+      if (!title.trim()) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
+      return this.lock(async () => {
+        if (migration) {
+          const known = this.data.aliases[refKey(migration)];
+          if (known) return known;
+          const pending = this.data.operations.find((o2) => o2.migration && refKey(o2.migration) === refKey(migration));
+          if (pending) return reminderRef(pending.task);
         }
-        var t4;
-        for (r3.setState({ __a: r3.__b = null }); t4 = r3.o.pop(); ) t4.__P = l3, t4.forceUpdate();
-      }
-    };
-    r3.__u++ || 32 & t3.__u || r3.setState({ __a: r3.__b = r3.__v.__k[0] }), n2.then(i3, i3);
-  }, P3.prototype.componentWillUnmount = function() {
-    this.o = [];
-  }, P3.prototype.render = function(n2, e3) {
-    if (this.__b) {
-      if (this.__v.__k) {
-        var r3 = document.createElement("div"), o2 = this.__v.__k[0].__c;
-        this.__v.__k[0] = V2(this.__b, r3, o2.__O = o2.__P);
-      }
-      this.__b = null;
+        const id = fixedId || `Reminder/${uid().toUpperCase()}`;
+        if (this.data.operations.some((o2) => o2.task.id === id) || this.data.items.some((t3) => t3.id === id)) return { kind: "reminder", path: `icloud:${this.data.accountId}`, id };
+        const task = { id, title: title.trim(), completed: false, kind: "reminder", path: `icloud:${this.data.accountId}`, accountId: this.data.accountId, listId, ...patch };
+        const op = { id: uid(), action: "create", task, migration, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
+        return reminderRef(task);
+      });
     }
-    var i3 = e3.__a && k(S, null, n2.fallback);
-    return i3 && (i3.__u &= -33), [k(S, null, e3.__a ? null : n2.children), i3];
-  };
-  var H2 = function(n2, t3, e3) {
-    if (++e3[1] === e3[0] && n2.l.delete(t3), n2.props.revealOrder && ("t" !== n2.props.revealOrder[0] || !n2.l.size)) for (e3 = n2.i; e3; ) {
-      for (; e3.length > 3; ) e3.pop()();
-      if (e3[1] < e3[0]) break;
-      n2.i = e3 = e3[2];
+    async update(task, patch) {
+      return this.lock(async () => {
+        const current = this.assertEditable(task);
+        if (task.revision !== current.revision || task.title !== current.title || task.completed !== current.completed || task.description !== current.description || task.due !== current.due || task.dueInstant !== current.dueInstant) throw new Error("\u63D0\u9192\u4E8B\u9879\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u6B64\u63D0\u9192\u4E8B\u9879\u6709\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5B8C\u6210\u540C\u6B65\u3002");
+        const allowed = {};
+        for (const k3 of ["title", "description", "due", "dueInstant", "dueZone", "completed"]) if (Object.hasOwn(patch, k3)) allowed[k3] = ["dueInstant", "dueZone"].includes(k3) ? patch[k3] ?? null : patch[k3];
+        if (allowed.title !== void 0 && !allowed.title.trim()) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
+        const op = { id: uid(), action: "update", task: clone(current), before: clone(current), patch: allowed, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
+      });
+    }
+    async remove(task) {
+      return this.lock(async () => {
+        const current = this.assertEditable(task);
+        if (current.revision !== task.revision || current.title !== task.title) throw new Error("\u63D0\u9192\u4E8B\u9879\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u6B64\u63D0\u9192\u4E8B\u9879\u5C1A\u6709\u5F85\u540C\u6B65\u64CD\u4F5C\u3002");
+        const op = { id: uid(), action: "delete", task: current, before: current, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
+      });
+    }
+    async restore(ref, seed2) {
+      const known = this.data.rebuilds[refKey(ref)];
+      if (known) ref = known;
+      let current;
+      try {
+        current = this.resolve(ref);
+      } catch (e3) {
+        if (!this.enabled || !this.data.deleted.includes(ref.id)) throw e3;
+        const existing = this.data.operations.find((o2) => o2.status === "pending" && o2.action === "delete" && o2.task.id === ref.id);
+        if (existing) throw new Error("\u5220\u9664\u5C1A\u672A\u786E\u8BA4\uFF0C\u8BF7\u7B49\u540C\u6B65\u5B8C\u6210\u3002");
+        const old = this.data.items.find((t3) => t3.id === ref.id);
+        if (old?.readonlyReason) throw new Error(old.readonlyReason);
+        const listId = seed2.listId || old?.listId || this.options.settings().defaultListId;
+        const next = await this.create(seed2.title, listId, { due: seed2.due, dueInstant: seed2.dueInstant, dueZone: seed2.dueZone, description: seed2.description || old?.description });
+        await this.lock(() => this.commit({ ...this.data, rebuilds: { ...this.data.rebuilds, [refKey(ref)]: next } }));
+        return this.resolve(next);
+      }
+      if (current.readonlyReason && current.completed) throw new Error(current.readonlyReason);
+      if (current.completed) await this.update(current, { completed: false });
+      return this.resolve(reminderRef(current));
+    }
+    async refresh() {
+      if (this.remote) return this.remote;
+      if (!this.enabled) return;
+      this.syncing = true;
+      this.options.changed();
+      const p3 = (async () => {
+        try {
+          const result = await this.rpc.call("snapshot", { accountId: this.data.accountId, cursor: this.data.cursor });
+          await this.lock(async () => {
+            const map = new Map(this.data.items.map((t3) => [t3.id, t3]));
+            for (const t3 of result.items) map.set(t3.id, t3);
+            const deleted = new Set(result.full ? this.data.items.filter((t3) => !result.items.some((n2) => n2.id === t3.id)).map((t3) => t3.id) : this.data.deleted);
+            for (const id of result.deleted || []) deleted.add(id);
+            for (const t3 of result.items) deleted.delete(t3.id);
+            await this.commit({ ...this.data, items: [...map.values()], deleted: [...deleted], lists: result.lists, cursor: result.cursor, syncedAt: Date.now() });
+          });
+          this.error = "";
+        } catch (e3) {
+          this.error = e3.message;
+        } finally {
+          this.syncing = false;
+          this.options.changed();
+        }
+      })();
+      this.remote = p3;
+      void p3.finally(() => {
+        if (this.remote === p3) this.remote = void 0;
+      }).catch(() => {
+      });
+      return p3;
+    }
+    jobs() {
+      if (!this.enabled) return [];
+      return this.data.operations.filter((o2) => o2.status === "pending").map((o2) => ({ key: `reminder:${o2.id}`, value: o2 }));
+    }
+    async requestRetry(key2) {
+      const id = key2.slice(9);
+      await this.lock(async () => {
+        const op = this.data.operations.find((o2) => o2.id === id);
+        if (!op) return;
+        await this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? { ...o2, error: "", sync: { ...o2.sync, issue: void 0, retryAt: 0 } } : o2) });
+      });
+    }
+    async accept(task, id, deleted = false) {
+      await this.lock(() => this.commit({ ...this.data, items: task ? [...this.data.items.filter((t3) => t3.id !== id), task] : this.data.items, deleted: deleted ? [.../* @__PURE__ */ new Set([...this.data.deleted, id])] : this.data.deleted.filter((x4) => x4 !== id) }));
+    }
+    async sync(key2) {
+      const id = key2.slice(9), op = clone(this.data.operations.find((o2) => o2.id === id));
+      if (!op || op.status === "saved") return;
+      try {
+        if (!op.phase) {
+          const result = await this.rpc.call(op.action, { accountId: this.data.accountId, op });
+          await this.accept(result.task, op.task.id, op.action === "delete");
+          op.confirmed = result.task;
+          if (op.migration) {
+            op.phase = "remote-confirmed";
+            await this.lock(() => this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? op : o2) }));
+          }
+        }
+        if (op.migration) {
+          await this.options.migrated?.(op.migration, reminderRef(op.task));
+        }
+        await this.lock(() => this.commit({ ...this.data, aliases: op.migration ? { ...this.data.aliases, [refKey(op.migration)]: reminderRef(op.task) } : this.data.aliases, operations: this.data.operations.map((o2) => o2.id === id ? { ...op, status: "saved", error: "" } : o2) }));
+      } catch (e3) {
+        const error2 = e3.message, issue = /授权|登录|验证码|认证|账户|会话/.test(error2) ? "auth" : /冲突|变化|复杂|周期|子任务|删除|无法解码/.test(error2) ? "conflict" : "network";
+        await this.lock(() => this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? { ...o2, error: error2, sync: { ...o2.sync, issue, attempt: (o2.sync?.attempt || 0) + 1, retryAt: Date.now() + Math.min(3e5, 2e3 * 2 ** Math.min(7, o2.sync?.attempt || 0)) } } : o2) }));
+      }
+    }
+    async completeRemote(task) {
+      const current = this.assertEditable(task);
+      if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u63D0\u9192\u4E8B\u9879\u4ECD\u5728\u540C\u6B65\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u5B8C\u6210\u3002");
+      let revision = task.revision;
+      for (const op of this.data.operations) if (op.status === "saved" && op.task.id === task.id && op.confirmed?.revision && (op.before?.revision === revision || !revision && op.action === "create")) revision = op.confirmed.revision;
+      const result = await this.rpc.call("update", { accountId: this.data.accountId, op: { id: `complete-${task.id}-${task.revision}`, action: "update", task, before: { ...task, revision: revision || current.revision }, patch: { completed: true } } });
+      await this.accept(result.task, current.id);
+    }
+    async reorder(next, expected, all = this.list()) {
+      const rows = all.filter((t3) => expected.includes(t3.id));
+      if (rows.length !== expected.length || rows.some((t3, i3) => t3.id !== expected[i3] || t3.completed) || new Set(next).size !== next.length || next.length !== expected.length || next.some((x4) => !expected.includes(x4))) throw new Error("\u5F85\u529E\u987A\u5E8F\u5DF2\u53D8\u5316\u3002");
+      await this.lock(() => this.commit({ ...this.data, order: [...next, ...this.data.order.filter((x4) => !next.includes(x4))] }));
+    }
+    stop() {
+      this.stopped = true;
     }
   };
-  function Z(n2) {
-    return this.getChildContext = function() {
-      return n2.context;
-    }, n2.children;
+
+  // Shared/timer.ts
+  init_time();
+  var blankJournal = () => ({ version: 2, active: null, records: [], operations: [] });
+  function validateJournal(input) {
+    const data = clone(input);
+    if (!data || ![1, 2].includes(data.version) || !Array.isArray(data.records)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u683C\u5F0F\u4E0D\u6B63\u786E\uFF0C\u5DF2\u4FDD\u7559\u539F\u6587\u4EF6\u3002");
+    data.operations ??= [];
+    if (!Array.isArray(data.operations) || data.operations.some((o2) => !o2.id || !o2.step?.uid || !["pending", "saved"].includes(o2.status))) throw new Error("\u65E5\u7A0B\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
+    if (data.deletions && (!Array.isArray(data.deletions) || data.deletions.some((o2) => !o2.id || !o2.uid || !o2.calendarId || !o2.before || o2.before.uid !== o2.uid || !Number.isFinite(o2.start) || !Number.isFinite(o2.end) || !["pending", "saved"].includes(o2.status)))) throw new Error("\u5220\u9664\u64CD\u4F5C\u65E5\u5FD7\u635F\u574F\u3002");
+    for (const s2 of [data.active, ...data.records].filter(Boolean)) {
+      if (s2.ownerDeviceId !== void 0 && (typeof s2.ownerDeviceId !== "string" || !s2.ownerDeviceId || s2.ownerDeviceId.length > 128)) throw new Error("\u4F1A\u8BDD\u5F52\u5C5E\u65E0\u6548\u3002");
+      if (!s2.id || !s2.task?.id || !s2.calendarId || !s2.zone || !Number.isFinite(s2.startedAt) || !Number.isFinite(s2.lastHeartbeat) || !Array.isArray(s2.segments) || s2.runningSince != null && !Number.isFinite(s2.runningSince)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
+      new Intl.DateTimeFormat("en", { timeZone: s2.zone });
+      let end = -Infinity;
+      for (const p3 of s2.segments) {
+        if (!Number.isFinite(p3.start) || !Number.isFinite(p3.end) || p3.end < p3.start || p3.start < end) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u533A\u95F4\u635F\u574F\u3002");
+        end = p3.end;
+      }
+      if (s2.runningSince != null && s2.runningSince < end) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u533A\u95F4\u91CD\u53E0\u3002");
+    }
+    for (const r3 of data.records) {
+      if (!Number.isFinite(r3.endedAt) || !["saved", "pending"].includes(r3.status) || r3.segments.some((p3) => !p3.uid)) throw new Error("\u5386\u53F2\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
+      if (r3.edit) {
+        validateSegments(r3.edit.segments, Infinity);
+        if (r3.edit.steps.length !== r3.edit.segments.length || r3.edit.steps.some((p3) => !p3.uid || !p3.before || !p3.after || !["prepared", "target-confirmed", "done"].includes(p3.stage))) throw new Error("\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
+      }
+    }
+    for (const job of [...data.records, ...data.operations, ...data.deletions || []]) {
+      if (job.sync && (!Number.isInteger(job.sync.revision) || job.sync.revision < 0 || !Number.isInteger(job.sync.attempt) || job.sync.attempt < 0 || !Number.isFinite(job.sync.retryAt))) throw new Error("\u540C\u6B65\u8FDB\u5EA6\u65E5\u5FD7\u635F\u574F\u3002");
+    }
+    data.version = 2;
+    return data;
   }
-  function Y(n2) {
-    var e3 = this, r3 = n2.h;
-    if (e3.componentWillUnmount = function() {
-      R(null, e3.v), e3.v = null, e3.h = null;
-    }, e3.h && e3.h !== r3 && e3.componentWillUnmount(), !e3.v) {
-      for (var u4 = e3.__v; null !== u4 && !u4.__m && null !== u4.__; ) u4 = u4.__;
-      e3.h = r3, e3.v = { nodeType: 1, parentNode: r3, childNodes: [], __k: { __m: u4.__m }, contains: function() {
+  function pauseSession(session, now) {
+    if (!session) throw new Error("\u6CA1\u6709\u6B63\u5728\u8BA1\u65F6\u7684\u5F85\u529E\u3002");
+    const s2 = clone(session);
+    if (s2.runningSince != null) {
+      if (now < s2.runningSince) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
+      if (now > s2.runningSince) s2.segments.push({ start: s2.runningSince, end: now });
+      s2.runningSince = null;
+    }
+    s2.lastHeartbeat = now;
+    return s2;
+  }
+  var TimerController = class {
+    constructor(deps) {
+      this.deps = deps;
+      this.state = validateJournal(deps.state || blankJournal());
+    }
+    deps;
+    state;
+    serial = Promise.resolve();
+    flights = /* @__PURE__ */ new Map();
+    stopped = false;
+    now() {
+      return this.deps.now?.() ?? Date.now();
+    }
+    lock(fn2) {
+      const p3 = this.serial.then(fn2);
+      this.serial = p3.catch(() => {
+      });
+      return p3;
+    }
+    async commit(next, notify = true) {
+      this.live();
+      await this.deps.persist(clone(next));
+      this.state = next;
+      if (notify) this.deps.onChange?.();
+    }
+    recover() {
+      return this.lock(async () => {
+        if (this.state.active?.runningSince == null) return false;
+        const s2 = this.state.active;
+        await this.commit({ ...this.state, active: pauseSession(s2, Math.max(s2.runningSince, Math.min(s2.lastHeartbeat, this.now()))) });
         return true;
-      }, namespaceURI: r3.namespaceURI, insertBefore: function(n3, t3) {
-        this.childNodes.push(n3), e3.h.insertBefore(n3, t3);
-      }, removeChild: function(n3) {
-        this.childNodes.splice(this.childNodes.indexOf(n3) >>> 1, 1), e3.h.removeChild(n3);
-      } };
+      });
     }
-    R(k(Z, { context: e3.context }, n2.__v), e3.v);
+    stopRemote() {
+      this.stopped = true;
+    }
+    live() {
+      if (this.stopped) throw new Error("\u540C\u6B65\u5668\u5DF2\u505C\u6B62\uFF1B\u64CD\u4F5C\u4FDD\u7559\u5230\u4E0B\u6B21\u542F\u52A8\u3002");
+    }
+    info(job) {
+      return { revision: job?.sync?.revision || 0, attempt: job?.sync?.attempt || 0, retryAt: job?.sync?.retryAt || 0, issue: job?.sync?.issue };
+    }
+    job(key2) {
+      const [type, id] = key2.split(":");
+      return type === "work" ? this.state.records.find((r3) => r3.id === id) : type === "event" ? this.state.operations.find((o2) => o2.id === id) : this.state.deletions?.find((o2) => o2.id === id);
+    }
+    jobs() {
+      return [...this.state.records.filter((r3) => r3.status === "pending").map((r3) => ({ key: `work:${r3.id}`, value: r3 })), ...this.state.operations.filter((o2) => o2.status === "pending").map((o2) => ({ key: `event:${o2.id}`, value: o2 })), ...(this.state.deletions || []).filter((o2) => o2.status === "pending").map((o2) => ({ key: `delete:${o2.id}`, value: o2 }))];
+    }
+    async updateJob(key2, change) {
+      const current = this.job(key2);
+      if (!current) throw new Error("\u540C\u6B65\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
+      const next = clone(current);
+      change(next);
+      const [type, id] = key2.split(":");
+      await this.commit({ ...this.state, ...type === "work" ? { records: this.state.records.map((r3) => r3.id === id ? next : r3) } : type === "event" ? { operations: this.state.operations.map((o2) => o2.id === id ? next : o2) } : { deletions: this.state.deletions.map((o2) => o2.id === id ? next : o2) } });
+    }
+    requestRetry(key2) {
+      return this.lock(async () => {
+        if (this.flights.has(key2)) return;
+        await this.updateJob(key2, (job) => {
+          job.error = "";
+          job.sync = { ...this.info(job), retryAt: 0, issue: void 0 };
+        });
+      });
+    }
+    runJob(key2, execute2, automatic = false) {
+      const prior = this.flights.get(key2);
+      if (prior) return prior;
+      const promise = (async () => {
+        const ready = await this.lock(async () => {
+          this.live();
+          const current2 = this.job(key2);
+          if (automatic && (!current2 || current2.status !== "pending" || !current2.sync && current2.error || current2.sync?.issue && current2.sync.issue !== "network" || (current2.sync?.retryAt || 0) > this.now())) return false;
+          if (current2?.status === "pending") await this.updateJob(key2, (job) => {
+            job.sync = { ...this.info(job), attempt: (job.sync?.attempt || 0) + 1 };
+          });
+          return true;
+        });
+        if (!ready) return clone(this.job(key2));
+        const result = await execute2();
+        await this.lock(async () => {
+          this.live();
+          if (this.job(key2)?.status !== "pending") return;
+          await this.updateJob(key2, (job) => {
+            const info = this.info(job), issue = classifySyncError(job.error);
+            job.sync = { ...info, issue, retryAt: issue === "network" ? this.now() + Math.round(Math.min(3e5, 2e3 * 2 ** Math.min(info.attempt - 1, 8)) * (0.85 + Math.random() * 0.3)) : 0 };
+          });
+        });
+        const current = this.job(key2);
+        return current ? clone(current) : result;
+      })();
+      this.flights.set(key2, promise);
+      void promise.finally(() => this.flights.delete(key2)).catch(() => {
+      });
+      return promise;
+    }
+    sync(key2) {
+      const [type, id] = key2.split(":");
+      return this.runJob(key2, async () => type === "work" ? this.flush(id) : type === "event" ? this.flushOperation(id) : this.flushDeletion(id), true);
+    }
+    guard(key2, revision) {
+      this.live();
+      const current = this.job(key2);
+      if (!current || current.status !== "pending" || (current.sync?.revision || 0) !== revision) throw new Error("\u64CD\u4F5C\u7248\u672C\u5DF2\u53D8\u5316\uFF0C\u5FFD\u7565\u65E7\u540C\u6B65\u7ED3\u679C\u3002");
+    }
+    start(task, calendarId) {
+      return this.lock(async () => {
+        if (this.state.active) throw new Error("\u8BF7\u5148\u7ED3\u675F\u5F53\u524D\u8BA1\u65F6\u3002");
+        if (!task.id || !task.title.trim()) throw new Error("\u8BF7\u9009\u62E9\u6709\u6548\u5F85\u529E\u3002");
+        this.deps.calendar.assertWritable(calendarId);
+        const now = this.now();
+        const active = {
+          id: uid(),
+          ownerDeviceId: this.deps.ownerDeviceId,
+          title: task.title,
+          task: clone(task),
+          calendarId,
+          zone: this.deps.zone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+          startedAt: now,
+          runningSince: now,
+          lastHeartbeat: now,
+          segments: []
+        };
+        await this.commit({ ...this.state, active });
+      });
+    }
+    checkSession(expectedId) {
+      if (expectedId !== void 0 && this.state.active?.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+    }
+    pause(expectedId) {
+      return this.lock(() => {
+        this.checkSession(expectedId);
+        return this.commit({ ...this.state, active: pauseSession(this.state.active, this.now()) });
+      });
+    }
+    resume(expectedId) {
+      return this.lock(async () => {
+        this.checkSession(expectedId);
+        const s2 = this.state.active, now = this.now();
+        if (!s2 || s2.runningSince != null) throw new Error("\u5F53\u524D\u72B6\u6001\u4E0D\u80FD\u7EE7\u7EED\u3002");
+        if (now < (s2.segments.at(-1)?.end ?? s2.startedAt)) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
+        await this.commit({ ...this.state, active: { ...s2, runningSince: now, lastHeartbeat: now } });
+      });
+    }
+    heartbeat() {
+      return this.lock(async () => {
+        if (this.state.active?.runningSince != null) await this.commit({
+          ...this.state,
+          active: { ...this.state.active, lastHeartbeat: this.now() }
+        }, false);
+      });
+    }
+    updateActive(patch, expectedId) {
+      return this.lock(async () => {
+        const s2 = clone(this.state.active);
+        if (!s2) throw new Error("\u6CA1\u6709\u5F53\u524D\u8BA1\u65F6\u3002");
+        if (expectedId && s2.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (patch.calendarId) {
+          this.deps.calendar.assertWritable(patch.calendarId);
+          s2.calendarId = patch.calendarId;
+        }
+        if (patch.startedAt != null) {
+          const boundary = s2.segments[0]?.end ?? (s2.runningSince == null ? s2.lastHeartbeat : this.now());
+          if (!Number.isFinite(patch.startedAt) || patch.startedAt > this.now() || patch.startedAt > boundary - (s2.segments.length ? 1e3 : 0)) throw new Error("\u5F00\u59CB\u65F6\u95F4\u4E0D\u80FD\u665A\u4E8E\u9996\u6BB5\u7ED3\u675F\u6216\u5F53\u524D\u65F6\u95F4\u3002");
+          s2.startedAt = patch.startedAt;
+          if (s2.segments.length) s2.segments[0].start = patch.startedAt;
+          else if (s2.runningSince != null) s2.runningSince = patch.startedAt;
+          else if (patch.startedAt < boundary) s2.segments.push({ start: patch.startedAt, end: boundary });
+        }
+        await this.commit({ ...this.state, active: s2 });
+      });
+    }
+    finish(completeTask2 = true, expectedId) {
+      return this.lock(async () => {
+        this.checkSession(expectedId);
+        if (completeTask2 && this.state.active?.task.readonlyReason) throw new Error(this.state.active.task.readonlyReason);
+        const now = this.now(), s2 = pauseSession(this.state.active, now);
+        const segments = s2.segments.filter((p3) => p3.end - p3.start >= 1e3).map((p3, i3) => ({ ...p3, uid: `simple-task-timer-${s2.id}-${i3}`, saved: false }));
+        validateSegments(segments, now);
+        const record = { ...s2, segments, endedAt: now, completeTask: completeTask2, taskSaved: !completeTask2, status: "pending", error: "", sync: this.info(), localFirst: !!this.deps.background && s2.task.kind === "local" };
+        await this.commit({ ...this.state, active: null, records: [...this.state.records, record] });
+        if (record.localFirst && completeTask2) {
+          try {
+            await this.deps.tasks.complete(record.task);
+            record.taskSaved = true;
+            await this.replace(record);
+          } catch (e3) {
+            const durable = clone(this.state.records.find((r3) => r3.id === record.id));
+            durable.error = e3.message;
+            durable.sync = { ...this.info(durable), issue: "conflict" };
+            await this.replace(durable);
+            return durable;
+          }
+        }
+        return record;
+      }).then((r3) => this.deps.background ? r3 : this.retry(r3.id));
+    }
+    retry(id) {
+      return this.runJob(`work:${id}`, () => this.flush(id));
+    }
+    async replace(record) {
+      await this.commit({ ...this.state, records: this.state.records.map((r3) => r3.id === record.id ? clone(record) : r3) });
+    }
+    checkpointRecord(r3) {
+      return this.lock(async () => {
+        this.guard(`work:${r3.id}`, r3.sync?.revision || 0);
+        await this.replace(r3);
+      });
+    }
+    async flush(id) {
+      let r3 = await this.lock(() => Promise.resolve(clone(this.state.records.find((r4) => r4.id === id))));
+      if (!r3) throw new Error("\u8BB0\u5F55\u4E0D\u5B58\u5728\u3002");
+      if (r3.status === "saved" && !r3.edit) return r3;
+      try {
+        this.live();
+        if (r3.localFirst && r3.completeTask && !r3.taskSaved) {
+          await this.deps.tasks.complete(r3.task);
+          r3.taskSaved = true;
+          await this.checkpointRecord(r3);
+        }
+        this.deps.calendar.assertWritable(r3.calendarId);
+        if (r3.edit) {
+          for (const step of r3.edit.steps) {
+            this.live();
+            await this.deps.calendar.reconcileStep(step, () => this.checkpointRecord(r3));
+          }
+          r3.calendarId = r3.edit.calendarId;
+          r3.title = r3.edit.title;
+          r3.segments = r3.edit.segments.map((p3, i3) => ({ ...p3, saved: true, snapshot: r3.edit.steps[i3].after }));
+          r3.startedAt = r3.segments[0].start;
+          r3.endedAt = r3.segments.at(-1).end;
+          delete r3.edit;
+          await this.checkpointRecord(r3);
+        } else {
+          for (const p3 of r3.segments) {
+            if (p3.saved) continue;
+            this.live();
+            p3.snapshot = await this.deps.calendar.ensureEvent(r3.calendarId, eventForSegment(r3, p3));
+            p3.saved = true;
+            await this.checkpointRecord(r3);
+          }
+        }
+        this.live();
+        if (r3.completeTask && !r3.taskSaved) {
+          await this.deps.tasks.complete(r3.task);
+          r3.taskSaved = true;
+        }
+        await this.lock(async () => {
+          this.guard(`work:${id}`, r3.sync?.revision || 0);
+          r3.status = "saved";
+          r3.error = "";
+          await this.replace(r3);
+        });
+      } catch (e3) {
+        await this.lock(async () => {
+          this.guard(`work:${id}`, r3.sync?.revision || 0);
+          r3 = clone(this.state.records.find((x4) => x4.id === id));
+          r3.error = e3.message;
+          await this.replace(r3);
+        });
+      }
+      return r3;
+    }
+    editRecord(id, draft, expected) {
+      return this.lock(async () => {
+        const current = this.state.records.find((r4) => r4.id === id);
+        if (!current || JSON.stringify(current) !== JSON.stringify(expected)) throw new Error("\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (current.status !== "saved" || current.edit) throw new Error("\u8BF7\u5148\u5904\u7406\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u518D\u4FEE\u6539\u8BB0\u5F55\u3002");
+        if (this.state.deletions?.some((o2) => o2.recordId === id && o2.status !== "saved")) throw new Error("\u6B64\u8BB0\u5F55\u6709\u5F85\u540C\u6B65\u7684\u5220\u9664\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5904\u7406\u3002");
+        const title = draft.title.trim();
+        if (!title) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
+        this.deps.calendar.assertWritable(draft.calendarId);
+        validateSegments(draft.segments, this.now());
+        if (draft.segments.length !== current.segments.length) throw new Error("\u672C\u7248\u4E0D\u589E\u52A0\u6216\u5220\u9664\u5386\u53F2\u5206\u6BB5\u3002");
+        const r3 = clone(current);
+        const steps = current.segments.map((p3, i3) => {
+          const remote = this.deps.calendar.readByUid(current.calendarId, p3.uid);
+          if (!remote) throw new Error("\u65E5\u5386\u4E2D\u7684\u539F\u8BB0\u5F55\u5DF2\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\uFF1B\u4E0D\u4F1A\u81EA\u52A8\u91CD\u5EFA\u3002");
+          const before = draft.snapshots?.[i3] ?? p3.snapshot ?? eventForSegment(current, p3);
+          if (draft.snapshots?.[i3] || p3.snapshot ? !sameEventContent(remote, before) : !Object.entries(before).every(([k3, v3]) => v3 === void 0 || JSON.stringify(remote[k3]) === JSON.stringify(v3))) throw new Error("\u65E5\u5386\u8BB0\u5F55\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
+          const after = { ...remote, ...eventForSegment({ title }, { ...draft.segments[i3], uid: p3.uid }) };
+          return { uid: p3.uid, fromCalendarId: current.calendarId, toCalendarId: draft.calendarId, before: clone(remote), after, stage: "prepared" };
+        });
+        r3.status = "pending";
+        r3.error = "";
+        r3.sync = { revision: (r3.sync?.revision || 0) + 1, attempt: 0, retryAt: 0 };
+        r3.edit = { calendarId: draft.calendarId, title, segments: draft.segments.map((p3, i3) => ({ start: p3.start, end: p3.end, uid: current.segments[i3].uid })), steps };
+        await this.replace(r3);
+        return r3;
+      }).then((r3) => this.deps.background ? r3 : this.retry(id));
+    }
+    keepCalendarOnly(id) {
+      return this.lock(async () => {
+        if (this.flights.has(`work:${id}`)) throw new Error("\u6B64\u8BB0\u5F55\u6B63\u5728\u540C\u6B65\uFF0C\u8BF7\u7B49\u672C\u6B21\u8BF7\u6C42\u7ED3\u675F\u3002");
+        const r3 = this.state.records.find((r4) => r4.id === id);
+        if (!r3 || r3.edit || r3.segments.some((p3) => !p3.saved)) throw new Error("\u8BF7\u5148\u6210\u529F\u4FDD\u5B58\u5168\u90E8\u65E5\u5386\u65F6\u95F4\u6BB5\u3002");
+        await this.replace({ ...r3, completeTask: false, taskSaved: true, status: "saved", error: "" });
+      });
+    }
+    saveEvent(step) {
+      return this.lock(async () => {
+        if (this.jobs().some((j4) => j4.key.startsWith("event:") && j4.value.step.uid === step.uid)) throw new Error("\u6B64\u65E5\u7A0B\u5DF2\u6709\u5F85\u540C\u6B65\u4FEE\u6539\uFF0C\u8BF7\u5148\u5904\u7406\u8BE5\u9879\u3002");
+        const id = uid();
+        const op = { id, title: step.after.title, step: clone(step), status: "pending", error: "", sync: this.info() };
+        await this.commit({ ...this.state, operations: [...this.state.operations, op] });
+        return op;
+      }).then((op) => this.deps.background ? op : this.retryEvent(op.id));
+    }
+    retryEvent(id) {
+      return this.runJob(`event:${id}`, () => this.flushOperation(id));
+    }
+    async flushOperation(id) {
+      let op = clone(this.state.operations.find((o2) => o2.id === id));
+      if (!op) throw new Error("\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
+      if (op.status === "saved") return op;
+      const revision = op.sync?.revision || 0;
+      const checkpoint = () => this.lock(async () => {
+        this.guard(`event:${id}`, revision);
+        await this.commit({ ...this.state, operations: this.state.operations.map((o2) => o2.id === id ? clone(op) : o2) });
+      });
+      try {
+        this.live();
+        await this.deps.calendar.reconcileStep(op.step, checkpoint);
+        op.status = "saved";
+        op.error = "";
+        await checkpoint();
+      } catch (e3) {
+        op = clone(this.state.operations.find((o2) => o2.id === id));
+        op.error = e3.message;
+        await checkpoint();
+      }
+      return op;
+    }
+    deleteEvent(target, range, record) {
+      return this.lock(async () => {
+        if (record) {
+          const current = this.state.records.find((r3) => r3.id === record.id);
+          if (!current || JSON.stringify(current) !== JSON.stringify(record)) throw new Error("\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+          if (current.status !== "saved" || current.edit || !current.segments.some((p3) => p3.uid === target.uid) || current.calendarId !== target.calendarId) throw new Error("\u8BF7\u5148\u5904\u7406\u8BB0\u5F55\u7684\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u518D\u5220\u9664\u3002");
+        }
+        if (this.state.deletions?.some((o2) => o2.status !== "saved" && (o2.recordId && o2.recordId === record?.id || o2.uid === target.uid && o2.calendarId === target.calendarId))) throw new Error("\u6B64\u8BB0\u5F55\u5DF2\u5728\u7B49\u5F85\u5220\u9664\uFF0C\u8BF7\u5728\u5F85\u540C\u6B65\u4E2D\u91CD\u8BD5\u3002");
+        if (this.state.operations.some((o2) => o2.status !== "saved" && o2.step.uid === target.uid && [o2.step.fromCalendarId, o2.step.toCalendarId].includes(target.calendarId))) throw new Error("\u6B64\u65E5\u7A0B\u6B63\u5728\u4FEE\u6539\uFF0C\u8BF7\u5148\u5904\u7406\u5F85\u540C\u6B65\u64CD\u4F5C\u3002");
+        if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) throw new Error("\u5220\u9664\u8BB0\u5F55\u7684\u65F6\u95F4\u8303\u56F4\u65E0\u6548\u3002");
+        const remote = this.deps.calendar.readByUid(target.calendarId, target.uid);
+        if (!remote || !sameEvent(remote, target.before)) throw new Error("\u65E5\u7A0B\u5DF2\u4FEE\u6539\u6216\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
+        const op = { ...clone(target), ...range, id: uid(), title: target.before.title, recordId: record?.id, status: "pending", error: "", sync: this.info() };
+        await this.commit({ ...this.state, deletions: [...this.state.deletions || [], op] });
+        return op;
+      }).then((op) => this.deps.background ? op : this.retryDeletion(op.id));
+    }
+    retryDeletion(id) {
+      return this.runJob(`delete:${id}`, () => this.flushDeletion(id));
+    }
+    reconcileDeletions() {
+      return this.lock(async () => {
+        let count = 0;
+        for (const op of this.state.deletions?.filter((o2) => o2.status === "pending") || []) {
+          if (this.flights.has(`delete:${op.id}`)) continue;
+          if (!this.deps.calendar.hasCalendarData?.(op.calendarId)) continue;
+          if (this.deps.calendar.readByUid(op.calendarId, op.uid)) continue;
+          await this.confirmDeletion({ ...clone(op), resolution: "absent-in-fcr" });
+          count++;
+        }
+        return count;
+      });
+    }
+    confirmRemoteDeletion(id) {
+      return this.lock(async () => {
+        if (this.flights.has(`delete:${id}`)) throw new Error("\u6B64\u8BB0\u5F55\u6B63\u5728\u540C\u6B65\uFF0C\u8BF7\u7B49\u672C\u6B21\u8BF7\u6C42\u7ED3\u675F\u518D\u6838\u5BF9\u3002");
+        const op = this.state.deletions?.find((o2) => o2.id === id);
+        if (!op) throw new Error("\u5220\u9664\u8BF7\u6C42\u4E0D\u5B58\u5728\u3002");
+        if (op.status === "saved") return;
+        if (!isMissingResource(op.error)) throw new Error("\u6B64\u8BF7\u6C42\u5C1A\u672A\u62A5\u544A\u8D44\u6E90\u4E0D\u5B58\u5728\uFF0C\u8BF7\u5148\u5237\u65B0\u6216\u91CD\u8BD5\u3002");
+        const current = this.deps.calendar.readByUid(op.calendarId, op.uid);
+        if (current && !sameEventContent(current, op.before)) throw new Error("\u65E5\u7A0B\u5185\u5BB9\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5148\u5728\u5B8C\u6574\u65E5\u5386\u4E2D\u6838\u5BF9\u3002");
+        await this.confirmDeletion({ ...clone(op), resolution: "user-confirmed-remote-deletion" });
+      });
+    }
+    async confirmDeletion(op) {
+      op.status = "saved";
+      op.error = "";
+      const records = this.state.records.map((r3) => {
+        if (r3.id !== op.recordId) return r3;
+        const segments = r3.segments.filter((p3) => p3.uid !== op.uid);
+        return { ...r3, segments, startedAt: segments[0]?.start ?? r3.startedAt, endedAt: segments.at(-1)?.end ?? r3.endedAt };
+      });
+      await this.commit({ ...this.state, records, deletions: this.state.deletions.map((o2) => o2.id === op.id ? clone(op) : o2) });
+    }
+    async flushDeletion(id) {
+      let op = clone(this.state.deletions?.find((o2) => o2.id === id));
+      if (!op) throw new Error("\u5220\u9664\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
+      if (op.status === "saved") return op;
+      try {
+        this.live();
+        await this.deps.calendar.deleteEvent(op);
+        op.resolution = "deleted";
+        await this.lock(async () => {
+          this.guard(`delete:${id}`, op.sync?.revision || 0);
+          await this.confirmDeletion(op);
+        });
+        op = clone(this.state.deletions.find((o2) => o2.id === id));
+      } catch (e3) {
+        await this.lock(async () => {
+          this.guard(`delete:${id}`, op.sync?.revision || 0);
+          op = clone(this.state.deletions.find((o2) => o2.id === id));
+          op.error = e3.message;
+          await this.commit({ ...this.state, deletions: this.state.deletions.map((o2) => o2.id === id ? clone(op) : o2) });
+        });
+      }
+      return op;
+    }
+  };
+  function classifySyncError(message) {
+    if (/授权|请先连接|请启用兼容|scope|HTTP\s+(401|403)\b/i.test(message)) return "auth";
+    if (/外部|已变化|已删除|找不到|不存在|同 UID|分类日历|无法|不允许|只读|HTTP\s+(404|410)\b/i.test(message)) return "conflict";
+    if (/network|offline|fetch|timeout|timed? out|ECONN|ENET|网络|断网|超时|未确认|未能核对|尚未就绪|lost.*response|HTTP\s+(429|5\d\d)\b/i.test(message)) return "network";
+    return "conflict";
   }
-  function $2(n2, e3) {
-    var r3 = k(Y, { __v: n2, h: e3 });
-    return r3.containerInfo = e3, r3;
-  }
-  (B3.prototype = new C()).__a = function(n2) {
-    var t3 = this, e3 = j3(t3.__v), r3 = t3.l.get(n2);
-    return r3[0]++, function(u4) {
-      var o2 = function() {
-        t3.props.revealOrder ? (r3.push(u4), H2(t3, n2, r3)) : u4();
+
+  // Clients/Obsidian/api.ts
+  var EntryError = class extends Error {
+    constructor(code, message) {
+      super(message);
+      this.code = code;
+    }
+    code;
+  };
+  var taskRef = (task) => ({ kind: task.kind === "reminder" ? "reminder" : "local", path: task.path || "", id: task.id });
+  var sameTask = (task, ref) => task.kind === ref.kind && task.path === ref.path && task.id === ref.id;
+  var TimerApi = class {
+    constructor(host2) {
+      this.host = host2;
+    }
+    host;
+    version = 1;
+    listeners = /* @__PURE__ */ new Set();
+    timerListeners = /* @__PURE__ */ new Set();
+    serial = Promise.resolve();
+    disposed = false;
+    getState() {
+      return clone({ ...this.host.state(), available: !this.disposed });
+    }
+    subscribe(listener) {
+      if (this.disposed) {
+        listener(this.getState());
+        return () => {
+        };
+      }
+      this.listeners.add(listener);
+      try {
+        listener(this.getState());
+      } catch {
+        this.listeners.delete(listener);
+      }
+      return () => {
+        this.listeners.delete(listener);
       };
-      e3 ? e3(o2) : o2();
-    };
-  }, B3.prototype.render = function(n2) {
-    this.i = null, this.l = /* @__PURE__ */ new Map();
-    var t3 = F(n2.children);
-    n2.revealOrder && "b" === n2.revealOrder[0] && t3.reverse();
-    for (var e3 = t3.length; e3--; ) this.l.set(t3[e3], this.i = [1, 0, this.i]);
-    return n2.children;
-  }, B3.prototype.componentDidUpdate = B3.prototype.componentDidMount = function() {
-    var n2 = this;
-    this.l.forEach(function(t3, e3) {
-      H2(n2, e3, t3);
-    });
-  };
-  var q3 = "undefined" != typeof Symbol && Symbol.for && /* @__PURE__ */ Symbol.for("react.element") || 60103;
-  var G2 = /^(?:accent|alignment|arabic|baseline|cap|clip(?!PathU)|color|dominant|fill|flood|font|glyph(?!R)|horiz|image(!S)|letter|lighting|marker(?!H|W|U)|overline|paint|pointer|shape|stop|strikethrough|stroke|text(?!L)|transform|underline|unicode|units|v|vector|vert|word|writing|x(?!C))[A-Z]/;
-  var J2 = /^on(Ani|Tra|Tou|BeforeInp|Compo)/;
-  var K2 = /[A-Z0-9]/g;
-  var Q2 = "undefined" != typeof document;
-  var X2 = function(n2) {
-    return ("undefined" != typeof Symbol && "symbol" == typeof /* @__PURE__ */ Symbol() ? /fil|che|rad/ : /fil|che|ra/).test(n2);
-  };
-  function nn(n2, t3, e3) {
-    return null == t3.__k && (t3.textContent = ""), R(n2, t3), "function" == typeof e3 && e3(), n2 ? n2.__c : null;
-  }
-  C.prototype.isReactComponent = true, ["componentWillMount", "componentWillReceiveProps", "componentWillUpdate"].forEach(function(t3) {
-    Object.defineProperty(C.prototype, t3, { configurable: true, get: function() {
-      return this["UNSAFE_" + t3];
-    }, set: function(n2) {
-      Object.defineProperty(this, t3, { configurable: true, writable: true, value: n2 });
-    } });
-  });
-  var en = l.event;
-  l.event = function(n2) {
-    return en && (n2 = en(n2)), n2.persist = function() {
-    }, n2.isPropagationStopped = function() {
-      return this.cancelBubble;
-    }, n2.isDefaultPrevented = function() {
-      return this.defaultPrevented;
-    }, n2.nativeEvent = n2;
-  };
-  var rn;
-  var un = { configurable: true, get: function() {
-    return this.class;
-  } };
-  var on = l.vnode;
-  l.vnode = function(n2) {
-    "string" == typeof n2.type && (function(n3) {
-      var t3 = n3.props, e3 = n3.type, u4 = {}, o2 = -1 == e3.indexOf("-");
-      for (var i3 in t3) {
-        var l3 = t3[i3];
-        if (!("value" === i3 && "defaultValue" in t3 && null == l3 || Q2 && "children" === i3 && "noscript" === e3 || "class" === i3 || "className" === i3)) {
-          var f4 = i3.toLowerCase();
-          "defaultValue" === i3 && "value" in t3 && null == t3.value ? i3 = "value" : "download" === i3 && true === l3 ? l3 = "" : "translate" === f4 && "no" === l3 ? l3 = false : "o" === f4[0] && "n" === f4[1] ? "ondoubleclick" === f4 ? i3 = "ondblclick" : "onchange" !== f4 || "input" !== e3 && "textarea" !== e3 || X2(t3.type) ? "onfocus" === f4 ? i3 = "onfocusin" : "onblur" === f4 ? i3 = "onfocusout" : J2.test(i3) && (i3 = f4) : f4 = i3 = "oninput" : o2 && G2.test(i3) ? i3 = i3.replace(K2, "-$&").toLowerCase() : null === l3 && (l3 = void 0), "oninput" === f4 && u4[i3 = f4] && (i3 = "oninputCapture"), u4[i3] = l3;
+    }
+    getTimerState() {
+      return this.host.timerState ? clone({ ...this.host.timerState(), available: !this.disposed }) : timerSnapshot(this.host.controller.state.active, !this.disposed);
+    }
+    subscribeTimer(listener) {
+      if (this.disposed) {
+        listener(this.getTimerState());
+        return () => {
+        };
+      }
+      this.timerListeners.add(listener);
+      try {
+        listener(this.getTimerState());
+      } catch {
+        this.timerListeners.delete(listener);
+      }
+      return () => {
+        this.timerListeners.delete(listener);
+      };
+    }
+    notify() {
+      for (const listener of this.listeners) {
+        try {
+          listener(this.getState());
+        } catch {
         }
       }
-      "select" == e3 && (u4.multiple && Array.isArray(u4.value) && (u4.value = F(t3.children).forEach(function(n4) {
-        n4.props.selected = -1 != u4.value.indexOf(n4.props.value);
-      })), null != u4.defaultValue && (u4.value = F(t3.children).forEach(function(n4) {
-        n4.props.selected = u4.multiple ? -1 != u4.defaultValue.indexOf(n4.props.value) : u4.defaultValue == n4.props.value;
-      }))), t3.class && !t3.className ? (u4.class = t3.class, Object.defineProperty(u4, "className", un)) : t3.className && (u4.class = u4.className = t3.className), n3.props = u4;
-    })(n2), n2.$$typeof = q3, on && on(n2);
-  };
-  var ln = l.__r;
-  l.__r = function(n2) {
-    ln && ln(n2), rn = n2.__c;
-  };
-  var fn = l.diffed;
-  l.diffed = function(n2) {
-    fn && fn(n2);
-    var t3 = n2.props, e3 = n2.__e;
-    null != e3 && "textarea" === n2.type && "value" in t3 && t3.value !== e3.value && (e3.value = null == t3.value ? "" : t3.value), rn = null;
-  };
-  function hn(n2) {
-    return !!n2 && n2.$$typeof === q3;
-  }
-  function pn(n2) {
-    return !!n2.__k && (R(null, n2), true);
-  }
-  var bn = function(n2, t3) {
-    var r3, u4 = l.debounceRendering;
-    l.debounceRendering = function(n3) {
-      r3 = n3;
-    };
-    try {
-      var o2 = n2(t3);
-      return r3 && r3(), o2;
-    } finally {
-      l.debounceRendering = u4;
+      for (const listener of this.timerListeners) {
+        try {
+          listener(this.getTimerState());
+        } catch {
+        }
+      }
+    }
+    dispose() {
+      this.disposed = true;
+      this.notify();
+      this.listeners.clear();
+      this.timerListeners.clear();
+    }
+    action(fn2) {
+      const result = this.serial.then(async () => {
+        if (this.disposed) return { ok: false, code: "unavailable", message: "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u3002" };
+        try {
+          return await this.host.execute(fn2);
+        } catch (e3) {
+          return { ok: false, code: e3 instanceof EntryError ? e3.code : "action-error", message: e3.message || String(e3), sessionId: this.host.controller.state.active?.id };
+        }
+      });
+      this.serial = result;
+      return result;
+    }
+    start(ref, context) {
+      return this.action(async () => {
+        if (!ref || !["local", "reminder"].includes(ref.kind) || !ref.id || !ref.path) throw new EntryError("invalid-task", "\u8BF7\u63D0\u4F9B\u5F85\u529E\u6587\u4EF6\u8DEF\u5F84\u548C\u7A33\u5B9A\u4EFB\u52A1 ID\u3002");
+        const current = await this.host.resolve(ref, context);
+        if (current.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
+        const active = this.host.controller.state.active;
+        if (active) {
+          if (sameTask(active.task, taskRef(current))) return { ok: true, sessionId: active.id };
+          throw new EntryError("active-session", `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u660E\u786E\u7ED3\u675F\u8BE5\u4F1A\u8BDD\u518D\u5207\u6362\u4EFB\u52A1\u3002`);
+        }
+        const task = await this.host.prepare(current);
+        if (task.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
+        await this.host.controller.start(task, task.calendarId);
+        return { ok: true, sessionId: this.host.controller.state.active.id };
+      });
+    }
+    session(id) {
+      if (!id || this.host.controller.state.active?.id !== id) throw new EntryError("stale-session", "\u6B64\u4F1A\u8BDD\u5DF2\u7ED3\u675F\u6216\u5207\u6362\uFF0C\u8BF7\u4F7F\u7528\u5F53\u524D\u72B6\u6001\u91CD\u8BD5\u3002");
+    }
+    pause(sessionId) {
+      return this.action(async () => {
+        this.session(sessionId);
+        await this.host.controller.pause(sessionId);
+        return { ok: true, sessionId };
+      });
+    }
+    resume(sessionId) {
+      return this.action(async () => {
+        this.session(sessionId);
+        if (this.host.controller.state.active.runningSince == null) await this.host.controller.resume(sessionId);
+        return { ok: true, sessionId };
+      });
+    }
+    finish(sessionId, completeTask2 = false) {
+      return this.action(async () => {
+        this.session(sessionId);
+        const record = await this.host.controller.finish(completeTask2 === true, sessionId);
+        let warning = record.error;
+        try {
+          await this.host.refresh();
+        } catch (e3) {
+          warning ||= e3.message;
+        }
+        return { ok: true, sessionId, recordId: record.id, pending: record.status === "pending", warning };
+      });
     }
   };
 
-  // node_modules/preact/compat/client.mjs
-  function createRoot(container) {
+  // Clients/Obsidian/ui.ts
+  init_time();
+
+  // Clients/Obsidian/appearance.ts
+  var DEFAULT_APPEARANCE = { fontSize: 15, fontWeight: 500 };
+  function appearance(value) {
     return {
-      // eslint-disable-next-line
-      render: function(children) {
-        nn(children, container);
-      },
-      // eslint-disable-next-line
-      unmount: function() {
-        pn(container);
-      }
+      fontSize: Number.isFinite(value?.fontSize) ? Math.max(13, Math.min(20, value.fontSize)) : DEFAULT_APPEARANCE.fontSize,
+      fontWeight: [400, 500, 600].includes(value?.fontWeight ?? 0) ? value.fontWeight : DEFAULT_APPEARANCE.fontWeight
     };
   }
+  function applyAppearance(root, value) {
+    const normalized = appearance(value);
+    root.style.setProperty("--ctt-font-size", `${normalized.fontSize}px`);
+    root.style.setProperty("--ctt-font-weight", String(normalized.fontWeight));
+  }
+  function mountTimerView(content2) {
+    content2.classList.add("ctt-view-host");
+    content2.style.padding = "0";
+    content2.style.overflow = "hidden";
+    const mount = content2.ownerDocument.createElement("div");
+    content2.replaceChildren(mount);
+    return mount;
+  }
+
+  // Clients/Obsidian/dom.ts
+  function el(parent, tag, cls = "", text) {
+    const node = parent.ownerDocument.createElement(tag);
+    node.className = cls;
+    if (text != null) node.textContent = text;
+    parent.append(node);
+    return node;
+  }
+  function button(parent, text, action, cls = "", label) {
+    const b2 = el(parent, "button", cls, text);
+    b2.type = "button";
+    if (label) {
+      b2.title = label;
+      b2.setAttribute("aria-label", label);
+    }
+    b2.onclick = action;
+    return b2;
+  }
+  function field(parent, label, type, value) {
+    const l3 = el(parent, "label", "ctt-field");
+    el(l3, "span", "", label);
+    const input = el(l3, "input");
+    input.type = type;
+    input.value = value;
+    input.setAttribute("aria-label", label);
+    if (type === "datetime-local") input.step = "1";
+    return input;
+  }
+  function options(select, sources, value, placeholder = "\u9009\u62E9\u5206\u7C7B") {
+    const signature = JSON.stringify(sources.map((c3) => [c3.id, c3.name]));
+    if (select.dataset.options !== signature) {
+      select.replaceChildren();
+      const empty = el(select, "option", "", placeholder);
+      empty.value = "";
+      for (const c3 of sources) {
+        const o2 = el(select, "option", "", c3.name);
+        o2.value = c3.id;
+      }
+      select.dataset.options = signature;
+    }
+    if (value && !sources.some((c3) => c3.id === value)) {
+      if (!Array.from(select.options).some((o2) => o2.value === value)) {
+        const o2 = el(select, "option", "", "\u5206\u7C7B\u5DF2\u4E0D\u53EF\u7528");
+        o2.value = value;
+      }
+    }
+    select.value = value;
+  }
+
+  // Clients/Obsidian/categories.ts
+  function categoryPreferences(value) {
+    const ids = (v3) => Array.isArray(v3) ? [...new Set(v3.filter((id) => typeof id === "string" && !!id))] : [];
+    return { categoryOrder: ids(value?.categoryOrder), hiddenCategoryIds: ids(value?.hiddenCategoryIds) };
+  }
+  function orderedCategories(calendars2, value, visibleOnly = false) {
+    const prefs = categoryPreferences(value), positions = new Map(prefs.categoryOrder.map((id, i3) => [id, i3]));
+    return calendars2.filter((c3) => !visibleOnly || !prefs.hiddenCategoryIds.includes(c3.id)).map((c3, i3) => ({ c: c3, i: i3 })).sort((a3, b2) => (positions.get(a3.c.id) ?? Infinity) - (positions.get(b2.c.id) ?? Infinity) || a3.i - b2.i).map((x4) => x4.c);
+  }
+  function renderCategorySettings(root, calendars2, initial2, save) {
+    let prefs = categoryPreferences(initial2), busy2 = false, error2 = "";
+    root.classList.add("ctt-category-settings");
+    const update = async (next, focusId) => {
+      if (busy2) return;
+      const before = prefs;
+      busy2 = true;
+      error2 = "";
+      prefs = next;
+      draw();
+      try {
+        await save(next);
+      } catch (e3) {
+        prefs = before;
+        error2 = e3.message;
+      } finally {
+        busy2 = false;
+        draw();
+        if (focusId) root.querySelector(`[data-category-index="${orderedCategories(calendars2, prefs).findIndex((c3) => c3.id === focusId)}"] input`)?.focus();
+      }
+    };
+    const draw = () => {
+      root.replaceChildren();
+      el(root, "p", "ctt-muted", "\u6392\u5E8F\u548C\u9690\u85CF\u4EC5\u5F71\u54CD\u5F85\u529E\u7B5B\u9009\u680F\u3002\u201C\u5168\u90E8\u201D\u4ECD\u5305\u542B\u6240\u6709\u5F85\u529E\u3002");
+      const list = el(root, "div", "ctt-category-setting-list");
+      const categories2 = orderedCategories(calendars2, prefs);
+      if (!categories2.length) el(list, "p", "ctt-muted", "\u8FDE\u63A5\u65E5\u5386\u540E\u53EF\u8BBE\u7F6E\u5206\u7C7B\u3002");
+      categories2.forEach((c3, index2) => {
+        const row = el(list, "div", "ctt-category-setting");
+        row.dataset.categoryIndex = String(index2);
+        const label = el(row, "label", "ctt-category-visibility"), checkbox = el(label, "input");
+        checkbox.type = "checkbox";
+        checkbox.checked = !prefs.hiddenCategoryIds.includes(c3.id);
+        checkbox.disabled = busy2;
+        checkbox.setAttribute("aria-label", `\u663E\u793A\u5206\u7C7B ${c3.name}`);
+        const dot = el(label, "span", "ctt-category-dot");
+        dot.style.background = c3.color || "var(--interactive-accent)";
+        dot.setAttribute("aria-hidden", "true");
+        el(label, "span", "", c3.name);
+        checkbox.onchange = () => {
+          void update({ ...prefs, hiddenCategoryIds: checkbox.checked ? prefs.hiddenCategoryIds.filter((id) => id !== c3.id) : [...prefs.hiddenCategoryIds, c3.id] }, c3.id);
+        };
+        const move = (offset3) => {
+          const order = categories2.map((c4) => c4.id), other = index2 + offset3;
+          [order[index2], order[other]] = [order[other], order[index2]];
+          void update({ ...prefs, categoryOrder: [...order, ...prefs.categoryOrder.filter((id) => !order.includes(id))] }, c3.id);
+        };
+        const up = button(row, "\u2191", () => move(-1), "ctt-category-move", `\u4E0A\u79FB ${c3.name}`);
+        up.disabled = busy2 || index2 === 0;
+        const down = button(row, "\u2193", () => move(1), "ctt-category-move", `\u4E0B\u79FB ${c3.name}`);
+        down.disabled = busy2 || index2 === categories2.length - 1;
+      });
+      const message = el(root, "div", "ctt-dialog-error", error2);
+      message.setAttribute("role", "alert");
+      const reset = button(root, "\u6062\u590D\u9ED8\u8BA4\u6392\u5E8F\u4E0E\u663E\u793A", () => {
+        void update({ categoryOrder: [], hiddenCategoryIds: [] });
+      }, "ctt-quiet");
+      reset.disabled = busy2;
+    };
+    draw();
+  }
+
+  // Clients/Obsidian/taskOrder.ts
+  var TASK_SORT_LABELS = { manual: "\u624B\u52A8\u6392\u5E8F", due: "\u6309\u65E5\u671F", title: "\u6309\u6807\u9898" };
+  function taskSort(value) {
+    return value === "due" || value === "title" ? value : "manual";
+  }
+  function sortedTasks(tasks2, mode = "manual") {
+    return tasks2.map((task, index2) => ({ task, index: index2 })).sort((a3, b2) => {
+      const cmp = mode === "due" ? (a3.task.due || "9999").localeCompare(b2.task.due || "9999") : mode === "title" ? a3.task.title.localeCompare(b2.task.title, "zh-CN", { numeric: true }) : 0;
+      return cmp || a3.index - b2.index;
+    }).map((x4) => x4.task);
+  }
+  function reorderTaskSlots(tasks2, nextIds, expectedIds) {
+    const selected = new Set(expectedIds);
+    if (!expectedIds.length || selected.size !== expectedIds.length || new Set(nextIds).size !== nextIds.length || nextIds.length !== expectedIds.length || nextIds.some((id) => !selected.has(id))) throw new Error("\u6392\u5E8F\u5217\u8868\u65E0\u6548\u3002");
+    const current = tasks2.filter((t3) => selected.has(t3.id));
+    if (current.length !== expectedIds.length || current.some((t3, i4) => t3.completed || t3.id !== expectedIds[i4])) throw new Error("\u5F85\u529E\u987A\u5E8F\u6216\u5B8C\u6210\u72B6\u6001\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
+    const byId = new Map(current.map((t3) => [t3.id, t3]));
+    let i3 = 0;
+    return tasks2.map((t3) => selected.has(t3.id) ? byId.get(nextIds[i3++]) : t3);
+  }
+
+  // Clients/Obsidian/ui.ts
+  function toolButton(parent, label, action, paths) {
+    const b2 = button(parent, "", action, "ctt-icon", label), svg = parent.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [name, value] of Object.entries({ viewBox: "0 0 24 24", width: "18", height: "18", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false" })) svg.setAttribute(name, value);
+    for (const d3 of paths) {
+      const path = parent.ownerDocument.createElementNS(svg.namespaceURI, "path");
+      path.setAttribute("d", d3);
+      svg.append(path);
+    }
+    b2.append(svg);
+    return b2;
+  }
+  var TimerUI = class {
+    constructor(root, actions2) {
+      this.root = root;
+      this.actions = actions2;
+      root.classList.add("ctt-shell");
+      root.replaceChildren();
+      this.header = el(root, "header", "ctt-header");
+      const tools = el(this.header, "nav", "ctt-tools");
+      tools.setAttribute("aria-label", "\u63D2\u4EF6\u5DE5\u5177");
+      this.connect = button(tools, "\u8FDE\u63A5\u65E5\u5386", actions2.connect, "ctt-primary");
+      this.syncMenu = el(tools, "details", "ctt-sync-menu");
+      this.syncMenu.hidden = true;
+      this.syncSummary = el(this.syncMenu, "summary", "ctt-sync-summary");
+      this.syncSummary.setAttribute("aria-label", "\u540C\u6B65\u72B6\u6001");
+      const syncPanel = el(this.syncMenu, "div", "ctt-sync-panel");
+      el(syncPanel, "strong", "", "\u540C\u6B65\u961F\u5217");
+      this.syncError = el(syncPanel, "div", "ctt-dialog-error");
+      this.syncError.setAttribute("role", "alert");
+      this.pending = el(syncPanel, "div", "ctt-pending");
+      root.ownerDocument.addEventListener("pointerdown", this.closeSync);
+      root.ownerDocument.addEventListener("keydown", this.escapeSync);
+      toolButton(tools, "\u5237\u65B0", actions2.refresh, ["M20 7v5h-5", "M19.5 12a7.5 7.5 0 1 1-2-5.1L20 9"]);
+      toolButton(tools, "\u8BBE\u7F6E", actions2.settings, ["M4 7h5m4 0h7M4 17h9m4 0h3", "M13 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]);
+      tools.append(this.syncMenu);
+      this.scroll = el(root, "div", "ctt-scroll");
+      this.error = el(this.scroll, "div", "ctt-error");
+      this.error.setAttribute("role", "alert");
+      this.error.hidden = true;
+      const navigation = el(this.header, "nav", "ctt-page-tabs");
+      this.header.prepend(navigation);
+      navigation.setAttribute("role", "tablist");
+      navigation.setAttribute("aria-label", "\u529F\u80FD\u9875\u9762");
+      const viewId = `ctt-${crypto.randomUUID()}`;
+      for (const [id, label] of [["timer", "\u8BA1\u65F6"], ["tasks", "\u5F85\u529E"], ["calendar", "\u65E5\u5386"]]) {
+        const b2 = button(navigation, label, () => this.selectPage(id), "ctt-page-tab");
+        b2.id = `${viewId}-tab-${id}`;
+        b2.setAttribute("role", "tab");
+        b2.setAttribute("aria-controls", `${viewId}-page-${id}`);
+        b2.onkeydown = (e3) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e3.key)) return;
+          e3.preventDefault();
+          const ids = ["timer", "tasks", "calendar"], i3 = ids.indexOf(id), next = e3.key === "Home" ? 0 : e3.key === "End" ? 2 : (i3 + (e3.key === "ArrowLeft" ? 2 : 1)) % 3;
+          this.selectPage(ids[next]);
+          this.pageButtons.get(ids[next]).focus();
+        };
+        this.pageButtons.set(id, b2);
+      }
+      this.timerBadge = el(this.pageButtons.get("timer"), "span", "ctt-page-timer-badge");
+      this.timerBadge.setAttribute("aria-hidden", "true");
+      for (const id of ["timer", "tasks", "calendar"]) {
+        const panel = el(this.scroll, "section", `ctt-page ctt-${id}-page`);
+        panel.id = `${viewId}-page-${id}`;
+        panel.setAttribute("role", "tabpanel");
+        panel.setAttribute("aria-labelledby", `${viewId}-tab-${id}`);
+        this.pages.set(id, panel);
+      }
+      this.timer = el(this.pages.get("timer"), "section", "ctt-timer");
+      this.timer.setAttribute("aria-label", "\u5F53\u524D\u8BA1\u65F6");
+      this.status = el(this.timer, "div", "ctt-status");
+      this.title = el(this.timer, "h2", "ctt-current-title");
+      const dial = el(this.timer, "div", "ctt-clock");
+      el(dial, "div", "ctt-clock-track");
+      this.hand = el(dial, "div", "ctt-clock-hand");
+      this.readout = el(dial, "div", "ctt-readout", "00:00");
+      this.readout.setAttribute("aria-label", "\u7D2F\u8BA1\u4E13\u6CE8\u65F6\u95F4");
+      el(this.timer, "div", "ctt-idle-label", "\u5F00\u59CB\u4E00\u4E2A\u4EFB\u52A1\u5427");
+      const details = el(this.timer, "div", "ctt-session-details");
+      this.started = button(details, "", actions2.editStart, "ctt-quiet", "\u4FEE\u6539\u5F00\u59CB\u65F6\u95F4");
+      this.category = el(details, "select", "ctt-category");
+      this.category.setAttribute("aria-label", "\u672C\u6B21\u8BA1\u65F6\u5206\u7C7B");
+      this.category.onchange = () => actions2.category(this.category.value);
+      this.controls = el(this.timer, "div", "ctt-timer-controls");
+      this.pause = button(this.controls, "\u6682\u505C", () => this.model.active?.runningSince == null ? actions2.resume(this.model.active?.id || "") : actions2.pause(this.model.active?.id || ""));
+      button(this.controls, "\u7ED3\u675F\u5E76\u5B8C\u6210", () => actions2.finish(true, this.model.active?.id || ""), "ctt-primary");
+      button(this.controls, "\u53EA\u8BB0\u65F6\u95F4", () => actions2.finish(false, this.model.active?.id || ""), "ctt-quiet");
+      const body = el(this.pages.get("tasks"), "div", "ctt-body");
+      const timeline = el(this.pages.get("timer"), "section", "ctt-panel ctt-timeline");
+      const top = el(timeline, "div", "ctt-panel-heading");
+      el(top, "h3", "", "\u6267\u884C\u8BB0\u5F55");
+      const timelineTools = el(top, "div", "ctt-timeline-tools");
+      const nav = el(timelineTools, "div", "ctt-date-nav");
+      button(nav, "\u2039", () => actions2.date(shiftDate(this.model.date, -1)), "ctt-icon", "\u524D\u4E00\u5929");
+      this.dateInput = el(nav, "input");
+      this.dateInput.type = "date";
+      this.dateInput.setAttribute("aria-label", "\u65F6\u95F4\u8F74\u65E5\u671F");
+      this.dateInput.onchange = () => {
+        if (this.dateInput.value) actions2.date(this.dateInput.value);
+      };
+      button(nav, "\u4ECA\u5929", () => actions2.date(dayKey()), "ctt-quiet");
+      button(nav, "\u203A", () => actions2.date(shiftDate(this.model.date, 1)), "ctt-icon", "\u540E\u4E00\u5929");
+      this.rowList = el(timeline, "div", "ctt-timeline-list");
+      this.rowList.setAttribute("aria-label", "\u5F53\u5929\u5DF2\u8BB0\u5F55\u5DE5\u65F6");
+      const tasks2 = el(body, "section", "ctt-panel ctt-tasks");
+      const taskHead = el(tasks2, "div", "ctt-panel-heading");
+      el(taskHead, "h3", "", "\u5F85\u529E");
+      const taskTools = el(taskHead, "div", "ctt-task-tools");
+      this.taskSort = el(taskTools, "select", "ctt-task-sort");
+      this.taskSort.setAttribute("aria-label", "\u5F85\u529E\u6392\u5E8F");
+      for (const [value, text] of Object.entries(TASK_SORT_LABELS)) el(this.taskSort, "option", "", text).value = value;
+      this.taskSort.onchange = () => {
+        void actions2.sortTasks(taskSort(this.taskSort.value));
+      };
+      button(taskTools, "\u21C5", actions2.categorySettings, "ctt-icon", "\u5206\u7C7B\u6392\u5E8F\u4E0E\u663E\u793A");
+      this.sortNotice = el(tasks2, "div", "ctt-sort-notice");
+      this.sortNotice.setAttribute("role", "status");
+      this.sortNotice.setAttribute("aria-live", "polite");
+      this.tabs = el(tasks2, "div", "ctt-tabs");
+      this.tabs.setAttribute("aria-label", "\u5F85\u529E\u5206\u7C7B\u7B5B\u9009");
+      this.filterMenu = el(taskTools, "details", "ctt-filter-menu");
+      this.filterSummary = el(this.filterMenu, "summary", "ctt-filter-summary", "\u7B5B\u9009");
+      this.filterSummary.setAttribute("aria-label", "\u7B5B\u9009\u5F85\u529E");
+      const filters = el(this.filterMenu, "div", "ctt-task-filters");
+      for (const [key2, label, choices] of [["source", "\u5F85\u529E\u6765\u6E90", { "all": "\u5168\u90E8\u6765\u6E90", "local": "\u672C\u5730\u5F85\u529E", "reminder": "iCloud \u63D0\u9192\u4E8B\u9879" }], ["association", "\u5173\u8054\u7B5B\u9009", { "all": "\u5168\u90E8\u5173\u8054", "linked": "Components \u5DF2\u5173\u8054", "unlinked": "\u672A\u5173\u8054" }], ["status", "\u5B8C\u6210\u72B6\u6001", { "open": "\u672A\u5B8C\u6210", "done": "\u5DF2\u5B8C\u6210", "all": "\u5168\u90E8\u72B6\u6001" }], ["due", "\u622A\u6B62\u65E5\u671F\u7B5B\u9009", { "all": "\u5168\u90E8\u622A\u6B62\u65E5\u671F", "today": "\u4ECA\u5929\u622A\u6B62", "overdue": "\u5DF2\u903E\u671F", "none": "\u65E0\u622A\u6B62\u65E5\u671F", "date": "\u6307\u5B9A\u622A\u6B62\u65E5\u671F" }]]) {
+        const select = el(filters, "select");
+        select.setAttribute("aria-label", label);
+        for (const [value, text] of Object.entries(choices)) el(select, "option", "", text).value = value;
+        select.value = this.filters[key2] || "all";
+        select.onchange = () => {
+          this.filters[key2] = select.value;
+          this.filterDate.hidden = this.filters.due !== "date";
+          this.updateFilterSummary();
+          this.renderTasks();
+          this.tick();
+        };
+      }
+      this.filterDate = el(filters, "input");
+      this.filterDate.type = "date";
+      this.filterDate.value = this.filters.date;
+      this.filterDate.hidden = true;
+      this.filterDate.setAttribute("aria-label", "\u6307\u5B9A\u622A\u6B62\u65E5\u671F");
+      this.filterDate.onchange = () => {
+        this.filters.date = this.filterDate.value;
+        this.renderTasks();
+        this.tick();
+      };
+      const taskScroll = el(tasks2, "div", "ctt-task-scroll");
+      taskScroll.setAttribute("aria-label", "\u5F85\u529E\u5185\u5BB9");
+      const form = el(taskScroll, "form", "ctt-inbox");
+      this.taskTitle = el(form, "input", "ctt-new-title");
+      this.taskTitle.placeholder = "\u6DFB\u52A0\u4E00\u4EF6\u8981\u505A\u7684\u4E8B\u2026";
+      this.taskTitle.setAttribute("aria-label", "\u65B0\u5F85\u529E\u540D\u79F0");
+      this.taskTitle.required = true;
+      const addTools = el(form, "div", "ctt-inbox-tools");
+      this.newCategory = el(addTools, "select");
+      this.newCategory.setAttribute("aria-label", "\u65B0\u5F85\u529E\u5206\u7C7B");
+      this.newCategory.required = true;
+      const dateLabel = el(addTools, "div", "ctt-optional-date");
+      const dateToggle = button(dateLabel, "+ \u65E5\u671F", () => {
+        this.due.hidden = !this.due.hidden;
+        if (!this.due.hidden) {
+          this.due.focus();
+          try {
+            this.due.showPicker();
+          } catch {
+          }
+        }
+      }, "ctt-quiet", "\u8BBE\u7F6E\u5F85\u529E\u65E5\u671F");
+      this.due = el(dateLabel, "input");
+      this.due.type = "date";
+      this.due.hidden = true;
+      this.due.setAttribute("aria-label", "\u5F85\u529E\u65E5\u671F\uFF0C\u53EF\u7559\u7A7A");
+      this.due.onchange = () => {
+        dateToggle.hidden = !!this.due.value;
+        if (!this.due.value) this.due.hidden = true;
+      };
+      const add3 = el(addTools, "button", "ctt-primary", "\u6DFB\u52A0");
+      add3.type = "submit";
+      form.onsubmit = async (e3) => {
+        e3.preventDefault();
+        if (await actions2.add(this.taskTitle.value, this.due.value, this.newCategory.value)) {
+          this.taskTitle.value = "";
+          this.due.value = "";
+          this.due.hidden = true;
+          dateToggle.hidden = false;
+          this.resetDraftCategory();
+          this.taskTitle.focus();
+        }
+      };
+      this.taskList = el(taskScroll, "div", "ctt-task-list");
+      this.taskList.setAttribute("aria-label", "\u672A\u5B8C\u6210\u5F85\u529E");
+      this.observer = new ResizeObserver((entries2) => {
+        const { width, height } = entries2[0].contentRect;
+        root.classList.toggle("ctt-stacked", width < 840 || width / Math.max(1, height) < 1.15);
+        root.style.setProperty("--ctt-focus-height", `${Math.max(380, Math.min(660, height * 0.62, height - 330))}px`);
+      });
+      this.observer.observe(root);
+    }
+    root;
+    actions;
+    model;
+    filter = "";
+    page = "tasks";
+    filters = defaultFilters();
+    pages = /* @__PURE__ */ new Map();
+    pageButtons = /* @__PURE__ */ new Map();
+    pageScroll = { timer: 0, tasks: 0, calendar: 0 };
+    calendar;
+    timerBadge;
+    filterDate;
+    filterMenu;
+    filterSummary;
+    observer;
+    header;
+    scroll;
+    connect;
+    error;
+    timer;
+    title;
+    status;
+    readout;
+    hand;
+    category;
+    started;
+    controls;
+    pause;
+    taskTitle;
+    due;
+    newCategory;
+    tabs;
+    taskList;
+    rowList;
+    dateInput;
+    pending;
+    syncMenu;
+    syncSummary;
+    syncError;
+    pendingNodes = /* @__PURE__ */ new Map();
+    closeSync = (e3) => {
+      if (this.syncMenu.open && !this.syncMenu.contains(e3.target)) this.syncMenu.open = false;
+      if (this.filterMenu?.open && !this.filterMenu.contains(e3.target)) this.filterMenu.open = false;
+    };
+    escapeSync = (e3) => {
+      if (e3.key === "Escape" && this.filterMenu?.open) {
+        this.filterMenu.open = false;
+        this.filterSummary.focus();
+        e3.preventDefault();
+        return;
+      }
+      if (e3.key === "Escape" && this.syncMenu.open) {
+        this.syncMenu.open = false;
+        this.syncSummary.focus();
+        e3.preventDefault();
+      }
+    };
+    taskSort;
+    sortNotice;
+    dragged;
+    taskNodes = /* @__PURE__ */ new Map();
+    rowNodes = /* @__PURE__ */ new Map();
+    selectPage(page2, remember = true) {
+      this.pageScroll[this.page] = this.scroll.scrollTop;
+      this.page = page2;
+      this.root.dataset.page = page2;
+      for (const [id, panel] of this.pages) {
+        panel.hidden = id !== page2;
+        const b2 = this.pageButtons.get(id);
+        b2.setAttribute("aria-selected", String(id === page2));
+        b2.tabIndex = id === page2 ? 0 : -1;
+      }
+      if (this.model) {
+        if (page2 === "tasks") {
+          this.renderTasks();
+        } else if (page2 === "timer") {
+          this.renderRows();
+        } else if (page2 === "calendar") {
+          if (!this.calendar) this.calendar = this.actions.mountCalendar?.(this.pages.get("calendar"));
+          this.calendar?.activate();
+        }
+        this.tick();
+      }
+      this.scroll.scrollTop = this.pageScroll[page2];
+      if (remember) this.actions.page?.(page2);
+    }
+    update(m3) {
+      const old = this.model;
+      this.model = m3;
+      if (!old) {
+        this.renderRows();
+        this.selectPage(appPage(m3.appPage), false);
+      }
+      applyAppearance(this.root, m3.appearance);
+      this.root.classList.toggle("ctt-active", !!m3.active);
+      this.root.classList.toggle("ctt-paused", !!m3.active && m3.active.runningSince == null);
+      this.root.setAttribute("aria-busy", String(m3.busy));
+      this.connect.hidden = m3.connected;
+      this.taskSort.value = taskSort(m3.taskSort);
+      this.taskSort.disabled = m3.busy;
+      this.error.textContent = m3.error;
+      this.error.hidden = !m3.error;
+      this.title.textContent = m3.active?.title || "";
+      this.status.textContent = m3.active ? m3.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u4E13\u6CE8\u4E2D" : "";
+      this.pause.textContent = m3.active?.runningSince == null ? "\u7EE7\u7EED" : "\u6682\u505C";
+      this.started.textContent = m3.active ? `\u5F00\u59CB\u4E8E ${dateParts(m3.active.startedAt).date.slice(5)} ${dateParts(m3.active.startedAt).time.slice(0, 5)}` : "";
+      options(this.category, m3.calendars, m3.active?.calendarId || "");
+      const draft = this.newCategory.value;
+      options(this.newCategory, m3.taskCategories || m3.calendars, !old || !draft || old.defaultCalendarId !== m3.defaultCalendarId && !this.taskTitle.value ? this.filter || m3.defaultTaskCategoryId || m3.defaultCalendarId : draft);
+      if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m3.date;
+      if (JSON.stringify(old?.taskCategories || old?.calendars) !== JSON.stringify(m3.taskCategories || m3.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m3.categoryPreferences)) this.renderTabs();
+      if (this.page === "tasks") {
+        this.renderTasks();
+      } else if (this.page === "timer") {
+        this.renderRows();
+      } else if (this.page === "calendar") this.calendar?.activate();
+      this.syncMenu.hidden = !m3.pending.length && !m3.sync?.error;
+      this.syncSummary.textContent = `${m3.sync?.activeKey ? "\u21BB" : m3.pending.some((p3) => p3.error) || m3.sync?.error ? "!" : "\u2191"} ${m3.pending.length}`;
+      this.syncSummary.setAttribute("aria-label", `\u540C\u6B65\u72B6\u6001\uFF08${m3.pending.length} \u6761\u5F85\u540C\u6B65\uFF09`);
+      this.syncSummary.title = this.syncSummary.getAttribute("aria-label");
+      this.syncError.textContent = m3.sync?.error ? `\u540C\u6B65\u6682\u505C\uFF1A${m3.sync.error}` : "";
+      this.syncError.hidden = !m3.sync?.error;
+      const pendingIds = new Set(m3.pending.map((p3) => p3.id));
+      for (const [id, node] of this.pendingNodes) if (!pendingIds.has(id)) {
+        node.root.remove();
+        this.pendingNodes.delete(id);
+      }
+      for (const p3 of m3.pending) {
+        let node = this.pendingNodes.get(p3.id);
+        if (!node) {
+          const row = el(this.pending, "div", "ctt-pending-row"), text = el(row, "div");
+          const title = el(text, "strong"), status = el(text, "div", "ctt-muted"), error2 = el(text, "div", "ctt-muted");
+          const buttons = el(row, "div", "ctt-sync-actions");
+          const retry = button(buttons, "\u91CD\u8BD5", () => this.actions.retry(p3.id));
+          const keep = button(buttons, "\u4EC5\u4FDD\u7559\u65E5\u7A0B", () => this.actions.keep(p3.id));
+          const cleanup = button(buttons, "\u6E05\u7406\u672C\u5730\u6B8B\u7559", () => this.actions.resolveDeletion(p3.id.slice(7)));
+          node = { root: row, title, status, error: error2, retry, keep, cleanup };
+          this.pendingNodes.set(p3.id, node);
+        }
+        node.title.textContent = p3.title;
+        node.status.textContent = p3.status || "\u672C\u673A\u5DF2\u4FDD\u5B58\uFF0C\u7B49\u5F85\u540C\u6B65";
+        node.error.textContent = p3.error;
+        node.keep.hidden = !p3.canKeep;
+        node.cleanup.hidden = !p3.canResolveMissing;
+        node.retry.disabled = node.keep.disabled = node.cleanup.disabled = !!p3.working || m3.busy || !m3.connected;
+      }
+      for (const b2 of this.controls.querySelectorAll("button")) {
+        b2.disabled = m3.busy || b2.textContent === "\u7ED3\u675F\u5E76\u5B8C\u6210" && !!m3.active?.task.readonlyReason;
+        if (b2.textContent === "\u7ED3\u675F\u5E76\u5B8C\u6210") b2.title = m3.active?.task.readonlyReason || "";
+      }
+      this.category.disabled = m3.busy;
+      this.started.disabled = m3.busy;
+      this.tick();
+    }
+    renderTabs() {
+      const sources = orderedCategories(this.model.taskCategories || this.model.calendars, this.model.categoryPreferences, true);
+      if (this.filter && !sources.some((c3) => c3.id === this.filter)) {
+        this.filter = "";
+        this.resetDraftCategory();
+      }
+      this.tabs.replaceChildren();
+      for (const c3 of [{ id: "", name: "\u5168\u90E8" }, ...sources]) {
+        const b2 = button(this.tabs, c3.name, () => {
+          this.filter = c3.id;
+          this.resetDraftCategory();
+          this.renderTabs();
+          this.renderTasks();
+          this.tick();
+        }, "ctt-tab");
+        b2.classList.toggle("is-selected", c3.id === this.filter);
+        b2.setAttribute("aria-pressed", String(c3.id === this.filter));
+      }
+    }
+    updateFilterSummary() {
+      const count = Number(this.filters.source !== void 0 && this.filters.source !== "all") + Number(this.filters.association !== "all") + Number(this.filters.status !== "open") + Number(this.filters.due !== "all");
+      this.filterSummary.textContent = count ? `\u7B5B\u9009 \xB7 ${count}` : "\u7B5B\u9009";
+    }
+    resetDraftCategory() {
+      options(this.newCategory, this.model.taskCategories || this.model.calendars, this.filter || this.model.defaultTaskCategoryId || this.model.defaultCalendarId);
+    }
+    taskSession(task) {
+      const active = this.model.active;
+      return active && active.task.kind === task.kind && active.task.id === task.id && (task.kind === "fcr" ? active.task.calendarId === task.calendarId : active.task.path === task.path) ? active : null;
+    }
+    renderTasks() {
+      const m3 = this.model, manual = taskSort(m3.taskSort) === "manual" && this.filters.status === "open", linked = new Set((m3.linkedTasks || []).map(refKey)), tasks2 = sortedTasks(filterTasks(m3.tasks, this.filters, linked).filter((t3) => !this.filter || (t3.kind === "reminder" ? t3.listId : t3.calendarId || m3.defaultCalendarId) === this.filter), taskSort(m3.taskSort));
+      const ids = tasks2.map((t3) => t3.id);
+      const visibleIds = new Set(ids);
+      for (const [id, item] of this.taskNodes) if (!visibleIds.has(id)) {
+        item.root.remove();
+        this.taskNodes.delete(id);
+      }
+      this.taskList.querySelector(".ctt-empty")?.remove();
+      if (!tasks2.length) el(this.taskList, "div", "ctt-empty", "\u6682\u65E0\u5F85\u529E");
+      tasks2.forEach((task, i3) => {
+        let item = this.taskNodes.get(task.id);
+        if (!item) {
+          const root = el(this.taskList, "div", "ctt-task-row"), handle = button(root, "\u283F", () => {
+          }, "ctt-drag-handle"), check = el(root, "input");
+          check.type = "checkbox";
+          const body = el(root, "div", "ctt-task-text"), text = button(body, "", () => {
+          }, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta"), timing = el(body, "div", "ctt-task-timing");
+          const start = button(root, "\u25B7", () => {
+          }, "ctt-start", "\u5F00\u59CB\u8BA1\u65F6");
+          item = { root, handle, check, text, meta, timing, start };
+          this.taskNodes.set(task.id, item);
+        }
+        item.root.dataset.taskId = task.id;
+        item.handle.hidden = !manual;
+        item.handle.disabled = m3.busy;
+        item.handle.draggable = manual && !m3.busy;
+        item.handle.setAttribute("aria-label", `\u6392\u5E8F ${task.title}`);
+        item.handle.title = "\u62D6\u52A8\u6392\u5E8F\uFF1BAlt + \u2191 / \u2193 \u8C03\u6574\u987A\u5E8F";
+        item.handle.onkeydown = (e3) => {
+          if (!manual || m3.busy || !e3.altKey || !["ArrowUp", "ArrowDown"].includes(e3.key)) return;
+          e3.preventDefault();
+          const to = i3 + (e3.key === "ArrowUp" ? -1 : 1);
+          if (to < 0 || to >= ids.length) return;
+          const next = [...ids];
+          [next[i3], next[to]] = [next[to], next[i3]];
+          void this.saveOrder(next, ids, task.id);
+        };
+        item.handle.ondragstart = (e3) => {
+          if (!manual || m3.busy || !e3.dataTransfer) {
+            e3.preventDefault();
+            return;
+          }
+          this.dragged = { id: task.id, ids: [...ids] };
+          e3.dataTransfer.effectAllowed = "move";
+          e3.dataTransfer.setData("text/plain", task.id);
+          item.root.classList.add("is-dragging");
+        };
+        item.handle.ondragend = () => this.clearDrag();
+        item.root.ondragover = (e3) => {
+          if (!this.dragged || !manual || m3.busy) return;
+          e3.preventDefault();
+          this.taskList.querySelectorAll(".is-drop-before,.is-drop-after").forEach((n2) => n2.classList.remove("is-drop-before", "is-drop-after"));
+          item.root.classList.add(e3.clientY > item.root.getBoundingClientRect().top + item.root.clientHeight / 2 ? "is-drop-after" : "is-drop-before");
+        };
+        item.root.ondrop = (e3) => {
+          if (!this.dragged || !manual || m3.busy) return;
+          e3.preventDefault();
+          const source = this.dragged, next = source.ids.filter((id) => id !== source.id), after = e3.clientY > item.root.getBoundingClientRect().top + item.root.clientHeight / 2;
+          this.clearDrag();
+          if (source.id === task.id || !next.includes(task.id)) return;
+          next.splice(next.indexOf(task.id) + Number(after), 0, source.id);
+          void this.saveOrder(next, source.ids);
+        };
+        const categoryId = task.calendarId || m3.defaultCalendarId, category = m3.sources.find((c3) => c3.id === categoryId);
+        const active = this.taskSession(task), paused = !!active && active.runningSince == null;
+        item.sessionId = active?.id;
+        item.timing.hidden = !active;
+        item.root.dataset.timerState = active ? paused ? "paused" : "running" : "idle";
+        item.root.classList.toggle("is-timing", !!active);
+        item.root.classList.toggle("is-paused", paused);
+        item.text.textContent = task.title;
+        item.text.onclick = () => this.actions.editTask(task);
+        item.check.setAttribute("aria-label", `${task.completed ? "\u6062\u590D" : "\u5B8C\u6210"} ${task.title}`);
+        item.check.checked = task.completed;
+        item.check.disabled = m3.busy || !!active || !!task.readonlyReason || !!task.pending;
+        item.check.onchange = () => this.actions.complete(task);
+        item.meta.textContent = [task.kind === "reminder" ? m3.taskCategories?.find((c3) => c3.id === task.listId)?.name || "iCloud" : `\u672C\u5730 \xB7 ${category?.name || "\u9009\u62E9\u5206\u7C7B"}`, task.due, task.dueInstant != null ? dateParts(task.dueInstant, task.dueZone || "UTC").time.slice(0, 5) : "", task.readonlyReason, task.pending ? "\u5F85\u540C\u6B65" : ""].filter(Boolean).join(" \xB7 ");
+        item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
+        if (task.completed) {
+          const completion = (m3.completions || []).filter((e3) => refKey(e3.task) === refKey(task)).at(-1);
+          item.meta.textContent += completion ? ` \xB7 \u63D2\u4EF6\u5B8C\u6210\u4E8E ${dateParts(completion.completedAt).date} ${dateParts(completion.completedAt).time.slice(0, 5)}` : " \xB7 \u5B8C\u6210\u65F6\u95F4\u672A\u77E5";
+        }
+        const label = active ? paused ? "\u7EE7\u7EED\u8BA1\u65F6" : "\u6682\u505C\u8BA1\u65F6" : "\u5F00\u59CB\u8BA1\u65F6";
+        item.start.textContent = active && !paused ? "\u2161" : "\u25B7";
+        item.start.title = label;
+        item.start.setAttribute("aria-label", label);
+        item.start.onclick = () => {
+          if (active) {
+            if (paused) this.actions.resume(active.id);
+            else this.actions.pause(active.id);
+          } else this.actions.start(task);
+        };
+        item.start.disabled = task.completed || m3.busy || !active && (!!m3.active || !m3.connected || !m3.calendars.some((c3) => c3.id === categoryId));
+        if (this.taskList.children[i3] !== item.root) this.taskList.insertBefore(item.root, this.taskList.children[i3] || null);
+      });
+    }
+    clearDrag() {
+      this.dragged = void 0;
+      this.taskList.querySelectorAll(".is-dragging,.is-drop-before,.is-drop-after").forEach((n2) => n2.classList.remove("is-dragging", "is-drop-before", "is-drop-after"));
+    }
+    async saveOrder(next, expected, focusId) {
+      if (JSON.stringify(next) === JSON.stringify(expected)) return;
+      const ok = await this.actions.reorderTasks(next, expected);
+      this.sortNotice.textContent = ok ? "\u987A\u5E8F\u5DF2\u4FDD\u5B58" : "\u6392\u5E8F\u672A\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5";
+      if (focusId) this.taskNodes.get(focusId)?.handle.focus();
+    }
+    renderRows() {
+      const m3 = this.model;
+      const entries2 = m3.rows.filter((r3) => !!r3.recordId).sort((a3, b2) => a3.start - b2.start || a3.key.localeCompare(b2.key));
+      const keys = new Set(entries2.map((r3) => r3.key));
+      for (const [key2, item] of this.rowNodes) if (!keys.has(key2)) {
+        item.root.remove();
+        this.rowNodes.delete(key2);
+      }
+      this.rowList.querySelector(".ctt-empty")?.remove();
+      if (!entries2.length) el(this.rowList, "div", "ctt-empty", "\u5F53\u5929\u6682\u65E0\u5DF2\u8BB0\u5F55\u5DE5\u65F6");
+      entries2.forEach((row, i3) => {
+        let item = this.rowNodes.get(row.key);
+        if (!item) {
+          const root = button(this.rowList, "", () => {
+          }, "ctt-event"), time = el(root, "span", "ctt-event-time");
+          const start = el(time, "span", "ctt-event-start"), link = el(time, "span", "ctt-event-time-link"), end = el(time, "span", "ctt-event-end");
+          link.setAttribute("aria-hidden", "true");
+          const body = el(root, "span", "ctt-event-body"), title = el(body, "span", "ctt-event-title"), meta = el(body, "span", "ctt-event-meta");
+          item = { root, start, end, link, title, meta };
+          this.rowNodes.set(row.key, item);
+        }
+        const startDate = dayKey(row.start), endDate = dayKey(Math.max(row.start, row.end - 1));
+        item.start.textContent = row.allDay ? "\u5168\u5929" : m3.date > startDate ? "00:00" : dateParts(row.start).time.slice(0, 5);
+        item.end.textContent = row.allDay ? "" : m3.date < endDate ? "24:00" : dateParts(row.end).time.slice(0, 5);
+        item.end.hidden = item.link.hidden = !!row.allDay;
+        item.title.textContent = row.title;
+        item.meta.textContent = `${m3.sources.find((c3) => c3.id === row.calendarId)?.name || "\u65E5\u5386"}${row.recordId ? " \xB7 \u8BA1\u65F6" : ""}${row.deleting ? " \xB7 \u5F85\u5220\u9664" : row.pending ? " \xB7 \u5F85\u540C\u6B65" : ""}`;
+        item.root.style.setProperty("--ctt-category-color", row.color || m3.sources.find((c3) => c3.id === row.calendarId)?.color || "var(--interactive-accent)");
+        item.root.classList.toggle("is-pending", !!row.pending);
+        item.root.title = row.error || "\u7F16\u8F91\u65E5\u7A0B";
+        item.root.onclick = () => this.actions.editRow(row);
+        if (this.rowList.children[i3] !== item.root) this.rowList.insertBefore(item.root, this.rowList.children[i3] || null);
+      });
+    }
+    tick() {
+      const ms = elapsed(this.model?.active || null);
+      this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
+      this.timerBadge.textContent = this.model?.active ? this.model.active.runningSince == null ? " \xB7 \u5DF2\u6682\u505C" : " \xB7 \u8BA1\u65F6\u4E2D" : "";
+      this.timerBadge.title = this.model?.active ? this.model.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D" : "";
+      this.pageButtons.get("timer").setAttribute("aria-description", this.timerBadge.title);
+      this.hand.style.transform = `rotate(${ms / 6e4 * 360}deg)`;
+      const active = this.model?.active;
+      if (active && this.page === "tasks") {
+        for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D"} \xB7 ${secondsText(ms)}`;
+      }
+    }
+    destroy() {
+      this.calendar?.dispose();
+      this.observer.disconnect();
+      this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync);
+      this.root.ownerDocument.removeEventListener("keydown", this.escapeSync);
+      this.root.replaceChildren();
+    }
+  };
+
+  // Shared/sync.ts
+  var leaseKey = /* @__PURE__ */ Symbol.for("calendar-task-timer.remote-channels.v1");
+  var leases = globalThis[leaseKey] ||= /* @__PURE__ */ new Map();
+  var SyncWorker = class {
+    constructor(controller2, options2) {
+      this.controller = controller2;
+      this.options = options2;
+    }
+    controller;
+    options;
+    view = { activeKey: null, waiting: false, error: "" };
+    timer;
+    warning;
+    stopped = false;
+    running = false;
+    pauseUntil = 0;
+    now() {
+      return this.options.now?.() ?? Date.now();
+    }
+    eligible() {
+      return this.controller.jobs().filter(({ value: j4 }) => {
+        if (!j4.sync && j4.error) return false;
+        return !j4.sync?.issue || j4.sync.issue === "network";
+      });
+    }
+    wake() {
+      if (this.stopped || this.running) return;
+      if (this.timer) clearTimeout(this.timer);
+      if (!this.options.enabled()) return;
+      const jobs = this.eligible();
+      if (!jobs.length) return;
+      const next = Math.max(this.pauseUntil, Math.min(...jobs.map((j4) => j4.value.sync?.retryAt || 0)));
+      this.timer = setTimeout(() => {
+        this.timer = void 0;
+        void this.pump();
+      }, Math.max(this.options.delayMs ?? 80, next - this.now()));
+    }
+    async resume(issue) {
+      for (const j4 of this.controller.jobs().filter((j5) => j5.value.sync?.issue === issue)) await this.controller.requestRetry(j4.key);
+      this.wake();
+    }
+    async retry(key2) {
+      await this.controller.requestRetry(key2);
+      this.pauseUntil = 0;
+      this.wake();
+    }
+    async pump() {
+      if (this.stopped || this.running || !this.options.enabled()) return;
+      const job = this.eligible().find((j4) => (j4.value.sync?.retryAt || 0) <= this.now());
+      if (!job) {
+        this.wake();
+        return;
+      }
+      const channel = this.options.channel, previous = channel ? leases.get(channel) : void 0;
+      if (previous) {
+        this.running = true;
+        this.view.waiting = true;
+        this.view.error = "\u7B49\u5F85\u4E0A\u4E00\u63D2\u4EF6\u5B9E\u4F8B\u7684\u540C\u6B65\u8BF7\u6C42\u7ED3\u675F\uFF0C\u672C\u5730\u8BA1\u65F6\u4ECD\u53EF\u7EE7\u7EED\u3002";
+        this.options.changed?.();
+        await previous.done;
+        this.running = false;
+        if (!this.stopped) {
+          this.view.waiting = false;
+          this.view.error = "";
+          this.options.changed?.();
+          this.wake();
+        }
+        return;
+      }
+      const token = /* @__PURE__ */ Symbol();
+      let release;
+      const done = new Promise((resolve) => {
+        release = resolve;
+      });
+      if (channel) leases.set(channel, { token, done });
+      this.running = true;
+      this.view.activeKey = job.key;
+      this.view.waiting = false;
+      this.view.error = "";
+      const start = this.now();
+      this.options.changed?.();
+      this.warning = setTimeout(() => {
+        if (this.stopped) return;
+        this.view.waiting = true;
+        this.options.changed?.();
+      }, this.options.slowMs ?? 15e3);
+      try {
+        await this.controller.sync(job.key);
+      } catch (e3) {
+        if (!this.stopped) {
+          this.view.error = e3.message;
+          this.pauseUntil = this.now() + 1e4;
+        }
+      } finally {
+        if (channel && leases.get(channel)?.token === token) leases.delete(channel);
+        release();
+        if (this.warning) clearTimeout(this.warning);
+        this.warning = void 0;
+        this.running = false;
+        this.view.activeKey = null;
+        this.view.waiting = false;
+        if (!this.stopped) {
+          this.view.lastDurationMs = Math.max(0, this.now() - start);
+          this.options.settled?.();
+          this.options.changed?.();
+          this.wake();
+        }
+      }
+    }
+    stop() {
+      this.stopped = true;
+      if (this.timer) clearTimeout(this.timer);
+      if (this.warning) clearTimeout(this.warning);
+      this.controller.stopRemote();
+    }
+  };
 
   // node_modules/temporal-polyfill/chunks/root.js
   var NativeTemporal = globalThis.Temporal;
@@ -772,45 +1866,6 @@
       throw new TypeError(invalidObject);
     }
     return arg;
-  }
-
-  // node_modules/temporal-utils/dist/diff.js
-  function createDiffFunc(unit) {
-    return (date0, date1, options2) => {
-      const normOptions = normalizeDiffOptions(options2);
-      if (normOptions.roundingMode) {
-        return date0.until(date1, {
-          ...normOptions,
-          largestUnit: unit,
-          smallestUnit: unit
-        })[unit];
-      }
-      const duration = date0.until(date1, {
-        ...normOptions,
-        largestUnit: unit
-      });
-      if (isTimeUnit(unit)) {
-        return duration.total(unit);
-      }
-      const relativeTo = !("day" in date0) && "toPlainDate" in date0 ? date0.toPlainDate({ day: 1 }) : date0;
-      return duration.total({ unit, relativeTo });
-    };
-  }
-  function isTimeUnit(unit) {
-    return unit === "hours" || unit === "minutes" || unit === "seconds" || unit === "milliseconds" || unit === "microseconds" || unit === "nanoseconds";
-  }
-  var diffYears = createDiffFunc("years");
-  var diffMonths = createDiffFunc("months");
-  var diffWeeks = createDiffFunc("weeks");
-  var diffDays = createDiffFunc("days");
-  var diffHours = createDiffFunc("hours");
-  var diffMinutes = createDiffFunc("minutes");
-  var diffSeconds = createDiffFunc("seconds");
-  var diffMilliseconds = createDiffFunc("milliseconds");
-  var diffMicroseconds = createDiffFunc("microseconds");
-  var diffNanoseconds = createDiffFunc("nanoseconds");
-  function normalizeDiffOptions(options2) {
-    return typeof options2 === "string" ? { roundingMode: options2 } : options2 || {};
   }
 
   // node_modules/temporal-polyfill/chunks/internal.js
@@ -1982,7 +3037,7 @@
     return {
       ...6 === largestUnit ? {
         ...durationFieldDefaults,
-        days: diffDays2(isoFields0, isoFields1)
+        days: diffDays(isoFields0, isoFields1)
       } : diffCalendarDates(calendar, isoFields0, isoFields1, largestUnit),
       ...nanoToDurationTimeFields(remainderNano)
     };
@@ -2006,7 +3061,7 @@
   }
   function diffCalendarDates(calendar, startIsoDate, endIsoDate, largestUnit) {
     if (largestUnit <= 7) {
-      const days = diffDays2(startIsoDate, endIsoDate);
+      const days = diffDays(startIsoDate, endIsoDate);
       return 7 === largestUnit ? {
         ...durationFieldDefaults,
         weeks: divTrunc(days, 7),
@@ -2021,13 +3076,13 @@
     if (8 === largestUnit) {
       const { year: year02, month: month02, day: day02 } = yearMonthDayStart;
       const { year: year12, month: month12, day: day12 } = yearMonthDayEnd;
-      const sign = Math.sign(compareNumbers(year12, year02) || compareNumbers(month12, month02) || diffDays2(startIsoDate, endIsoDate));
+      const sign = Math.sign(compareNumbers(year12, year02) || compareNumbers(month12, month02) || diffDays(startIsoDate, endIsoDate));
       let months = 0;
       let days = 0;
       if (sign) {
         months = calendar ? calendar.ne(year02, month02, year12, month12) : diffIsoMonthSlots(year02, month02, year12, month12);
         let anchorIsoDate = addDateMonths(calendar, startIsoDate, 0, months, 0);
-        sign * compareNumbers(day02, day12) > 0 && (months -= sign, anchorIsoDate = addDateMonths(calendar, startIsoDate, 0, months, 0)), days = diffDays2(anchorIsoDate, endIsoDate);
+        sign * compareNumbers(day02, day12) > 0 && (months -= sign, anchorIsoDate = addDateMonths(calendar, startIsoDate, 0, months, 0)), days = diffDays(anchorIsoDate, endIsoDate);
       }
       return {
         ...durationFieldDefaults,
@@ -2094,7 +3149,7 @@
       ...nanoToDurationDayTimeFields(roundBigNanoToInc(endEpochNano - startEpochNano, computeBigNanoInc(smallestUnit, roundingInc), roundingMode), largestUnit)
     };
   }
-  function diffDays2(startIsoDate, endIsoDate) {
+  function diffDays(startIsoDate, endIsoDate) {
     return isoDateToEpochDays(endIsoDate) - isoDateToEpochDays(startIsoDate);
   }
   function createMarkerMoveOps(marker, markerToEpochNano, moveMarker) {
@@ -3585,6 +4640,2087 @@
   var dateFieldGetters = /* @__PURE__ */ createNativeGetters(dateFieldGetters$1);
   createNativeGetters(yearMonthDerivedGetters), createNativeGetters(dateDerivedGetters);
 
+  // node_modules/temporal-polyfill/chunks/classApi-basic.js
+  function resolveBasicCalendarId(rawCalendarId) {
+    const lowerRawCalendarId = requireString(rawCalendarId).toLowerCase();
+    return lowerRawCalendarId === isoCalendarId ? isoCalendarImpl : lowerRawCalendarId === gregoryCalendarId ? gregoryCalendarImpl : void throwRangeError(exoticCalendarRequired(rawCalendarId, "temporal-polyfill/full"));
+  }
+  function resolveBasicCalendarArg(rawCalendarId = isoCalendarId) {
+    return resolveBasicCalendarId(rawCalendarId);
+  }
+  var zonedDateTimeSlotsMap = /* @__PURE__ */ new WeakMap();
+  var ZonedDateTime = /* @__PURE__ */ defineTemporalClass(ZonedDateTimeBranding, class {
+    constructor(epochNanoseconds, timeZoneId, calendar = void 0) {
+      const epochNano = checkEpochNanoInBounds(toBigInt(epochNanoseconds));
+      const timeZone = queryTimeZone(refineTimeZoneId(timeZoneId));
+      const calendarImpl = resolveBasicCalendarArg(calendar);
+      initZonedDateTime(this, createZonedEpochNanoSlots(epochNano, timeZone, calendarImpl));
+    }
+    static from(arg, options2 = void 0) {
+      return createZonedDateTime(toZonedDateTimeSlots(arg, options2));
+    }
+    static compare(arg0, arg1) {
+      return compareZonedDateTimes(toZonedDateTimeSlots(arg0), toZonedDateTimeSlots(arg1));
+    }
+    get calendarId() {
+      return getCalendarSlotId(getZonedDateTimeSlots(this).calendar);
+    }
+    get timeZoneId() {
+      return getZonedDateTimeSlots(this).timeZone.id;
+    }
+    get epochMilliseconds() {
+      return getEpochMilli(getZonedDateTimeSlots(this));
+    }
+    get epochNanoseconds() {
+      return getEpochNano(getZonedDateTimeSlots(this));
+    }
+    get offset() {
+      return formatOffsetNano(zonedEpochSlotsToIso(getZonedDateTimeSlots(this)).offsetNanoseconds);
+    }
+    get offsetNanoseconds() {
+      return zonedEpochSlotsToIso(getZonedDateTimeSlots(this)).offsetNanoseconds;
+    }
+    get hoursInDay() {
+      return computeZonedHoursInDay(getZonedDateTimeSlots(this));
+    }
+    with(mod, options2 = void 0) {
+      return createZonedDateTime(mergeZonedDateTimeFields(getZonedDateTimeSlots(this), validateBag(mod), options2));
+    }
+    withCalendar(calendarArg) {
+      return createZonedDateTime({
+        ...getZonedDateTimeSlots(this),
+        calendar: refineCalendarArg(calendarArg)
+      });
+    }
+    withTimeZone(timeZoneArg) {
+      return createZonedDateTime({
+        ...getZonedDateTimeSlots(this),
+        timeZone: queryTimeZone(refineTimeZoneArg(timeZoneArg))
+      });
+    }
+    withPlainTime(plainTimeArg = void 0) {
+      return createZonedDateTime(zonedDateTimeWithPlainTime(getZonedDateTimeSlots(this), optionalToPlainTimeFields(plainTimeArg)));
+    }
+    add(durationArg, options2 = void 0) {
+      const slots = getZonedDateTimeSlots(this);
+      return createZonedDateTime(moveZonedEpochSlots(slots, toDurationSlots(durationArg), options2));
+    }
+    subtract(durationArg, options2 = void 0) {
+      const slots = getZonedDateTimeSlots(this);
+      return createZonedDateTime(moveZonedEpochSlots(slots, negateDurationFields(toDurationSlots(durationArg)), options2));
+    }
+    until(otherArg, options2 = void 0) {
+      const slots = getZonedDateTimeSlots(this);
+      const other = toZonedDateTimeSlots(otherArg);
+      const calendar = getCommonCalendar(slots.calendar, other.calendar);
+      return createDuration(createDurationSlots(diffZonedDateTimes(0, calendar, slots, other, options2)));
+    }
+    since(otherArg, options2 = void 0) {
+      const slots = getZonedDateTimeSlots(this);
+      const other = toZonedDateTimeSlots(otherArg);
+      const calendar = getCommonCalendar(slots.calendar, other.calendar);
+      return createDuration(createDurationSlots(diffZonedDateTimes(1, calendar, slots, other, options2)));
+    }
+    round(options2) {
+      const slots = getZonedDateTimeSlots(this);
+      const [smallestUnit, roundingInc, roundingMode] = refineRoundingOptions(options2);
+      return createZonedDateTime(roundZonedEpochSlotsToUnit(slots, smallestUnit, roundingInc, roundingMode));
+    }
+    startOfDay() {
+      return createZonedDateTime(computeZonedStartOfDay(getZonedDateTimeSlots(this)));
+    }
+    equals(otherArg) {
+      return zonedDateTimesEqual(getZonedDateTimeSlots(this), toZonedDateTimeSlots(otherArg));
+    }
+    toInstant() {
+      return createInstant(zonedDateTimeToInstant(getZonedDateTimeSlots(this)));
+    }
+    toPlainDateTime() {
+      return createPlainDateTime(zonedDateTimeToPlainDateTime(getZonedDateTimeSlots(this)));
+    }
+    toPlainDate() {
+      return createPlainDate(zonedDateTimeToPlainDate(getZonedDateTimeSlots(this)));
+    }
+    toPlainTime() {
+      return createPlainTime(zonedDateTimeToPlainTime(getZonedDateTimeSlots(this)));
+    }
+    toLocaleString(locales = void 0, options2 = {}) {
+      const slots = getZonedDateTimeSlots(this);
+      const format = new RawDateTimeFormat(locales, applyZonedFormatTimeZone(transformZonedOptions(options2), getZonedTimeZoneId(slots)));
+      return checkResolvedCalendarCompatible(format, slots), format.format(getEpochMilli(slots));
+    }
+    toString(options2 = void 0) {
+      return formatZonedDateTimeIso(getZonedDateTimeSlots(this), options2);
+    }
+    toJSON() {
+      return formatZonedDateTimeIso(getZonedDateTimeSlots(this));
+    }
+    getTimeZoneTransition(options2) {
+      const slots = getZonedDateTimeSlots(this);
+      const newEpochNano = getTimeZoneTransitionEpochNanoseconds(slots, options2);
+      return newEpochNano ? createZonedDateTime({
+        ...slots,
+        epochNanoseconds: newEpochNano
+      }) : null;
+    }
+    valueOf() {
+      return forbiddenValueOf2();
+    }
+  }, getZonedDateTimeIsoSlots, dateFieldGetters$1, dateDerivedGetters, timeGetters);
+  function createZonedDateTime(slots) {
+    return initZonedDateTime(Object.create(ZonedDateTime.prototype), slots);
+  }
+  function getZonedDateTimeSlots(obj) {
+    return getZonedDateTimeSlotsIfPresent(obj) || invalidRecordType();
+  }
+  function getZonedDateTimeIsoSlots(obj) {
+    const slots = getZonedDateTimeSlots(obj);
+    return {
+      ...zonedEpochSlotsToIso(slots),
+      calendar: slots.calendar
+    };
+  }
+  function getZonedDateTimeSlotsIfPresent(obj) {
+    return zonedDateTimeSlotsMap.get(obj);
+  }
+  function toZonedDateTimeSlots(arg, options2) {
+    if (isObjectLike2(arg)) {
+      const ownSlots = getZonedDateTimeSlotsIfPresent(arg);
+      if (ownSlots) {
+        return refineZonedFieldOptions(options2), ownSlots;
+      }
+      const calendar = getCalendarFromBag(arg);
+      return refineZonedDateTimeObjectLike(refineTimeZoneArg, calendar, arg, options2);
+    }
+    return parseZonedDateTime(arg, resolveBasicCalendarId, options2);
+  }
+  function initZonedDateTime(instance, slots) {
+    return zonedDateTimeSlotsMap.set(instance, slots), attachDebugString(instance), instance;
+  }
+  function refineTimeZoneArg(arg) {
+    if (isObjectLike2(arg)) {
+      const slots = getZonedDateTimeSlotsIfPresent(arg);
+      return slots || throwTypeError(invalidTimeZone(arg)), slots.timeZone.id;
+    }
+    return ((arg2) => resolveTimeZoneId(parseTimeZoneId(requireString(arg2))))(arg);
+  }
+  var instantSlotsMap = /* @__PURE__ */ new WeakMap();
+  var Instant = /* @__PURE__ */ defineTemporalClass(InstantBranding, class {
+    constructor(epochNanoseconds) {
+      const epochNano = checkEpochNanoInBounds(toBigInt(epochNanoseconds));
+      initInstant(this, createEpochNanoSlots(epochNano));
+    }
+    static from(arg) {
+      return createInstant(toInstantSlots(arg));
+    }
+    static fromEpochMilliseconds(epochMilli) {
+      return createInstant(epochMilliToInstant(epochMilli));
+    }
+    static fromEpochNanoseconds(epochNano) {
+      return createInstant(epochNanoToInstant(epochNano));
+    }
+    static compare(a3, b2) {
+      return compareInstants(toInstantSlots(a3), toInstantSlots(b2));
+    }
+    get epochMilliseconds() {
+      return getEpochMilli(getInstantSlots(this));
+    }
+    get epochNanoseconds() {
+      return getEpochNano(getInstantSlots(this));
+    }
+    add(durationArg) {
+      const slots = getInstantSlots(this);
+      return createInstant(createEpochNanoSlots(moveEpochNano(slots.epochNanoseconds, toDurationSlots(durationArg))));
+    }
+    subtract(durationArg) {
+      const slots = getInstantSlots(this);
+      return createInstant(createEpochNanoSlots(moveEpochNano(slots.epochNanoseconds, negateDurationFields(toDurationSlots(durationArg)))));
+    }
+    until(otherArg, options2 = void 0) {
+      return createDuration(diffInstants(0, getInstantSlots(this), toInstantSlots(otherArg), options2));
+    }
+    since(otherArg, options2 = void 0) {
+      return createDuration(diffInstants(1, getInstantSlots(this), toInstantSlots(otherArg), options2));
+    }
+    round(options2) {
+      const slots = getInstantSlots(this);
+      const [smallestUnit, roundingInc, roundingMode] = refineRoundingOptions(options2, 5, 1);
+      return createInstant(createEpochNanoSlots(roundBigNanoToDayOriginInc(slots.epochNanoseconds, computeBigNanoInc(smallestUnit, roundingInc), roundingMode)));
+    }
+    equals(otherArg) {
+      return instantsEqual(getInstantSlots(this), toInstantSlots(otherArg));
+    }
+    toZonedDateTimeISO(timeZoneArg) {
+      return createZonedDateTime(instantToZonedDateTime(getInstantSlots(this), queryTimeZone(refineTimeZoneArg(timeZoneArg))));
+    }
+    toLocaleString(locales = void 0, options2 = {}) {
+      const slots = getInstantSlots(this);
+      return new RawDateTimeFormat(locales, transformInstantOptions(options2)).format(getEpochMilli(slots));
+    }
+    toString(options2 = void 0) {
+      return formatInstantIso(refineTimeZoneArg, getInstantSlots(this), options2);
+    }
+    toJSON() {
+      return formatInstantIso(refineTimeZoneArg, getInstantSlots(this));
+    }
+    valueOf() {
+      return forbiddenValueOf2();
+    }
+  });
+  function createInstant(slots) {
+    return initInstant(Object.create(Instant.prototype), slots);
+  }
+  function getInstantSlots(obj) {
+    return getInstantSlotsIfPresent(obj) || invalidRecordType();
+  }
+  function getInstantSlotsIfPresent(obj) {
+    return instantSlotsMap.get(obj);
+  }
+  function toInstantSlots(arg) {
+    if (isObjectLike2(arg)) {
+      const ownSlots = getInstantSlotsIfPresent(arg);
+      if (ownSlots) {
+        return ownSlots;
+      }
+      const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent(arg);
+      if (zonedDateTimeSlots) {
+        return createEpochNanoSlots(zonedDateTimeSlots.epochNanoseconds);
+      }
+    }
+    return parseInstant(arg);
+  }
+  var { toTemporalInstant } = {
+    toTemporalInstant() {
+      const epochMilli = Date.prototype.valueOf.call(this);
+      return createInstant(createEpochNanoSlots(BigInt(requireNumberIsInteger(epochMilli)) * bigNanoInMilli));
+    }
+  };
+  function initInstant(instance, slots) {
+    return instantSlotsMap.set(instance, slots), attachDebugString(instance), instance;
+  }
+  var plainMonthDaySlotsMap = /* @__PURE__ */ new WeakMap();
+  var PlainMonthDay = /* @__PURE__ */ defineTemporalClass(PlainMonthDayBranding, class {
+    constructor(isoMonth, isoDay, calendar = void 0, referenceIsoYear) {
+      const isoMonthInt = toIntegerWithTrunc(isoMonth);
+      const isoDayInt = toIntegerWithTrunc(isoDay);
+      const calendarImpl = resolveBasicCalendarArg(calendar);
+      const isoYearInt = toIntegerWithTrunc(referenceIsoYear ?? isoEpochFirstLeapYear);
+      const fields = checkIsoDateInBounds(validateIsoDateFields({
+        year: isoYearInt,
+        month: isoMonthInt,
+        day: isoDayInt
+      }));
+      initPlainMonthDay(this, createDateSlots(fields, calendarImpl));
+    }
+    static from(arg, options2 = void 0) {
+      return createPlainMonthDay(toPlainMonthDaySlots(arg, options2));
+    }
+    get calendarId() {
+      return getCalendarSlotId(getPlainMonthDaySlots(this).calendar);
+    }
+    with(mod, options2 = void 0) {
+      return createPlainMonthDay(mergePlainMonthDayFields(getPlainMonthDaySlots(this), validateBag(mod), options2));
+    }
+    equals(otherArg) {
+      return plainMonthDaysEqual(getPlainMonthDaySlots(this), toPlainMonthDaySlots(otherArg));
+    }
+    toPlainDate(bag) {
+      const slots = getPlainMonthDaySlots(this);
+      return createPlainDate(convertPlainMonthDayToDate(slots.calendar, this, bag));
+    }
+    toLocaleString(locales = void 0, options2 = {}) {
+      const slots = getPlainMonthDaySlots(this);
+      const format = new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformMonthDayOptions(options2)));
+      return checkResolvedCalendarCompatible(format, slots, 1), format.format(isoDateToEpochMilli(slots));
+    }
+    toString(options2 = void 0) {
+      return formatPlainMonthDayIso(getPlainMonthDaySlots(this), options2);
+    }
+    toJSON() {
+      return formatPlainMonthDayIso(getPlainMonthDaySlots(this));
+    }
+    valueOf() {
+      return forbiddenValueOf2();
+    }
+  }, getPlainMonthDaySlots, monthDayFieldGetters$1);
+  function createPlainMonthDay(slots) {
+    return initPlainMonthDay(Object.create(PlainMonthDay.prototype), slots);
+  }
+  function getPlainMonthDaySlots(obj) {
+    return getPlainMonthDaySlotsIfPresent(obj) || invalidRecordType();
+  }
+  function getPlainMonthDaySlotsIfPresent(obj) {
+    return plainMonthDaySlotsMap.get(obj);
+  }
+  function toPlainMonthDaySlots(arg, options2) {
+    if (isObjectLike2(arg)) {
+      const ownSlots = getPlainMonthDaySlotsIfPresent(arg);
+      if (ownSlots) {
+        return refineOverflowOptions(options2), ownSlots;
+      }
+      const calendarMaybe = extractCalendarFromBag(arg);
+      return refinePlainMonthDayObjectLike(void 0 === calendarMaybe ? isoCalendarImpl : calendarMaybe, void 0 === calendarMaybe, arg, options2);
+    }
+    const res = parsePlainMonthDay(arg, resolveBasicCalendarId);
+    return refineOverflowOptions(options2), res;
+  }
+  function initPlainMonthDay(instance, slots) {
+    return plainMonthDaySlotsMap.set(instance, slots), attachDebugString(instance), instance;
+  }
+  var plainYearMonthSlotsMap = /* @__PURE__ */ new WeakMap();
+  var PlainYearMonth = /* @__PURE__ */ defineTemporalClass(PlainYearMonthBranding, class {
+    constructor(isoYear, isoMonth, calendar = void 0, referenceIsoDay) {
+      const isoYearInt = toIntegerWithTrunc(isoYear);
+      const isoMonthInt = toIntegerWithTrunc(isoMonth);
+      const calendarImpl = resolveBasicCalendarArg(calendar);
+      const isoDayInt = toIntegerWithTrunc(referenceIsoDay ?? 1);
+      const fields = checkIsoYearMonthInBounds(validateIsoDateFields({
+        year: isoYearInt,
+        month: isoMonthInt,
+        day: isoDayInt
+      }));
+      initPlainYearMonth(this, createDateSlots(fields, calendarImpl));
+    }
+    static from(arg, options2 = void 0) {
+      return createPlainYearMonth(toPlainYearMonthSlots(arg, options2));
+    }
+    static compare(arg0, arg1) {
+      return compareIsoDateFields(toPlainYearMonthSlots(arg0), toPlainYearMonthSlots(arg1));
+    }
+    get calendarId() {
+      return getCalendarSlotId(getPlainYearMonthSlots(this).calendar);
+    }
+    with(mod, options2 = void 0) {
+      return createPlainYearMonth(mergePlainYearMonthFields(getPlainYearMonthSlots(this), validateBag(mod), options2));
+    }
+    add(durationArg, options2 = void 0) {
+      const slots = getPlainYearMonthSlots(this);
+      return createPlainYearMonth(createDateSlots(moveYearMonth(0, slots.calendar, slots, toDurationSlots(durationArg), options2), slots.calendar));
+    }
+    subtract(durationArg, options2 = void 0) {
+      const slots = getPlainYearMonthSlots(this);
+      return createPlainYearMonth(createDateSlots(moveYearMonth(1, slots.calendar, slots, toDurationSlots(durationArg), options2), slots.calendar));
+    }
+    until(otherArg, options2 = void 0) {
+      const slots = getPlainYearMonthSlots(this);
+      const other = toPlainYearMonthSlots(otherArg);
+      const calendar = getCommonCalendar(slots.calendar, other.calendar);
+      return createDuration(diffPlainYearMonth(0, calendar, slots, other, options2));
+    }
+    since(otherArg, options2 = void 0) {
+      const slots = getPlainYearMonthSlots(this);
+      const other = toPlainYearMonthSlots(otherArg);
+      const calendar = getCommonCalendar(slots.calendar, other.calendar);
+      return createDuration(diffPlainYearMonth(1, calendar, slots, other, options2));
+    }
+    equals(otherArg) {
+      return plainYearMonthsEqual(getPlainYearMonthSlots(this), toPlainYearMonthSlots(otherArg));
+    }
+    toPlainDate(bag) {
+      const slots = getPlainYearMonthSlots(this);
+      return createPlainDate(convertPlainYearMonthToDate(slots.calendar, this, bag));
+    }
+    toLocaleString(locales = void 0, options2 = {}) {
+      const slots = getPlainYearMonthSlots(this);
+      const format = new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformYearMonthOptions(options2)));
+      return checkResolvedCalendarCompatible(format, slots, 1), format.format(isoDateToEpochMilli(slots));
+    }
+    toString(options2 = void 0) {
+      return formatPlainYearMonthIso(getPlainYearMonthSlots(this), options2);
+    }
+    toJSON() {
+      return formatPlainYearMonthIso(getPlainYearMonthSlots(this));
+    }
+    valueOf() {
+      return forbiddenValueOf2();
+    }
+  }, getPlainYearMonthSlots, yearMonthFieldGetters$1, yearMonthDerivedGetters);
+  function createPlainYearMonth(slots) {
+    return initPlainYearMonth(Object.create(PlainYearMonth.prototype), slots);
+  }
+  function getPlainYearMonthSlots(obj) {
+    return getPlainYearMonthSlotsIfPresent(obj) || invalidRecordType();
+  }
+  function getPlainYearMonthSlotsIfPresent(obj) {
+    return plainYearMonthSlotsMap.get(obj);
+  }
+  function toPlainYearMonthSlots(arg, options2) {
+    if (isObjectLike2(arg)) {
+      const ownSlots = getPlainYearMonthSlotsIfPresent(arg);
+      if (ownSlots) {
+        return refineOverflowOptions(options2), ownSlots;
+      }
+      const calendar = getCalendarFromBag(arg);
+      return refinePlainYearMonthObjectLike(calendar, arg, options2);
+    }
+    const res = parsePlainYearMonth(arg, resolveBasicCalendarId);
+    return refineOverflowOptions(options2), res;
+  }
+  function initPlainYearMonth(instance, slots) {
+    return plainYearMonthSlotsMap.set(instance, slots), attachDebugString(instance), instance;
+  }
+  function getTemporalBrandingAndSlots(obj) {
+    if (!isObjectLike2(obj)) {
+      return;
+    }
+    let slots = getInstantSlotsIfPresent(obj);
+    return slots ? [InstantBranding, slots] : (slots = getZonedDateTimeSlotsIfPresent(obj), slots ? [ZonedDateTimeBranding, slots] : (slots = getPlainDateTimeSlotsIfPresent(obj), slots ? [PlainDateTimeBranding, slots] : (slots = getPlainDateSlotsIfPresent(obj), slots ? [PlainDateBranding, slots] : (slots = getPlainTimeSlotsIfPresent(obj), slots ? [PlainTimeBranding, slots] : (slots = getPlainYearMonthSlotsIfPresent(obj), slots ? [PlainYearMonthBranding, slots] : (slots = getPlainMonthDaySlotsIfPresent(obj), slots ? [PlainMonthDayBranding, slots] : (slots = getDurationSlotsIfPresent(obj), slots ? [DurationBranding, slots] : void 0)))))));
+  }
+  function validateBag(bag) {
+    return (getTemporalBrandingAndSlots(bag) || void 0 !== bag.calendar || void 0 !== bag.timeZone) && throwTypeError(invalidBag), bag;
+  }
+  var plainTimeSlotsMap = /* @__PURE__ */ new WeakMap();
+  var PlainTime = /* @__PURE__ */ defineTemporalClass(PlainTimeBranding, class {
+    constructor(hour = 0, minute = 0, second = 0, millisecond = 0, microsecond = 0, nanosecond = 0) {
+      const fields = validateTimeFields(mapProps(toIntegerWithTrunc, {
+        hour,
+        minute,
+        second,
+        millisecond,
+        microsecond,
+        nanosecond
+      }));
+      initPlainTime(this, createTimeSlots(fields));
+    }
+    static from(arg, options2 = void 0) {
+      return createPlainTime(toPlainTimeSlots(arg, options2));
+    }
+    static compare(arg0, arg1) {
+      return compareTimeFields(toPlainTimeSlots(arg0), toPlainTimeSlots(arg1));
+    }
+    with(mod, options2 = void 0) {
+      return createPlainTime(mergePlainTimeFields(getPlainTimeSlots(this), validateBag(mod), options2));
+    }
+    add(durationArg) {
+      const slots = getPlainTimeSlots(this);
+      return createPlainTime(moveTime(slots, toDurationSlots(durationArg))[0]);
+    }
+    subtract(durationArg) {
+      const slots = getPlainTimeSlots(this);
+      return createPlainTime(moveTime(slots, negateDurationFields(toDurationSlots(durationArg)))[0]);
+    }
+    until(otherArg, options2 = void 0) {
+      return createDuration(diffPlainTimes(0, getPlainTimeSlots(this), toPlainTimeSlots(otherArg), options2));
+    }
+    since(otherArg, options2 = void 0) {
+      return createDuration(diffPlainTimes(1, getPlainTimeSlots(this), toPlainTimeSlots(otherArg), options2));
+    }
+    round(options2) {
+      const slots = getPlainTimeSlots(this);
+      const [smallestUnit, roundingInc, roundingMode] = refineRoundingOptions(options2, 5);
+      return createPlainTime(roundTimeToNano(slots, computeNanoInc(smallestUnit, roundingInc), roundingMode)[0]);
+    }
+    equals(other) {
+      return plainTimesEqual(getPlainTimeSlots(this), toPlainTimeSlots(other));
+    }
+    toLocaleString(locales = void 0, options2 = {}) {
+      const slots = getPlainTimeSlots(this);
+      return new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformTimeOptions(options2))).format(timeFieldsToMilli(slots));
+    }
+    toString(options2 = void 0) {
+      return formatPlainTimeIso(getPlainTimeSlots(this), options2);
+    }
+    toJSON() {
+      return formatPlainTimeIso(getPlainTimeSlots(this));
+    }
+    valueOf() {
+      return forbiddenValueOf2();
+    }
+  }, getPlainTimeSlots, timeGetters);
+  function createPlainTime(slots) {
+    return initPlainTime(Object.create(PlainTime.prototype), slots);
+  }
+  function getPlainTimeSlots(obj) {
+    return getPlainTimeSlotsIfPresent(obj) || invalidRecordType();
+  }
+  function getPlainTimeSlotsIfPresent(obj) {
+    return plainTimeSlotsMap.get(obj);
+  }
+  function toPlainTimeSlots(arg, options2) {
+    if (isObjectLike2(arg)) {
+      const ownSlots = getPlainTimeSlotsIfPresent(arg);
+      if (ownSlots) {
+        return refineOverflowOptions(options2), ownSlots;
+      }
+      const dateTimeSlots = getPlainDateTimeSlotsIfPresent(arg);
+      if (dateTimeSlots) {
+        return refineOverflowOptions(options2), createTimeSlots(dateTimeSlots);
+      }
+      const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent(arg);
+      return zonedDateTimeSlots ? (refineOverflowOptions(options2), zonedDateTimeToPlainTime(zonedDateTimeSlots)) : refinePlainTimeObjectLike(arg, options2);
+    }
+    const timeSlots = parsePlainTime(arg);
+    return refineOverflowOptions(options2), timeSlots;
+  }
+  function optionalToPlainTimeFields(timeArg) {
+    return void 0 === timeArg ? void 0 : toPlainTimeSlots(timeArg);
+  }
+  function initPlainTime(instance, slots) {
+    return plainTimeSlotsMap.set(instance, slots), attachDebugString(instance), instance;
+  }
+  var plainDateTimeSlotsMap = /* @__PURE__ */ new WeakMap();
+  var PlainDateTime = /* @__PURE__ */ defineTemporalClass(PlainDateTimeBranding, class {
+    constructor(isoYear, isoMonth, isoDay, hour = 0, minute = 0, second = 0, millisecond = 0, microsecond = 0, nanosecond = 0, calendar = void 0) {
+      const fields = checkIsoDateTimeInBounds(validateIsoDateTimeFields(mapProps(toIntegerWithTrunc, {
+        year: isoYear,
+        month: isoMonth,
+        day: isoDay,
+        hour,
+        minute,
+        second,
+        millisecond,
+        microsecond,
+        nanosecond
+      })));
+      const calendarImpl = resolveBasicCalendarArg(calendar);
+      initPlainDateTime(this, createDateTimeSlots(fields, calendarImpl));
+    }
+    static from(arg, options2 = void 0) {
+      return createPlainDateTime(toPlainDateTimeSlots(arg, options2));
+    }
+    static compare(arg0, arg1) {
+      const slots0 = toPlainDateTimeSlots(arg0);
+      const slots1 = toPlainDateTimeSlots(arg1);
+      return compareIsoDateTimeFields(slots0, slots1);
+    }
+    get calendarId() {
+      return getCalendarSlotId(getPlainDateTimeSlots(this).calendar);
+    }
+    with(mod, options2 = void 0) {
+      return createPlainDateTime(mergePlainDateTimeFields(getPlainDateTimeSlots(this), validateBag(mod), options2));
+    }
+    withCalendar(calendarArg) {
+      const slots = getPlainDateTimeSlots(this);
+      return createPlainDateTime(createDateTimeSlots(slots, refineCalendarArg(calendarArg)));
+    }
+    withPlainTime(plainTimeArg = void 0) {
+      const slots = getPlainDateTimeSlots(this);
+      return createPlainDateTime(createPlainDateTimeFromRefinedFields(slots, optionalToPlainTimeFields(plainTimeArg), slots.calendar));
+    }
+    add(durationArg, options2 = void 0) {
+      const slots = getPlainDateTimeSlots(this);
+      return createPlainDateTime(createDateTimeSlots(moveDateTime(slots.calendar, slots, toDurationSlots(durationArg), options2), slots.calendar));
+    }
+    subtract(durationArg, options2 = void 0) {
+      const slots = getPlainDateTimeSlots(this);
+      return createPlainDateTime(createDateTimeSlots(moveDateTime(slots.calendar, slots, negateDurationFields(toDurationSlots(durationArg)), options2), slots.calendar));
+    }
+    until(otherArg, options2 = void 0) {
+      const slots = getPlainDateTimeSlots(this);
+      const other = toPlainDateTimeSlots(otherArg);
+      const calendar = getCommonCalendar(slots.calendar, other.calendar);
+      return createDuration(diffPlainDateTimes(0, calendar, slots, other, options2));
+    }
+    since(otherArg, options2 = void 0) {
+      const slots = getPlainDateTimeSlots(this);
+      const other = toPlainDateTimeSlots(otherArg);
+      const calendar = getCommonCalendar(slots.calendar, other.calendar);
+      return createDuration(diffPlainDateTimes(1, calendar, slots, other, options2));
+    }
+    round(options2) {
+      const slots = getPlainDateTimeSlots(this);
+      const [smallestUnit, roundingInc, roundingMode] = refineRoundingOptions(options2);
+      return createPlainDateTime(createDateTimeSlots(roundDateTimeToNano(slots, computeNanoInc(smallestUnit, roundingInc), roundingMode), slots.calendar));
+    }
+    equals(otherArg) {
+      return plainDateTimesEqual(getPlainDateTimeSlots(this), toPlainDateTimeSlots(otherArg));
+    }
+    toZonedDateTime(timeZoneArg, options2 = void 0) {
+      return createZonedDateTime(plainDateTimeToZonedDateTime(getPlainDateTimeSlots(this), queryTimeZone(refineTimeZoneArg(timeZoneArg)), options2));
+    }
+    toPlainDate() {
+      const slots = getPlainDateTimeSlots(this);
+      return createPlainDate(createDateSlots(slots, slots.calendar));
+    }
+    toPlainTime() {
+      return createPlainTime(createTimeSlots(getPlainDateTimeSlots(this)));
+    }
+    toLocaleString(locales = void 0, options2 = {}) {
+      const slots = getPlainDateTimeSlots(this);
+      const format = new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformDateTimeOptions(options2)));
+      return checkResolvedCalendarCompatible(format, slots), format.format(isoDateTimeToEpochMilli(slots));
+    }
+    toString(options2 = void 0) {
+      return formatPlainDateTimeIso(getPlainDateTimeSlots(this), options2);
+    }
+    toJSON() {
+      return formatPlainDateTimeIso(getPlainDateTimeSlots(this));
+    }
+    valueOf() {
+      return forbiddenValueOf2();
+    }
+  }, getPlainDateTimeSlots, dateFieldGetters$1, dateDerivedGetters, timeGetters);
+  function createPlainDateTime(slots) {
+    return initPlainDateTime(Object.create(PlainDateTime.prototype), slots);
+  }
+  function getPlainDateTimeSlots(obj) {
+    return getPlainDateTimeSlotsIfPresent(obj) || invalidRecordType();
+  }
+  function getPlainDateTimeSlotsIfPresent(obj) {
+    return plainDateTimeSlotsMap.get(obj);
+  }
+  function toPlainDateTimeSlots(arg, options2) {
+    if (isObjectLike2(arg)) {
+      const ownSlots = getPlainDateTimeSlotsIfPresent(arg);
+      if (ownSlots) {
+        return refineOverflowOptions(options2), ownSlots;
+      }
+      const dateSlots = getPlainDateSlotsIfPresent(arg);
+      if (dateSlots) {
+        return refineOverflowOptions(options2), createDateTimeSlots(combineDateAndTime(dateSlots, timeFieldDefaults), dateSlots.calendar);
+      }
+      const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent(arg);
+      if (zonedDateTimeSlots) {
+        return refineOverflowOptions(options2), zonedDateTimeToPlainDateTime(zonedDateTimeSlots);
+      }
+      const calendar = getCalendarFromBag(arg);
+      return refinePlainDateTimeObjectLike(calendar, arg, options2);
+    }
+    const res = parsePlainDateTime(arg, resolveBasicCalendarId);
+    return refineOverflowOptions(options2), res;
+  }
+  function initPlainDateTime(instance, slots) {
+    return plainDateTimeSlotsMap.set(instance, slots), attachDebugString(instance), instance;
+  }
+  var plainDateSlotsMap = /* @__PURE__ */ new WeakMap();
+  var PlainDate = /* @__PURE__ */ defineTemporalClass(PlainDateBranding, class {
+    constructor(isoYear, isoMonth, isoDay, calendar = void 0) {
+      const fields = checkIsoDateInBounds(validateIsoDateFields(mapProps(toIntegerWithTrunc, {
+        year: isoYear,
+        month: isoMonth,
+        day: isoDay
+      })));
+      const calendarImpl = resolveBasicCalendarArg(calendar);
+      initPlainDate(this, createDateSlots(fields, calendarImpl));
+    }
+    static from(arg, options2 = void 0) {
+      return createPlainDate(toPlainDateSlots(arg, options2));
+    }
+    static compare(arg0, arg1) {
+      return compareIsoDateFields(toPlainDateSlots(arg0), toPlainDateSlots(arg1));
+    }
+    get calendarId() {
+      return getCalendarSlotId(getPlainDateSlots(this).calendar);
+    }
+    with(mod, options2 = void 0) {
+      const slots = getPlainDateSlots(this);
+      return createPlainDate(mergePlainDateFields(slots, validateBag(mod), options2));
+    }
+    withCalendar(calendarArg) {
+      const slots = getPlainDateSlots(this);
+      return createPlainDate(createDateSlots(slots, refineCalendarArg(calendarArg)));
+    }
+    add(durationArg, options2 = void 0) {
+      const slots = getPlainDateSlots(this);
+      return createPlainDate(createDateSlots(moveDate(slots.calendar, slots, toDurationSlots(durationArg), options2), slots.calendar));
+    }
+    subtract(durationArg, options2 = void 0) {
+      const slots = getPlainDateSlots(this);
+      return createPlainDate(createDateSlots(moveDate(slots.calendar, slots, negateDurationFields(toDurationSlots(durationArg)), options2), slots.calendar));
+    }
+    until(otherArg, options2 = void 0) {
+      const slots = getPlainDateSlots(this);
+      const other = toPlainDateSlots(otherArg);
+      const calendar = getCommonCalendar(slots.calendar, other.calendar);
+      return createDuration(diffPlainDates(0, calendar, slots, other, options2));
+    }
+    since(otherArg, options2 = void 0) {
+      const slots = getPlainDateSlots(this);
+      const other = toPlainDateSlots(otherArg);
+      const calendar = getCommonCalendar(slots.calendar, other.calendar);
+      return createDuration(diffPlainDates(1, calendar, slots, other, options2));
+    }
+    equals(otherArg) {
+      return plainDatesEqual(getPlainDateSlots(this), toPlainDateSlots(otherArg));
+    }
+    toZonedDateTime(options2) {
+      const optionsObj = isObjectLike2(options2) ? {
+        timeZone: options2.timeZone,
+        plainTime: options2.plainTime
+      } : {
+        timeZone: options2
+      };
+      return createZonedDateTime(plainDateToZonedDateTime(refineTimeZoneArg, toPlainTimeSlots, getPlainDateSlots(this), optionsObj));
+    }
+    toPlainDateTime(plainTimeArg = void 0) {
+      const slots = getPlainDateSlots(this);
+      return createPlainDateTime(createPlainDateTimeFromRefinedFields(slots, optionalToPlainTimeFields(plainTimeArg), slots.calendar));
+    }
+    toPlainYearMonth() {
+      const slots = getPlainDateSlots(this);
+      return createPlainYearMonth(convertToPlainYearMonth(slots.calendar, this));
+    }
+    toPlainMonthDay() {
+      const slots = getPlainDateSlots(this);
+      return createPlainMonthDay(convertToPlainMonthDay(slots.calendar, this));
+    }
+    toLocaleString(locales = void 0, options2 = {}) {
+      const slots = getPlainDateSlots(this);
+      const format = new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformDateOptions(options2)));
+      return checkResolvedCalendarCompatible(format, slots), format.format(isoDateToEpochMilli(slots));
+    }
+    toString(options2 = void 0) {
+      return formatPlainDateIso(getPlainDateSlots(this), options2);
+    }
+    toJSON() {
+      return formatPlainDateIso(getPlainDateSlots(this));
+    }
+    valueOf() {
+      return forbiddenValueOf2();
+    }
+  }, getPlainDateSlots, dateFieldGetters$1, dateDerivedGetters);
+  function createPlainDate(slots) {
+    return initPlainDate(Object.create(PlainDate.prototype), slots);
+  }
+  function getPlainDateSlots(obj) {
+    return getPlainDateSlotsIfPresent(obj) || invalidRecordType();
+  }
+  function getPlainDateSlotsIfPresent(obj) {
+    return plainDateSlotsMap.get(obj);
+  }
+  function toPlainDateSlots(arg, options2) {
+    if (isObjectLike2(arg)) {
+      const ownSlots = getPlainDateSlotsIfPresent(arg);
+      if (ownSlots) {
+        return refineOverflowOptions(options2), ownSlots;
+      }
+      const dateTimeSlots = getPlainDateTimeSlotsIfPresent(arg);
+      if (dateTimeSlots) {
+        return refineOverflowOptions(options2), createDateSlots(dateTimeSlots, dateTimeSlots.calendar);
+      }
+      const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent(arg);
+      if (zonedDateTimeSlots) {
+        return refineOverflowOptions(options2), zonedDateTimeToPlainDate(zonedDateTimeSlots);
+      }
+      const calendar = getCalendarFromBag(arg);
+      return refinePlainDateObjectLike(calendar, arg, options2);
+    }
+    const res = parsePlainDate(arg, resolveBasicCalendarId);
+    return refineOverflowOptions(options2), res;
+  }
+  function initPlainDate(instance, slots) {
+    return plainDateSlotsMap.set(instance, slots), attachDebugString(instance), instance;
+  }
+  function getCalendarFromBag(bag) {
+    const calendar = extractCalendarFromBag(bag);
+    return void 0 === calendar ? isoCalendarImpl : calendar;
+  }
+  function extractCalendarFromBag(bag) {
+    const { calendar: calendarArg } = bag;
+    if (void 0 !== calendarArg) {
+      return refineCalendarArg(calendarArg);
+    }
+  }
+  function refineCalendarArg(arg) {
+    if (isObjectLike2(arg)) {
+      const slots = getPlainDateSlotsIfPresent(arg) || getPlainDateTimeSlotsIfPresent(arg) || getZonedDateTimeSlotsIfPresent(arg) || getPlainMonthDaySlotsIfPresent(arg) || getPlainYearMonthSlotsIfPresent(arg);
+      return slots || throwTypeError(invalidCalendar(arg)), slots.calendar;
+    }
+    return ((arg2) => resolveBasicCalendarId(parseCalendarId(requireString(arg2))))(arg);
+  }
+  var durationSlotsMap = /* @__PURE__ */ new WeakMap();
+  var Duration = /* @__PURE__ */ defineTemporalClass(DurationBranding, class {
+    constructor(years = 0, months = 0, weeks = 0, days = 0, hours = 0, minutes = 0, seconds = 0, milliseconds = 0, microseconds = 0, nanoseconds = 0) {
+      const fields = validateDurationFields(mapProps(toStrictInteger, {
+        years,
+        months,
+        weeks,
+        days,
+        hours,
+        minutes,
+        seconds,
+        milliseconds,
+        microseconds,
+        nanoseconds
+      }));
+      initDuration(this, createDurationSlots(fields));
+    }
+    static from(arg) {
+      return createDuration(toDurationSlots(arg));
+    }
+    static compare(durationArg0, durationArg1, options2 = void 0) {
+      return compareDurations(refinePublicRelativeTo, toDurationSlots(durationArg0), toDurationSlots(durationArg1), options2);
+    }
+    get sign() {
+      return getDurationSlots(this).sign;
+    }
+    get blank() {
+      return !getDurationSlots(this).sign;
+    }
+    with(mod) {
+      return createDuration(mergeDurationFields(getDurationSlots(this), mod));
+    }
+    negated() {
+      return createDuration(negateDuration(getDurationSlots(this)));
+    }
+    abs() {
+      return createDuration(absDuration(getDurationSlots(this)));
+    }
+    add(otherArg, options2 = void 0) {
+      return createDuration(addDurations(refinePublicRelativeTo, 0, getDurationSlots(this), toDurationSlots(otherArg), options2));
+    }
+    subtract(otherArg, options2 = void 0) {
+      return createDuration(addDurations(refinePublicRelativeTo, 1, getDurationSlots(this), toDurationSlots(otherArg), options2));
+    }
+    round(roundTo) {
+      return createDuration(roundDuration(refinePublicRelativeTo, getDurationSlots(this), roundTo));
+    }
+    total(totalOf) {
+      return totalDuration(refinePublicRelativeTo, getDurationSlots(this), totalOf);
+    }
+    toLocaleString(locales = void 0, options2) {
+      const slots = getDurationSlots(this);
+      return Intl.DurationFormat ? new Intl.DurationFormat(locales, options2).format(slots) : formatDurationIso(slots, options2);
+    }
+    toString(options2 = void 0) {
+      return formatDurationIso(getDurationSlots(this), options2);
+    }
+    toJSON() {
+      return formatDurationIso(getDurationSlots(this));
+    }
+    valueOf() {
+      return forbiddenValueOf2();
+    }
+  }, getDurationSlots, durationGetters);
+  function createDuration(slots) {
+    return initDuration(Object.create(Duration.prototype), slots);
+  }
+  function getDurationSlots(obj) {
+    return getDurationSlotsIfPresent(obj) || invalidRecordType();
+  }
+  function getDurationSlotsIfPresent(obj) {
+    return durationSlotsMap.get(obj);
+  }
+  function toDurationSlots(arg) {
+    if (isObjectLike2(arg)) {
+      return getDurationSlotsIfPresent(arg) || refineDurationObjectLike(arg);
+    }
+    return parseDuration(arg);
+  }
+  function refinePublicRelativeTo(relativeTo) {
+    if (void 0 !== relativeTo) {
+      if (isObjectLike2(relativeTo)) {
+        const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent(relativeTo);
+        if (zonedDateTimeSlots) {
+          return zonedDateTimeSlots;
+        }
+        const dateSlots = getPlainDateSlotsIfPresent(relativeTo);
+        if (dateSlots) {
+          return dateSlots;
+        }
+        const dateTimeSlots = getPlainDateTimeSlotsIfPresent(relativeTo);
+        if (dateTimeSlots) {
+          return createDateSlots(dateTimeSlots, dateTimeSlots.calendar);
+        }
+        const calendar = getCalendarFromBag(relativeTo);
+        return refineMaybeZonedDateTimeObjectLike(refineTimeZoneArg, calendar, relativeTo);
+      }
+      return parseRelativeToSlots(relativeTo, resolveBasicCalendarId);
+    }
+  }
+  function initDuration(instance, slots) {
+    return durationSlotsMap.set(instance, slots), attachDebugString(instance), instance;
+  }
+  var Now = /* @__PURE__ */ Object.defineProperties({}, {
+    ...createStringTagDescriptors("Temporal.Now"),
+    ...createPropDescriptors({
+      timeZoneId() {
+        return getCurrentTimeZoneId();
+      },
+      instant() {
+        return createInstant(createEpochNanoSlots(getCurrentEpochNano()));
+      },
+      zonedDateTimeISO(timeZoneArg = getCurrentTimeZoneId()) {
+        const timeZone = queryTimeZone(refineTimeZoneArg(timeZoneArg));
+        return createZonedDateTime(createZonedEpochNanoSlots(getCurrentEpochNano(), timeZone));
+      },
+      plainDateTimeISO(timeZoneArg = getCurrentTimeZoneId()) {
+        const isoDateTime = getCurrentIsoDateTime(queryTimeZone(refineTimeZoneArg(timeZoneArg)));
+        return createPlainDateTime(createDateTimeSlots(isoDateTime));
+      },
+      plainDateISO(timeZoneArg = getCurrentTimeZoneId()) {
+        const isoDateTime = getCurrentIsoDateTime(queryTimeZone(refineTimeZoneArg(timeZoneArg)));
+        return createPlainDate(createDateSlots(isoDateTime));
+      },
+      plainTimeISO(timeZoneArg = getCurrentTimeZoneId()) {
+        const isoDateTime = getCurrentIsoDateTime(queryTimeZone(refineTimeZoneArg(timeZoneArg)));
+        return createPlainTime(createTimeSlots(isoDateTime));
+      }
+    })
+  });
+  var Temporal2 = /* @__PURE__ */ Object.defineProperties({}, {
+    ...createStringTagDescriptors("Temporal"),
+    ...createPropDescriptors({
+      PlainYearMonth,
+      PlainMonthDay,
+      PlainDate,
+      PlainTime,
+      PlainDateTime,
+      ZonedDateTime,
+      Instant,
+      Duration,
+      Now
+    })
+  });
+
+  // node_modules/temporal-polyfill/index.js
+  var Temporal3 = NativeTemporal || Temporal2;
+  var toTemporalInstant2 = NativeTemporal ? Date.prototype.toTemporalInstant : toTemporalInstant;
+
+  // Shared/timeline.ts
+  init_time();
+  function mergeTimeline(remote, records, date2, operations = [], deletions = []) {
+    const rows = clone(remote).filter((r3) => !deletions.some((op) => op.status === "saved" && ["absent-in-fcr", "user-confirmed-remote-deletion"].includes(op.resolution || "") && op.calendarId === r3.calendarId && op.uid === r3.original?.event.uid && sameEventContent(op.before, r3.original.event)));
+    const index2 = new Map(rows.flatMap((r3) => r3.original?.event.uid ? [[`${r3.calendarId}:${r3.original.event.uid}`, r3]] : []));
+    for (const record of records) {
+      const visible = record.edit ? { ...record, ...record.edit } : record;
+      visible.segments.forEach((part) => {
+        const found = index2.get(`${visible.calendarId}:${part.uid}`);
+        if (record.status === "saved") {
+          if (found) {
+            found.recordId = record.id;
+            found.segmentUid = part.uid;
+          }
+          return;
+        }
+        const known = rows.filter((r3) => r3.original?.event.uid === part.uid && [record.calendarId, visible.calendarId].includes(r3.calendarId));
+        known.forEach((r3) => {
+          r3.recordId = record.id;
+          r3.segmentUid = part.uid;
+        });
+        known.forEach((r3) => rows.splice(rows.indexOf(r3), 1));
+        if (date2 < dayKey(part.start) || date2 > dayKey(Math.max(part.start, part.end - 1))) return;
+        rows.push({
+          key: `work:${record.id}:${part.uid}`,
+          title: visible.title,
+          calendarId: visible.calendarId,
+          start: part.start,
+          end: part.end,
+          recordId: record.id,
+          segmentUid: part.uid,
+          pending: true,
+          error: record.error
+        });
+      });
+    }
+    for (const op of operations.filter((o2) => o2.status === "pending")) {
+      const step = op.step, event = step.after;
+      const instant2 = (date3, time) => {
+        try {
+          return event.allDay ? +/* @__PURE__ */ new Date(date3 + "T00:00:00") : event.timezone && event.timezone !== "UTC" ? Temporal3.ZonedDateTime.from(`${date3}T${time}[${event.timezone}]`).epochMilliseconds : Date.parse(`${date3}T${time}${event.timezone === "UTC" ? "Z" : ""}`);
+        } catch {
+          return NaN;
+        }
+      };
+      const start = instant2(event.date, event.startTime), end = event.isTask ? start + (event.allDay ? 864e5 : 36e5) : instant2(event.endDate || event.date, event.endTime);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const known = rows.filter((r3) => r3.original?.event.uid === step.uid && [step.fromCalendarId, step.toCalendarId].includes(r3.calendarId));
+      known.forEach((r3) => rows.splice(rows.indexOf(r3), 1));
+      if (date2 < dayKey(start) || date2 > dayKey(Math.max(start, end - 1))) continue;
+      rows.push({ key: `event-operation:${op.id}`, title: event.title, calendarId: step.toCalendarId, start, end, allDay: !!event.allDay, pending: true, error: op.error });
+    }
+    for (const op of deletions.filter((o2) => o2.status !== "saved")) {
+      const known = rows.filter((r3) => r3.original?.event.uid === op.uid && r3.calendarId === op.calendarId || r3.recordId === op.recordId && r3.segmentUid === op.uid);
+      known.forEach((r3) => rows.splice(rows.indexOf(r3), 1));
+      if (date2 < dayKey(op.start) || date2 > dayKey(Math.max(op.start, op.end - 1))) continue;
+      rows.push({ key: `delete:${op.id}`, deletionId: op.id, title: op.title, calendarId: op.calendarId, start: op.start, end: op.end, recordId: op.recordId, segmentUid: op.uid, pending: true, deleting: true, error: op.error });
+    }
+    return rows.sort((a3, b2) => Number(b2.allDay) - Number(a3.allDay) || a3.start - b2.start);
+  }
+
+  // Preview/reminderFixture.ts
+  init_time();
+
+  // Clients/Obsidian/reminderForms.ts
+  init_time();
+  function mountReminderEditor(root, task, listName, save, remove, close) {
+    const expected = JSON.parse(JSON.stringify(task));
+    if (expected.readonlyReason) {
+      el(root, "h3", "", expected.title);
+      el(root, "p", "", expected.description || "");
+      el(root, "p", "ctt-muted", expected.readonlyReason);
+      button(root, "\u5173\u95ED", close);
+      return;
+    }
+    const title = field(root, "\u6807\u9898", "text", expected.title), desc = field(root, "\u5907\u6CE8", "text", expected.description || ""), date2 = field(root, "\u622A\u6B62\u65E5\u671F", "date", expected.due || ""), zone = field(root, "\u622A\u6B62\u65F6\u533A", "text", expected.dueZone || Intl.DateTimeFormat().resolvedOptions().timeZone), time = field(root, "\u622A\u6B62\u65F6\u95F4\uFF08\u53EF\u7559\u7A7A\uFF09", "time", expected.dueInstant != null ? dateParts(expected.dueInstant, expected.dueZone || "UTC").time : "");
+    time.step = "1";
+    el(root, "p", "ctt-muted", `\u5217\u8868\uFF1A${listName}\uFF1B\u672C\u7248\u8BF7\u5728\u63D0\u9192\u4E8B\u9879\u4E2D\u79FB\u52A8\u5217\u8868\u3002`);
+    const error2 = el(root, "p", "ctt-dialog-error"), controls = el(root, "div", "ctt-dialog-controls");
+    let busy2 = false;
+    const run2 = async (action) => {
+      if (busy2) return;
+      busy2 = true;
+      for (const b2 of controls.querySelectorAll("button")) b2.disabled = true;
+      try {
+        await action();
+        close();
+      } catch (e3) {
+        error2.textContent = e3.message;
+        busy2 = false;
+        for (const b2 of controls.querySelectorAll("button")) b2.disabled = false;
+      }
+    };
+    button(controls, "\u4FDD\u5B58", () => {
+      void run2(async () => {
+        if (time.value && !date2.value) throw new Error("\u8BF7\u5148\u586B\u5199\u622A\u6B62\u65E5\u671F\u3002");
+        const dueInstant = date2.value && time.value ? Temporal3.ZonedDateTime.from(`${date2.value}T${time.value}[${zone.value}]`, { disambiguation: "reject" }).epochMilliseconds : void 0;
+        await save({ title: title.value, description: desc.value, due: date2.value, dueInstant, dueZone: dueInstant == null ? void 0 : zone.value });
+      });
+    }, "ctt-primary");
+    const confirm = el(root, "div", "ctt-delete-confirm");
+    confirm.hidden = true;
+    el(confirm, "p", "", "\u5220\u9664\u8FD9\u9879 iCloud \u63D0\u9192\u4E8B\u9879\uFF1F\u5DF2\u6709\u5DE5\u65F6\u4FDD\u7559\uFF1B\u5173\u8054\u5361\u7247\u518D\u6B21\u70B9\u51FB\u65F6\u4F1A\u521B\u5EFA\u65B0\u4EFB\u52A1\u3002");
+    button(confirm, "\u786E\u8BA4\u5220\u9664", () => {
+      void run2(() => remove());
+    }, "ctt-danger");
+    button(confirm, "\u53D6\u6D88\u5220\u9664", () => {
+      confirm.hidden = true;
+    });
+    button(controls, "\u5220\u9664\u5F85\u529E", () => {
+      confirm.hidden = false;
+    }, "ctt-danger");
+    button(controls, "\u53D6\u6D88", close);
+  }
+  function migrationForm(root, tasks2, lists, defaultList, blocked, topics, submit, close) {
+    el(root, "p", "ctt-muted", "\u4EC5\u8FC1\u79FB\u4F60\u9009\u62E9\u7684\u4EFB\u52A1\uFF1B\u4E0D\u6309\u540C\u540D\u5408\u5E76\uFF0C\u4E0D\u5220\u9664\u539F Markdown\u3002\u8FDB\u884C\u4E2D\u7684\u4F1A\u8BDD\u6216\u5B8C\u6210\u64CD\u4F5C\u9700\u5148\u5904\u7406\u3002");
+    const rows = tasks2.map((task) => {
+      const row = el(root, "div", "ctt-migration-row"), label = el(row, "label"), check = el(label, "input");
+      check.type = "checkbox";
+      check.checked = !task.completed;
+      const reason = blocked(task);
+      check.disabled = !!reason;
+      if (reason) check.checked = false;
+      el(label, "strong", "", task.title);
+      el(row, "p", "ctt-muted", [task.completed ? "\u5DF2\u5B8C\u6210\uFF0C\u5B8C\u6210\u65F6\u95F4\u4FDD\u7559\u672A\u77E5" : "\u672A\u5B8C\u6210", topics(task).join("\u3001"), reason].filter(Boolean).join(" \xB7 "));
+      const select = el(row, "select");
+      select.setAttribute("aria-label", `\u8FC1\u79FB\u76EE\u6807 ${task.title}`);
+      options(select, lists, defaultList);
+      return { task, check, select };
+    });
+    const error2 = el(root, "p", "ctt-dialog-error"), save = button(root, "\u8FC1\u79FB\u6240\u9009\u5F85\u529E", () => {
+      const selected = rows.filter((r3) => r3.check.checked);
+      if (!selected.length) {
+        error2.textContent = "\u8BF7\u5148\u9009\u62E9\u4EFB\u52A1\u3002";
+        return;
+      }
+      if (selected.some((r3) => !r3.select.value)) {
+        error2.textContent = "\u8BF7\u4E3A\u6240\u9009\u4EFB\u52A1\u9009\u62E9\u76EE\u6807\u5217\u8868\u3002";
+        return;
+      }
+      save.disabled = true;
+      void submit(selected.map((r3) => ({ task: r3.task, listId: r3.select.value }))).then(close).catch((e3) => {
+        error2.textContent = e3.message;
+        save.disabled = false;
+      });
+    }, "ctt-primary");
+    button(root, "\u53D6\u6D88", close);
+  }
+
+  // Clients/Obsidian/componentsButtons.ts
+  init_time();
+  var FIELD = ".components--DynamicDataView-PageProperty_button";
+  var VALUE = ".components--DynamicDataView-PageProperty-Value";
+  var ComponentsTimerButtons = class {
+    constructor(doc, host2) {
+      this.doc = doc;
+      this.host = host2;
+      this.state = host2.api.getTimerState();
+      this.observer = new MutationObserver((changes) => {
+        if (changes.some((c3) => c3.type === "attributes" ? c3.target.matches(`a[data-href],${VALUE}`) : [...c3.addedNodes, ...c3.removedNodes].some((n2) => n2.nodeType === 1))) this.schedule();
+      });
+      this.observer.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-href", "aria-label"] });
+      this.unsubscribe = host2.api.subscribeTimer((state) => {
+        this.state = state;
+        for (const button2 of this.buttons.values()) this.paint(button2);
+      });
+    }
+    doc;
+    host;
+    scopes = [];
+    buttons = /* @__PURE__ */ new Map();
+    observer;
+    unsubscribe;
+    frame = 0;
+    stopped = false;
+    state;
+    setScopes(scopes) {
+      if (!this.stopped) {
+        this.scopes = scopes;
+        this.reconcile();
+      }
+    }
+    schedule() {
+      if (this.frame || this.stopped) return;
+      this.frame = this.doc.defaultView.requestAnimationFrame(() => {
+        this.frame = 0;
+        this.reconcile();
+      });
+    }
+    reconcile() {
+      const found = /* @__PURE__ */ new Set();
+      for (const scope of this.scopes) {
+        if (!scope.root.isConnected) continue;
+        for (const field2 of scope.root.querySelectorAll(FIELD)) {
+          const value = field2.querySelector(VALUE);
+          if (!value || !scope.labels.has(value.getAttribute("aria-label") || "")) continue;
+          const card = field2.closest(".components--DynamicDataView-PageCard");
+          const link = card?.querySelector(".components--DynamicDataView-PageTitle a[data-href]");
+          const note = link?.getAttribute("data-href");
+          const button2 = value.querySelector(".components--DynamicDataView-Button"), label = button2?.querySelector(".components--DynamicDataView-ButtonLabel");
+          const content2 = field2.closest(".components--DynamicDataView-PageCardContent");
+          if (!note?.endsWith(".md") || !button2 || !label || !content2 || card?.classList.contains("components--DynamicDataView-PageCard_preview")) continue;
+          found.add(field2);
+          const previous = this.buttons.get(field2);
+          if (previous?.button === button2 && previous.label === label && previous.note === note) continue;
+          previous?.restore();
+          this.buttons.set(field2, this.mount(field2, button2, label, content2, note));
+        }
+      }
+      for (const [field2, button2] of this.buttons) if (!found.has(field2)) {
+        button2.restore();
+        this.buttons.delete(field2);
+      }
+      for (const button2 of this.buttons.values()) this.paint(button2);
+    }
+    mount(field2, button2, label, content2, note) {
+      const original = { text: label.textContent || "", title: button2.getAttribute("title"), role: button2.getAttribute("role"), tab: button2.getAttribute("tabindex"), aria: button2.getAttribute("aria-label"), disabled: button2.getAttribute("aria-disabled") };
+      const item = { field: field2, button: button2, label, content: content2, note, expected: null, working: false, error: "", restore: () => {
+      } };
+      const activate = (e3) => {
+        e3.preventDefault();
+        e3.stopImmediatePropagation();
+        if (item.working || !this.state.available || e3 instanceof MouseEvent && e3.detail > 1) return;
+        const expected = item.expected;
+        item.working = true;
+        item.error = "";
+        this.paint(item);
+        void this.host.toggle(note, expected).then((r3) => {
+          if (!r3.ok && r3.code !== "cancelled") item.error = r3.message;
+        }).catch((e4) => {
+          item.error = e4.message;
+        }).finally(() => {
+          item.working = false;
+          if (!this.stopped && this.buttons.get(field2) === item) this.paint(item);
+        });
+      };
+      const key2 = (e3) => {
+        if (e3.key !== "Enter" && e3.key !== " ") return;
+        if (e3.repeat) {
+          e3.preventDefault();
+          e3.stopImmediatePropagation();
+          return;
+        }
+        activate(e3);
+      };
+      button2.addEventListener("click", activate, true);
+      button2.addEventListener("keydown", key2, true);
+      button2.setAttribute("role", "button");
+      button2.tabIndex = 0;
+      field2.classList.add("ctt-components-timer-field");
+      content2.classList.add("ctt-components-timer-header");
+      button2.classList.add("ctt-components-timer-button");
+      item.restore = () => {
+        button2.removeEventListener("click", activate, true);
+        button2.removeEventListener("keydown", key2, true);
+        label.textContent = original.text;
+        for (const [name, value] of Object.entries({ title: original.title, role: original.role, tabindex: original.tab, "aria-label": original.aria, "aria-disabled": original.disabled })) value == null ? button2.removeAttribute(name) : button2.setAttribute(name, value);
+        button2.classList.remove("ctt-components-timer-button");
+        button2.removeAttribute("data-ctt-state");
+        field2.classList.remove("ctt-components-timer-field");
+        if (!content2.querySelector(".ctt-components-timer-field")) content2.classList.remove("ctt-components-timer-header");
+      };
+      return item;
+    }
+    paint(item) {
+      const active = this.state.active, ref = this.host.binding(item.note), own = active && ref && sameTask(active.task, ref);
+      item.expected = own ? active.id : null;
+      const phase = !this.state.available ? "unavailable" : item.working ? "working" : own ? active.runningSince == null ? "paused" : "running" : active ? "blocked" : "idle";
+      const text = phase === "unavailable" ? "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D" : item.working ? "\u5904\u7406\u4E2D\u2026" : own ? `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u25CF"} ${secondsText(elapsed(active))} \xB7 \u7ED3\u675F` : "\u5F00\u59CB\u8BA1\u65F6";
+      if (item.label.textContent !== text) item.label.textContent = text;
+      item.button.dataset.cttState = phase;
+      const title = item.error || (own ? "\u70B9\u51FB\u7ED3\u675F\uFF0C\u53EA\u8BB0\u5F55\u5DE5\u65F6\uFF0C\u4FDD\u7559\u4EFB\u52A1\u672A\u5B8C\u6210" : active ? `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u7ED3\u675F\u8BE5\u4F1A\u8BDD` : "\u70B9\u51FB\u5F00\u59CB\u6B64\u8BFE\u9898\u5173\u8054\u7684\u4EFB\u52A1");
+      if (item.button.title !== title) item.button.title = title;
+      if (item.button.getAttribute("aria-label") !== text) item.button.setAttribute("aria-label", text);
+      item.button.setAttribute("aria-disabled", String(item.working || !this.state.available));
+    }
+    dispose() {
+      if (this.stopped) return;
+      this.stopped = true;
+      this.observer.disconnect();
+      this.unsubscribe();
+      if (this.frame) this.doc.defaultView.cancelAnimationFrame(this.frame);
+      for (const button2 of this.buttons.values()) button2.restore();
+      this.buttons.clear();
+      this.scopes = [];
+    }
+  };
+
+  // Clients/Obsidian/components.ts
+  async function toggleNoteTimer(note, expected, host2) {
+    const state = host2.state(), ref = host2.binding(note), active = state.active;
+    if (expected === null) return host2.start(note);
+    if (typeof expected === "string") {
+      if (!ref || active?.id !== expected || !sameTask(active.task, ref)) return { ok: false, code: "stale-session", message: "\u5361\u7247\u5BF9\u5E94\u7684\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u6309\u6700\u65B0\u72B6\u6001\u91CD\u8BD5\u3002" };
+      return host2.finish(expected);
+    }
+    return active && ref && sameTask(active.task, ref) ? host2.finish(active.id) : host2.start(note);
+  }
+
+  // Preview/componentsFixture.ts
+  function componentsFixture(api2, bindings) {
+    const style = document.createElement("style");
+    style.textContent = `
+    #ctt-native-fixture { position:fixed;top:65px;left:20px;width:900px;max-width:calc(100vw - 40px);z-index:30;background:var(--background-primary);border:1px solid var(--background-modifier-border);padding:12px;box-shadow:0 8px 30px #0002; }
+    #ctt-native-fixture .fixture-cards { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; }
+    #ctt-native-fixture .components--DynamicDataView-PageCard { position:relative;min-width:0;border:1px solid var(--background-modifier-border);border-radius:10px; }
+    #ctt-native-fixture .components--DynamicDataView-PageCardContent { padding-block:8px; }
+    #ctt-native-fixture .components--DynamicDataView-PageContextMenu { position:absolute;top:4px;right:4px;z-index:3;display:flex;width:60px;height:24px;background:var(--background-primary);opacity:0; }
+    #ctt-native-fixture .components--DynamicDataView-PageCard:hover .components--DynamicDataView-PageContextMenu { opacity:1; }
+    #ctt-native-fixture .components--DynamicDataView-PageContextMenu button { width:30px;height:24px;padding:0; }
+
+    #ctt-native-fixture .components--DynamicDataView-PageTitle { display:flex;align-items:center;padding-inline:8px;overflow:hidden;font-size:14px;line-height:1.4; }
+    #ctt-native-fixture .components--DynamicDataView-PageTitleLink { width:100%;overflow:hidden; }
+    #ctt-native-fixture .components--DynamicDataView-PageTitle a { color:var(--text-normal);text-decoration:none;white-space:nowrap; }
+    #ctt-native-fixture .components--DynamicDataView-PagePropertyList { display:flex;flex-direction:column;gap:2px;padding:4px 8px; }
+    #ctt-native-fixture .ctt-components-timer-header > .components--DynamicDataView-PagePropertyList { display:contents; }
+    #ctt-native-fixture .components--DynamicDataView-Button { display:inline-flex;position:relative; }
+    #ctt-native-fixture .components--DynamicDataView-ButtonLabel { display:flex;align-items:center;padding:4px 8px;min-width:30px;border-radius:4px;border:1px solid var(--background-modifier-border);cursor:pointer;font-size:13px; }
+  `;
+    document.head.append(style);
+    const root = document.createElement("aside");
+    root.id = "ctt-native-fixture";
+    root.innerHTML = `<div class="fixture-cards">${[["research.md", "\u89C6\u9891\u611F\u77E5\u4F18\u5316"], ["reading.md", "Paper Reading"]].map(([path, title]) => `
+    <div class="components--DynamicDataView-PageCard" data-note="${path}"><div class="components--DynamicDataView-PageContextMenu"><button aria-label="\u7F16\u8F91">\u270E</button><button aria-label="\u66F4\u591A">\u22EF</button></div><div class="components--DynamicDataView-PageCardContent">
+      <div class="components--DynamicDataView-PageTitle"><div class="components--DynamicDataView-PageTitleLink"><a class="internal-link" data-href="${path}" href="${path}">${title}</a></div></div>
+      <div class="components--DynamicDataView-PagePropertyList">
+        <div class="components--DynamicDataView-PageProperty components--DynamicDataView-PageProperty_button"><div class="components--DynamicDataView-PageProperty-Value" aria-label="\u5F00\u59CB\u8BA1\u65F6"><span class="components--DynamicDataView-Button"><div class="components--DynamicDataView-ButtonLabel">\u5F00\u59CB\u8BA1\u65F6</div></span></div></div>
+        <div class="components--DynamicDataView-PageProperty"><p>\u8BFE\u9898\u4E2D\u7684\u539F\u6709\u4EFB\u52A1\u5217\u8868</p><p>\u25A1 \u7EE7\u7EED\u7814\u7A76\u5DE5\u4F5C</p></div>
+      </div>
+    </div></div>`).join("")}</div>`;
+    document.body.append(root);
+    const counts = { escapedClicks: 0 };
+    root.addEventListener("click", () => {
+      counts.escapedClicks++;
+    });
+    const toggle = (note, expected) => toggleNoteTimer(note, expected, {
+      state: () => api2.getState(),
+      binding: (note2) => bindings[note2],
+      start: (note2) => api2.start(bindings[note2], { source: "components", path: note2 }),
+      finish: (id) => api2.finish(id, false)
+    });
+    const manager = new ComponentsTimerButtons(document, { api: api2, binding: (note) => bindings[note], toggle });
+    manager.setScopes([{ root, labels: /* @__PURE__ */ new Set(["\u5F00\u59CB\u8BA1\u65F6"]) }]);
+    return { root, manager, counts, toggle, dispose: () => {
+      manager.dispose();
+      root.remove();
+      style.remove();
+    } };
+  }
+
+  // Preview/reminderFixture.ts
+  function reminderFixture(root) {
+    let ui2, worker2, api2, offline2 = false, delay = 0, date2 = dayKey(), page2 = "tasks", error2 = "";
+    const bindings = { "research.md": { kind: "reminder", path: "icloud:preview-account", id: "r1" }, "reading.md": { kind: "reminder", path: "icloud:preview-account", id: "repeat" } }, events = [], calls = [];
+    const calendars2 = [{ id: "research", name: "\u79D1\u7814\u65E5\u5386", color: "#c8a0b2" }, { id: "work", name: "\u5DE5\u4F5C\u65E5\u5386", color: "#82a6c0" }], lists = [{ id: "list-a", name: "\u79D1\u7814\u5F85\u529E" }, { id: "list-b", name: "\u5DE5\u4F5C\u5F85\u529E" }], prefs = { enabled: true, accountId: "preview-account", defaultListId: "list-a", calendarMap: { "list-a": "research" } };
+    const native = (id, title, extra = {}) => ({ id, title, completed: false, kind: "reminder", path: "icloud:preview-account", accountId: "preview-account", listId: "list-a", description: "\u539F\u751F\u5907\u6CE8", revision: "v1", ...extra });
+    const cloud = new Map([native("r1", "\u539F\u751F\u79D1\u7814\u4EFB\u52A1"), native("repeat", "\u6BCF\u5468\u5468\u671F\u4EFB\u52A1", { readonlyReason: "\u5468\u671F\u4EFB\u52A1\uFF0C\u8BF7\u5728\u63D0\u9192\u4E8B\u9879\u4E2D\u7F16\u8F91\uFF0F\u5B8C\u6210" }), native("child", "\u539F\u751F\u5B50\u4EFB\u52A1", { parentId: "parent", readonlyReason: "\u5B50\u4EFB\u52A1" })].map((t3) => [t3.id, t3]));
+    const locals = [{ id: "local-old", title: "\u5F85\u8FC1\u79FB\u7684\u8BFE\u9898", kind: "local", path: "preview-tasks.md", calendarId: "research", completed: false }];
+    const rpc = { call: async (method, args) => {
+      calls.push(method);
+      if (delay) await new Promise((r3) => setTimeout(r3, delay));
+      if (offline2) throw Error("\u6A21\u62DF\u7F51\u7EDC\u65AD\u5F00");
+      if (method === "snapshot") return { full: true, lists, items: [...cloud.values()], cursor: "cursor" };
+      const op = args.op;
+      if (method === "create") {
+        if (!cloud.has(op.task.id)) cloud.set(op.task.id, { ...op.task, revision: "created" });
+        return { task: clone(cloud.get(op.task.id)) };
+      }
+      if (method === "delete") {
+        cloud.delete(op.task.id);
+        return { deleted: true };
+      }
+      const old = cloud.get(op.task.id);
+      if (!old) throw Error("\u4EFB\u52A1\u5DF2\u5220\u9664");
+      if (old.readonlyReason) throw Error(old.readonlyReason);
+      if (old.revision !== op.before.revision) throw Error("\u5916\u90E8\u53D8\u5316\u51B2\u7A81");
+      const next = { ...old, ...op.patch, revision: "updated" };
+      cloud.set(next.id, next);
+      return { task: clone(next) };
+    } };
+    const provider = new RemindersProvider(rpc, { settings: () => prefs, calendar: (list) => prefs.calendarMap[list] || "work", persist: async (d3) => {
+      localStorage.setItem("ctt-native-preview", JSON.stringify(d3));
+    }, changed: () => {
+      render2();
+      worker2?.wake();
+    }, migrated: async (from, to) => {
+      for (const n2 of Object.keys(bindings)) if (bindings[n2].id === from.id) bindings[n2] = to;
+    } });
+    provider.load({ ...blankReminders(), accountId: prefs.accountId, lists, items: [...cloud.values()] });
+    const tasks2 = () => [...locals.filter((t3) => !provider.data.aliases[JSON.stringify([t3.kind, t3.path, t3.id])]), ...provider.list()];
+    const controller2 = new TimerController({ state: blankJournal(), background: true, persist: async () => {
+    }, calendar: { assertWritable: (id) => {
+      if (!calendars2.some((c3) => c3.id === id)) throw Error("\u65E5\u5386\u4E0D\u53EF\u5199");
+    }, ensureEvent: async (id, event) => {
+      const start2 = Date.parse(`${event.date}T${event.startTime}Z`), end = Date.parse(`${event.endDate}T${event.endTime}Z`);
+      events.push({ key: event.uid, title: event.title, calendarId: id, start: start2, end, original: { id: event.uid, calendarId: id, event } });
+      return event;
+    } }, tasks: { complete: (task) => provider.completeRemote(task) }, onChange: () => {
+      render2();
+      worker2?.wake();
+    } });
+    const coordinator = { jobs: () => [...provider.jobs(), ...controller2.jobs()], sync: (key2) => key2.startsWith("reminder:") ? provider.sync(key2) : controller2.sync(key2), requestRetry: (key2) => key2.startsWith("reminder:") ? provider.requestRetry(key2) : controller2.requestRetry(key2), stopRemote: () => {
+      controller2.stopRemote();
+      provider.stop();
+    } };
+    worker2 = new SyncWorker(coordinator, { enabled: () => !offline2, changed: () => render2(), settled: () => render2() });
+    function model2() {
+      return { connected: true, busy: false, error: error2, calendars: calendars2, sources: calendars2, taskCategories: lists, defaultTaskCategoryId: prefs.defaultListId, defaultCalendarId: "work", active: controller2.state.active, tasks: tasks2(), date: date2, rows: mergeTimeline(events, controller2.state.records, date2), appPage: page2, linkedTasks: Object.values(bindings), completions: [], pending: provider.jobs().map((j4) => ({ id: j4.key, title: j4.value.task.title, error: j4.value.error, canKeep: false })), sync: worker2?.view };
+    }
+    function render2() {
+      ui2?.update(model2());
+      api2?.notify();
+    }
+    const run2 = async (fn2) => {
+      try {
+        await fn2();
+        error2 = "";
+        render2();
+        return true;
+      } catch (e3) {
+        error2 = e3.message;
+        render2();
+        return false;
+      }
+    };
+    const dialog = (title, mount) => {
+      const d3 = document.createElement("dialog");
+      document.body.append(d3);
+      el(d3, "h2", "", title);
+      const form = el(d3, "div", "ctt-dialog");
+      mount(form, () => d3.close());
+      d3.onclose = () => d3.remove();
+      d3.showModal();
+    };
+    api2 = new TimerApi({ controller: controller2, execute: (fn2) => fn2(), resolve: async (ref, context) => {
+      if (context?.source === "components") {
+        const task = await provider.restore(ref, { title: "\u8BFE\u9898\u4EFB\u52A1", listId: "list-a" });
+        if (context.path) bindings[context.path] = reminderRef(task);
+        return task;
+      }
+      return provider.resolve(ref);
+    }, prepare: async (task) => ({ ...task, calendarId: provider.list().find((t3) => t3.id === task.id).calendarId }), refresh: async () => render2(), state: () => ({ available: true, active: controller2.state.active, tasks: tasks2(), pending: coordinator.jobs().length }) });
+    const start = (task) => {
+      void api2.start(taskRef(task)).then((result) => {
+        if (!result.ok) error2 = result.message;
+        render2();
+      });
+    };
+    const actions2 = { connect: () => {
+    }, refresh: () => {
+      void provider.refresh();
+    }, settings: () => {
+    }, categorySettings: () => {
+    }, openCalendar: () => {
+    }, newEvent: () => {
+    }, editRow: () => {
+    }, editStart: () => {
+    }, category: (id) => {
+      void run2(() => controller2.updateActive({ calendarId: id }));
+    }, page: (id) => {
+      page2 = id;
+    }, date: (id) => {
+      date2 = id;
+      render2();
+    }, sortTasks: async () => true, reorderTasks: (next, expected) => run2(() => provider.reorder(next, expected, tasks2())), add: (title, due, list) => run2(() => provider.create(title, list, { due })), start, complete: (task) => {
+      void run2(() => provider.update(task, { completed: !task.completed }));
+    }, pause: (id) => {
+      void api2.pause(id || "").then(render2);
+    }, resume: (id) => {
+      void api2.resume(id || "").then(render2);
+    }, finish: (complete, id) => {
+      void api2.finish(id || "", complete).then(render2);
+    }, retry: (key2) => {
+      void worker2.retry(key2);
+    }, keep: () => {
+    }, resolveDeletion: () => {
+    }, editTask: (task) => dialog("\u63D0\u9192\u4E8B\u9879", (r3, close) => mountReminderEditor(r3, task, lists.find((l3) => l3.id === task.listId)?.name || "\u672C\u5730", (patch) => provider.update(task, patch), () => provider.remove(task), close)) };
+    ui2 = new TimerUI(root, actions2);
+    render2();
+    const timer = setInterval(() => {
+      ui2.tick();
+      api2.notify();
+    }, 1e3);
+    document.querySelector("#offline").onchange = (e3) => {
+      offline2 = e3.target.checked;
+      if (!offline2) void worker2.resume("network");
+    };
+    document.querySelector("#sync-delay").onchange = (e3) => delay = Number(e3.target.value);
+    const migration = () => dialog("\u8FC1\u79FB\u672C\u5730\u5F85\u529E", (r3, close) => migrationForm(r3, locals, lists, prefs.defaultListId, () => "", () => ["\u8BFE\u9898.md"], async (rows) => {
+      for (const row of rows) await provider.create(row.task.title, row.listId, { due: row.task.due }, taskRef(row.task));
+    }, close));
+    const migrate = button(document.querySelector(".ctt-tools"), "\u8FC1\u79FB", migration);
+    const fixture = { provider, controller: controller2, api: api2, ui: ui2, tasks: tasks2, cloud, calls, prefs, model: model2, render: render2, migration, setMapping: (list, id) => {
+      prefs.calendarMap[list] = id;
+      render2();
+    }, dispose: () => {
+      clearInterval(timer);
+      ui2.destroy();
+      worker2.stop();
+      api2.dispose();
+      migrate.remove();
+    } };
+    if (new URLSearchParams(location.search).has("components")) fixture.native = componentsFixture(api2, bindings);
+    window.addEventListener("beforeunload", () => fixture.dispose());
+    return fixture;
+  }
+
+  // node_modules/preact/dist/preact.module.js
+  var n;
+  var l;
+  var u;
+  var t;
+  var i;
+  var r;
+  var o;
+  var e;
+  var f;
+  var c;
+  var a;
+  var s;
+  var h;
+  var p;
+  var v;
+  var y;
+  var d = {};
+  var w = [];
+  var _ = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
+  var g = Array.isArray;
+  function m(n2, l3) {
+    for (var u4 in l3) n2[u4] = l3[u4];
+    return n2;
+  }
+  function b(n2) {
+    n2 && n2.parentNode && n2.parentNode.removeChild(n2);
+  }
+  function k(l3, u4, t3) {
+    var i3, r3, o2, e3 = {};
+    for (o2 in u4) "key" == o2 ? i3 = u4[o2] : "ref" == o2 ? r3 = u4[o2] : e3[o2] = u4[o2];
+    if (arguments.length > 2 && (e3.children = arguments.length > 3 ? n.call(arguments, 2) : t3), "function" == typeof l3 && null != l3.defaultProps) for (o2 in l3.defaultProps) void 0 === e3[o2] && (e3[o2] = l3.defaultProps[o2]);
+    return x(l3, e3, i3, r3, null);
+  }
+  function x(n2, t3, i3, r3, o2) {
+    var e3 = { type: n2, props: t3, key: i3, ref: r3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: null == o2 ? ++u : o2, __i: -1, __u: 0 };
+    return null == o2 && null != l.vnode && l.vnode(e3), e3;
+  }
+  function M() {
+    return { current: null };
+  }
+  function S(n2) {
+    return n2.children;
+  }
+  function C(n2, l3) {
+    this.props = n2, this.context = l3;
+  }
+  function $(n2, l3) {
+    if (null == l3) return n2.__ ? $(n2.__, n2.__i + 1) : null;
+    for (var u4; l3 < n2.__k.length; l3++) if (null != (u4 = n2.__k[l3]) && null != u4.__e) return u4.__e;
+    return "function" == typeof n2.type ? $(n2) : null;
+  }
+  function I(n2) {
+    if (n2.__P && n2.__d) {
+      var u4 = n2.__v, t3 = u4.__e, i3 = [], r3 = [], o2 = m({}, u4);
+      o2.__v = u4.__v + 1, l.vnode && l.vnode(o2), q(n2.__P, o2, u4, n2.__n, n2.__P.namespaceURI, 32 & u4.__u ? [t3] : null, i3, null == t3 ? $(u4) : t3, !!(32 & u4.__u), r3), o2.__v = u4.__v, o2.__.__k[o2.__i] = o2, D(i3, o2, r3), u4.__e = u4.__ = null, o2.__e != t3 && P(o2);
+    }
+  }
+  function P(n2) {
+    if (null != (n2 = n2.__) && null != n2.__c) return n2.__e = n2.__c.base = null, n2.__k.some(function(l3) {
+      if (null != l3 && null != l3.__e) return n2.__e = n2.__c.base = l3.__e;
+    }), P(n2);
+  }
+  function A(n2) {
+    (!n2.__d && (n2.__d = true) && i.push(n2) && !H.__r++ || r != l.debounceRendering) && ((r = l.debounceRendering) || o)(H);
+  }
+  function H() {
+    try {
+      for (var n2, l3 = 1; i.length; ) i.length > l3 && i.sort(e), n2 = i.shift(), l3 = i.length, I(n2);
+    } finally {
+      i.length = H.__r = 0;
+    }
+  }
+  function L(n2, l3, u4, t3, i3, r3, o2, e3, f4, c3, a3) {
+    var s2, h3, p3, v3, y3, _3, g4 = t3 && t3.__k || w, m3 = l3.length;
+    for (f4 = T(u4, l3, g4, f4, m3), s2 = 0; s2 < m3; s2++) null != (p3 = u4.__k[s2]) && (h3 = -1 != p3.__i && g4[p3.__i] || d, p3.__i = s2, _3 = q(n2, p3, h3, i3, r3, o2, e3, f4, c3, a3), v3 = p3.__e, p3.ref && h3.ref != p3.ref && (h3.ref && J(h3.ref, null, p3), a3.push(p3.ref, p3.__c || v3, p3)), null == y3 && null != v3 && (y3 = v3), 4 & p3.__u ? (f4 = j(p3, f4, n2), h3.__e && (h3.__e = null)) : "function" == typeof p3.type && void 0 !== _3 ? f4 = _3 : v3 && (f4 = v3.nextSibling), p3.__u &= -7);
+    return u4.__e = y3, f4;
+  }
+  function T(n2, l3, u4, t3, i3) {
+    var r3, o2, e3, f4, c3, a3 = u4.length, s2 = a3, h3 = 0;
+    for (n2.__k = new Array(i3), r3 = 0; r3 < i3; r3++) null != (o2 = l3[r3]) && "boolean" != typeof o2 && "function" != typeof o2 ? ("string" == typeof o2 || "number" == typeof o2 || "bigint" == typeof o2 || o2.constructor == String ? o2 = n2.__k[r3] = x(null, o2, null, null, null) : g(o2) ? o2 = n2.__k[r3] = x(S, { children: o2 }, null, null, null) : void 0 === o2.constructor && o2.__b > 0 ? o2 = n2.__k[r3] = x(o2.type, o2.props, o2.key, o2.ref ? o2.ref : null, o2.__v) : n2.__k[r3] = o2, f4 = r3 + h3, o2.__ = n2, o2.__b = n2.__b + 1, e3 = null, -1 != (c3 = o2.__i = O(o2, u4, f4, s2)) && (s2--, (e3 = u4[c3]) && (e3.__u |= 2)), null == e3 || null == e3.__v ? (-1 == c3 && (i3 > a3 ? h3-- : i3 < a3 && h3++), "function" != typeof o2.type && (o2.__u |= 4)) : c3 != f4 && (c3 == f4 - 1 ? h3-- : c3 == f4 + 1 ? h3++ : (c3 > f4 ? h3-- : h3++, o2.__u |= 4))) : n2.__k[r3] = null;
+    if (s2) for (r3 = 0; r3 < a3; r3++) null != (e3 = u4[r3]) && 0 == (2 & e3.__u) && (e3.__e == t3 && (t3 = $(e3)), K(e3, e3));
+    return t3;
+  }
+  function j(n2, l3, u4) {
+    var t3, i3;
+    if ("function" == typeof n2.type) {
+      for (t3 = n2.__k, i3 = 0; t3 && i3 < t3.length; i3++) t3[i3] && (t3[i3].__ = n2, l3 = j(t3[i3], l3, u4));
+      return l3;
+    }
+    n2.__e != l3 && (l3 && n2.type && !l3.parentNode && (l3 = $(n2)), l3 = u4.insertBefore(n2.__e, l3 || null));
+    do {
+      l3 = l3 && l3.nextSibling;
+    } while (null != l3 && 8 == l3.nodeType);
+    return l3;
+  }
+  function F(n2, l3) {
+    return l3 = l3 || [], null == n2 || "boolean" == typeof n2 || (g(n2) ? n2.some(function(n3) {
+      F(n3, l3);
+    }) : l3.push(n2)), l3;
+  }
+  function O(n2, l3, u4, t3) {
+    var i3, r3, o2, e3 = n2.key, f4 = n2.type, c3 = l3[u4], a3 = null != c3 && 0 == (2 & c3.__u);
+    if (null === c3 && null == e3 || a3 && e3 == c3.key && f4 == c3.type) return u4;
+    if (t3 > (a3 ? 1 : 0)) {
+      for (i3 = u4 - 1, r3 = u4 + 1; i3 >= 0 || r3 < l3.length; ) if (null != (c3 = l3[o2 = i3 >= 0 ? i3-- : r3++]) && 0 == (2 & c3.__u) && e3 == c3.key && f4 == c3.type) return o2;
+    }
+    return -1;
+  }
+  function z(n2, l3, u4) {
+    "-" == l3[0] ? n2.setProperty(l3, null == u4 ? "" : u4) : n2[l3] = null == u4 ? "" : "number" != typeof u4 || _.test(l3) ? u4 : u4 + "px";
+  }
+  function N(n2, l3, u4, t3, i3) {
+    var r3, o2;
+    n: if ("style" == l3) if ("string" == typeof u4) n2.style.cssText = u4;
+    else {
+      if ("string" == typeof t3 && (n2.style.cssText = t3 = ""), t3) for (l3 in t3) u4 && l3 in u4 || z(n2.style, l3, "");
+      if (u4) for (l3 in u4) t3 && u4[l3] == t3[l3] || z(n2.style, l3, u4[l3]);
+    }
+    else if ("o" == l3[0] && "n" == l3[1]) r3 = l3 != (l3 = l3.replace(s, "$1")), o2 = l3.toLowerCase(), l3 = o2 in n2 || "onFocusOut" == l3 || "onFocusIn" == l3 ? o2.slice(2) : l3.slice(2), n2.l || (n2.l = {}), n2.l[l3 + r3] = u4, u4 ? t3 ? u4[a] = t3[a] : (u4[a] = h, n2.addEventListener(l3, r3 ? v : p, r3)) : n2.removeEventListener(l3, r3 ? v : p, r3);
+    else {
+      if ("http://www.w3.org/2000/svg" == i3) l3 = l3.replace(/xlink(H|:h)/, "h").replace(/sName$/, "s");
+      else if ("width" != l3 && "height" != l3 && "href" != l3 && "list" != l3 && "form" != l3 && "tabIndex" != l3 && "download" != l3 && "rowSpan" != l3 && "colSpan" != l3 && "role" != l3 && "popover" != l3 && l3 in n2) try {
+        n2[l3] = null == u4 ? "" : u4;
+        break n;
+      } catch (n3) {
+      }
+      "function" == typeof u4 || (null == u4 || false === u4 && "-" != l3[4] ? n2.removeAttribute(l3) : n2.setAttribute(l3, "popover" == l3 && 1 == u4 ? "" : u4));
+    }
+  }
+  function V(n2) {
+    return function(u4) {
+      if (this.l) {
+        var t3 = this.l[u4.type + n2];
+        if (null == u4[c]) u4[c] = h++;
+        else if (u4[c] < t3[a]) return;
+        return t3(l.event ? l.event(u4) : u4);
+      }
+    };
+  }
+  function q(n2, u4, t3, i3, r3, o2, e3, f4, c3, a3) {
+    var s2, h3, p3, v3, y3, d3, _3, k3, x4, M3, I2, P4, A4, H3, T4, j4, F3 = u4.type;
+    if (void 0 !== u4.constructor) return null;
+    128 & t3.__u && (c3 = !!(32 & t3.__u), o2 = [f4 = u4.__e = t3.__e]), (s2 = l.__b) && s2(u4);
+    n: if ("function" == typeof F3) {
+      h3 = e3.length;
+      try {
+        if (x4 = u4.props, M3 = F3.prototype && F3.prototype.render, I2 = (s2 = F3.contextType) && i3[s2.__c], P4 = s2 ? I2 ? I2.props.value : s2.__ : i3, t3.__c ? k3 = (p3 = u4.__c = t3.__c).__ = p3.__E : (M3 ? u4.__c = p3 = new F3(x4, P4) : (u4.__c = p3 = new C(x4, P4), p3.constructor = F3, p3.render = Q), I2 && I2.sub(p3), p3.state || (p3.state = {}), p3.__n = i3, v3 = p3.__d = true, p3.__h = [], p3._sb = []), M3 && null == p3.__s && (p3.__s = p3.state), M3 && null != F3.getDerivedStateFromProps && (p3.__s == p3.state && (p3.__s = m({}, p3.__s)), m(p3.__s, F3.getDerivedStateFromProps(x4, p3.__s))), y3 = p3.props, d3 = p3.state, p3.__v = u4, v3) M3 && null == F3.getDerivedStateFromProps && null != p3.componentWillMount && p3.componentWillMount(), M3 && null != p3.componentDidMount && p3.__h.push(p3.componentDidMount);
+        else {
+          if (M3 && null == F3.getDerivedStateFromProps && x4 !== y3 && null != p3.componentWillReceiveProps && p3.componentWillReceiveProps(x4, P4), u4.__v == t3.__v || !p3.__e && null != p3.shouldComponentUpdate && false === p3.shouldComponentUpdate(x4, p3.__s, P4)) {
+            u4.__v != t3.__v && (p3.props = x4, p3.state = p3.__s, p3.__d = false), u4.__e = t3.__e, u4.__k = t3.__k, u4.__k.some(function(n3) {
+              n3 && (n3.__ = u4);
+            }), w.push.apply(p3.__h, p3._sb), p3._sb = [], p3.__h.length && e3.push(p3), f4 = $(t3);
+            break n;
+          }
+          null != p3.componentWillUpdate && p3.componentWillUpdate(x4, p3.__s, P4), M3 && null != p3.componentDidUpdate && p3.__h.push(function() {
+            p3.componentDidUpdate(y3, d3, _3);
+          });
+        }
+        if (p3.context = P4, p3.props = x4, p3.__P = n2, p3.__e = false, A4 = l.__r, H3 = 0, M3) p3.state = p3.__s, p3.__d = false, A4 && A4(u4), s2 = p3.render(p3.props, p3.state, p3.context), w.push.apply(p3.__h, p3._sb), p3._sb = [];
+        else do {
+          p3.__d = false, A4 && A4(u4), s2 = p3.render(p3.props, p3.state, p3.context), p3.state = p3.__s;
+        } while (p3.__d && ++H3 < 25);
+        p3.state = p3.__s, null != p3.getChildContext && (i3 = m(m({}, i3), p3.getChildContext())), M3 && !v3 && null != p3.getSnapshotBeforeUpdate && (_3 = p3.getSnapshotBeforeUpdate(y3, d3)), T4 = null != s2 && s2.type === S && null == s2.key ? E(s2.props.children) : s2, f4 = L(n2, g(T4) ? T4 : [T4], u4, t3, i3, r3, o2, e3, f4, c3, a3), p3.base = u4.__e, u4.__u &= -161, p3.__h.length && e3.push(p3), k3 && (p3.__E = p3.__ = null);
+      } catch (n3) {
+        if (e3.length = h3, u4.__v = null, c3 || null != o2) {
+          if (n3.then) {
+            for (u4.__u |= c3 ? 160 : 128; f4 && 8 == f4.nodeType && f4.nextSibling; ) f4 = f4.nextSibling;
+            null != o2 && (o2[o2.indexOf(f4)] = null), u4.__e = f4;
+          } else if (null != o2) for (j4 = o2.length; j4--; ) b(o2[j4]);
+        } else u4.__e = t3.__e;
+        null == u4.__k && (u4.__k = t3.__k || []), n3.then || B(u4), l.__e(n3, u4, t3);
+      }
+    } else null == o2 && u4.__v == t3.__v ? (u4.__k = t3.__k, u4.__e = t3.__e) : f4 = u4.__e = G(t3.__e, u4, t3, i3, r3, o2, e3, c3, a3);
+    return (s2 = l.diffed) && s2(u4), 128 & u4.__u ? void 0 : f4;
+  }
+  function B(n2) {
+    n2 && (n2.__c && (n2.__c.__e = true), n2.__k && n2.__k.some(B));
+  }
+  function D(n2, u4, t3) {
+    for (var i3 = 0; i3 < t3.length; i3++) J(t3[i3], t3[++i3], t3[++i3]);
+    l.__c && l.__c(u4, n2), n2.some(function(u5) {
+      try {
+        n2 = u5.__h, u5.__h = [], n2.some(function(n3) {
+          n3.call(u5);
+        });
+      } catch (n3) {
+        l.__e(n3, u5.__v);
+      }
+    });
+  }
+  function E(n2) {
+    return "object" != typeof n2 || null == n2 || n2.__b > 0 ? n2 : g(n2) ? n2.map(E) : void 0 !== n2.constructor ? null : m({}, n2);
+  }
+  function G(u4, t3, i3, r3, o2, e3, f4, c3, a3) {
+    var s2, h3, p3, v3, y3, w3, _3, m3 = i3.props || d, k3 = t3.props, x4 = t3.type;
+    if ("svg" == x4 ? o2 = "http://www.w3.org/2000/svg" : "math" == x4 ? o2 = "http://www.w3.org/1998/Math/MathML" : o2 || (o2 = "http://www.w3.org/1999/xhtml"), null != e3) {
+      for (s2 = 0; s2 < e3.length; s2++) if ((y3 = e3[s2]) && "setAttribute" in y3 == !!x4 && (x4 ? y3.localName == x4 : 3 == y3.nodeType)) {
+        u4 = y3, e3[s2] = null;
+        break;
+      }
+    }
+    if (null == u4) {
+      if (null == x4) return document.createTextNode(k3);
+      u4 = document.createElementNS(o2, x4, k3.is && k3), c3 && (l.__m && l.__m(t3, e3), c3 = false), e3 = null;
+    }
+    if (null == x4) m3 === k3 || c3 && u4.data == k3 || (u4.data = k3);
+    else {
+      if (e3 = "textarea" == x4 && null != k3.defaultValue ? null : e3 && n.call(u4.childNodes), !c3 && null != e3) for (m3 = {}, s2 = 0; s2 < u4.attributes.length; s2++) m3[(y3 = u4.attributes[s2]).name] = y3.value;
+      for (s2 in m3) y3 = m3[s2], "dangerouslySetInnerHTML" == s2 ? p3 = y3 : "children" == s2 || s2 in k3 || "value" == s2 && "defaultValue" in k3 || "checked" == s2 && "defaultChecked" in k3 || N(u4, s2, null, y3, o2);
+      for (s2 in k3) y3 = k3[s2], "children" == s2 ? v3 = y3 : "dangerouslySetInnerHTML" == s2 ? h3 = y3 : "value" == s2 ? w3 = y3 : "checked" == s2 ? _3 = y3 : c3 && "function" != typeof y3 || m3[s2] === y3 || N(u4, s2, y3, m3[s2], o2);
+      if (h3) c3 || p3 && (h3.__html == p3.__html || h3.__html == u4.innerHTML) || (u4.innerHTML = h3.__html), t3.__k = [];
+      else if (p3 && (u4.innerHTML = ""), L("template" == t3.type ? u4.content : u4, g(v3) ? v3 : [v3], t3, i3, r3, "foreignObject" == x4 ? "http://www.w3.org/1999/xhtml" : o2, e3, f4, e3 ? e3[0] : i3.__k && $(i3, 0), c3, a3), null != e3) for (s2 = e3.length; s2--; ) b(e3[s2]);
+      c3 && "textarea" != x4 || (s2 = "value", "progress" == x4 && null == w3 ? u4.removeAttribute("value") : null != w3 && (w3 !== u4[s2] || "progress" == x4 && !w3 || "option" == x4 && w3 != m3[s2]) && N(u4, s2, w3, m3[s2], o2), s2 = "checked", null != _3 && _3 != u4[s2] && N(u4, s2, _3, m3[s2], o2));
+    }
+    return u4;
+  }
+  function J(n2, u4, t3) {
+    try {
+      if ("function" == typeof n2) {
+        var i3 = "function" == typeof n2.__u;
+        i3 && n2.__u(), i3 && null == u4 || (n2.__u = n2(u4));
+      } else n2.current = u4;
+    } catch (n3) {
+      l.__e(n3, t3);
+    }
+  }
+  function K(n2, u4, t3) {
+    var i3, r3;
+    if (l.unmount && l.unmount(n2), (i3 = n2.ref) && (i3.current && i3.current != n2.__e || J(i3, null, u4)), null != (i3 = n2.__c)) {
+      if (i3.componentWillUnmount) try {
+        i3.componentWillUnmount();
+      } catch (n3) {
+        l.__e(n3, u4);
+      }
+      i3.base = i3.__P = i3.__n = null;
+    }
+    if (i3 = n2.__k) for (r3 = 0; r3 < i3.length; r3++) i3[r3] && K(i3[r3], u4, t3 || "function" != typeof n2.type);
+    t3 || b(n2.__e), n2.__c = n2.__ = n2.__e = void 0;
+  }
+  function Q(n2, l3, u4) {
+    return this.constructor(n2, u4);
+  }
+  function R(u4, t3, i3) {
+    var r3, o2, e3, f4;
+    t3 == document && (t3 = document.documentElement), l.__ && l.__(u4, t3), o2 = (r3 = "function" == typeof i3) ? null : i3 && i3.__k || t3.__k, e3 = [], f4 = [], q(t3, u4 = (!r3 && i3 || t3).__k = k(S, null, [u4]), o2 || d, d, t3.namespaceURI, !r3 && i3 ? [i3] : o2 ? null : t3.firstChild ? n.call(t3.childNodes) : null, e3, !r3 && i3 ? i3 : o2 ? o2.__e : t3.firstChild, r3, f4), D(e3, u4, f4), u4.props.children = null;
+  }
+  function X(n2) {
+    function l3(n3) {
+      var u4, t3;
+      return this.getChildContext || (u4 = /* @__PURE__ */ new Set(), (t3 = {})[l3.__c] = this, this.getChildContext = function() {
+        return t3;
+      }, this.componentWillUnmount = function() {
+        u4 = null;
+      }, this.shouldComponentUpdate = function(n4) {
+        this.props.value != n4.value && u4.forEach(function(n5) {
+          n5.__e = true, A(n5);
+        });
+      }, this.sub = function(n4) {
+        u4.add(n4);
+        var l4 = n4.componentWillUnmount;
+        n4.componentWillUnmount = function() {
+          u4 && u4.delete(n4), l4 && l4.call(n4);
+        };
+      }), n3.children;
+    }
+    return l3.__c = "__cC" + y++, l3.__ = n2, l3.Provider = l3.__l = (l3.Consumer = function(n3, l4) {
+      return n3.children(l4);
+    }).contextType = l3, l3;
+  }
+  n = w.slice, l = { __e: function(n2, l3, u4, t3) {
+    for (var i3, r3, o2; l3 = l3.__; ) if ((i3 = l3.__c) && !i3.__) try {
+      if ((r3 = i3.constructor) && null != r3.getDerivedStateFromError && (i3.setState(r3.getDerivedStateFromError(n2)), o2 = i3.__d), null != i3.componentDidCatch && (i3.componentDidCatch(n2, t3 || {}), o2 = i3.__d), o2) return i3.__E = i3;
+    } catch (l4) {
+      n2 = l4;
+    }
+    throw n2;
+  } }, u = 0, t = function(n2) {
+    return null != n2 && void 0 === n2.constructor;
+  }, C.prototype.setState = function(n2, l3) {
+    var u4;
+    u4 = null != this.__s && this.__s != this.state ? this.__s : this.__s = m({}, this.state), "function" == typeof n2 && (n2 = n2(m({}, u4), this.props)), n2 && m(u4, n2), null != n2 && this.__v && (l3 && this._sb.push(l3), A(this));
+  }, C.prototype.forceUpdate = function(n2) {
+    this.__v && (this.__e = true, n2 && this.__h.push(n2), A(this));
+  }, C.prototype.render = S, i = [], o = "function" == typeof Promise ? Promise.prototype.then.bind(Promise.resolve()) : setTimeout, e = function(n2, l3) {
+    return n2.__v.__b - l3.__v.__b;
+  }, H.__r = 0, f = Math.random().toString(8), c = "__d" + f, a = "__a" + f, s = /(PointerCapture)$|Capture$/i, h = 0, p = V(false), v = V(true), y = 0;
+
+  // node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
+  var f2 = 0;
+  function u2(e3, t3, n2, o2, i3, u4) {
+    t3 || (t3 = {});
+    var a3, c3, p3 = t3;
+    if ("ref" in p3) for (c3 in p3 = {}, t3) "ref" == c3 ? a3 = t3[c3] : p3[c3] = t3[c3];
+    var l3 = { type: e3, props: p3, key: n2, ref: a3, __k: null, __: null, __b: 0, __e: null, __c: null, constructor: void 0, __v: --f2, __i: -1, __u: 0, __source: i3, __self: u4 };
+    if ("function" == typeof e3 && (a3 = e3.defaultProps)) for (c3 in a3) void 0 === p3[c3] && (p3[c3] = a3[c3]);
+    return l.vnode && l.vnode(l3), l3;
+  }
+
+  // node_modules/preact/hooks/dist/hooks.module.js
+  var t2;
+  var r2;
+  var u3;
+  var i2;
+  var f3 = [];
+  var c2 = l;
+  var e2 = c2.__b;
+  var a2 = c2.__r;
+  var v2 = c2.diffed;
+  var l2 = c2.__c;
+  var m2 = c2.unmount;
+  var p2 = c2.__;
+  function j2() {
+    for (var n2; n2 = f3.shift(); ) {
+      var t3 = n2.__H;
+      if (n2.__P && t3) try {
+        t3.__h.some(z2), t3.__h.some(B2), t3.__h = [];
+      } catch (r3) {
+        t3.__h = [], c2.__e(r3, n2.__v);
+      }
+    }
+  }
+  c2.__b = function(n2) {
+    r2 = null, e2 && e2(n2);
+  }, c2.__ = function(n2, t3) {
+    n2 && t3.__k && t3.__k.__m && (n2.__m = t3.__k.__m), p2 && p2(n2, t3);
+  }, c2.__r = function(n2) {
+    a2 && a2(n2), t2 = 0;
+    var i3 = (r2 = n2.__c).__H;
+    i3 && (u3 === r2 ? (i3.__h = [], r2.__h = [], i3.__.some(function(n3) {
+      n3.__N && (n3.__ = n3.__N), n3.u = n3.__N = void 0;
+    })) : (i3.__h.some(z2), i3.__h.some(B2), i3.__h = [], t2 = 0)), u3 = r2;
+  }, c2.diffed = function(n2) {
+    v2 && v2(n2);
+    var t3 = n2.__c;
+    t3 && t3.__H && (t3.__H.__h.length && (1 !== f3.push(t3) && i2 === c2.requestAnimationFrame || ((i2 = c2.requestAnimationFrame) || w2)(j2)), t3.__H.__.some(function(n3) {
+      n3.u && (n3.__H = n3.u, n3.u = void 0);
+    })), u3 = r2 = null;
+  }, c2.__c = function(n2, t3) {
+    t3.some(function(n3) {
+      try {
+        n3.__h.some(z2), n3.__h = n3.__h.filter(function(n4) {
+          return !n4.__ || B2(n4);
+        });
+      } catch (r3) {
+        t3.some(function(n4) {
+          n4.__h && (n4.__h = []);
+        }), t3 = [], c2.__e(r3, n3.__v);
+      }
+    }), l2 && l2(n2, t3);
+  }, c2.unmount = function(n2) {
+    m2 && m2(n2);
+    var t3, r3 = n2.__c;
+    r3 && r3.__H && (r3.__H.__.some(function(n3) {
+      try {
+        z2(n3);
+      } catch (n4) {
+        t3 = n4;
+      }
+    }), r3.__H = void 0, t3 && c2.__e(t3, r3.__v));
+  };
+  var k2 = "function" == typeof requestAnimationFrame;
+  function w2(n2) {
+    var t3, r3 = function() {
+      clearTimeout(u4), k2 && cancelAnimationFrame(t3), setTimeout(n2);
+    }, u4 = setTimeout(r3, 35);
+    k2 && (t3 = requestAnimationFrame(r3));
+  }
+  function z2(n2) {
+    var t3 = r2, u4 = n2.__c;
+    "function" == typeof u4 && (n2.__c = void 0, u4()), r2 = t3;
+  }
+  function B2(n2) {
+    var t3 = r2;
+    n2.__c = n2.__(), r2 = t3;
+  }
+
+  // node_modules/preact/compat/dist/compat.module.js
+  function g3(n2, t3) {
+    for (var e3 in t3) n2[e3] = t3[e3];
+    return n2;
+  }
+  function E2(n2, t3) {
+    for (var e3 in n2) if ("__source" !== e3 && !(e3 in t3)) return true;
+    for (var r3 in t3) if ("__source" !== r3 && n2[r3] !== t3[r3]) return true;
+    return false;
+  }
+  function M2(n2, t3) {
+    this.props = n2, this.context = t3;
+  }
+  (M2.prototype = new C()).isPureReactComponent = true, M2.prototype.shouldComponentUpdate = function(n2, t3) {
+    return E2(this.props, n2) || E2(this.state, t3);
+  };
+  var T3 = l.__b;
+  l.__b = function(n2) {
+    n2.type && n2.type.__f && n2.ref && (n2.props.ref = n2.ref, n2.ref = null), T3 && T3(n2);
+  };
+  var A3 = "undefined" != typeof Symbol && Symbol.for && /* @__PURE__ */ Symbol.for("react.forward_ref") || 3911;
+  var O2 = l.__e;
+  l.__e = function(n2, t3, e3, r3) {
+    if (n2.then) {
+      for (var u4, o2 = t3; o2 = o2.__; ) if ((u4 = o2.__c) && u4.__c) return null == t3.__e && (t3.__e = e3.__e, t3.__k = e3.__k || []), u4.__c(n2, t3);
+    }
+    O2(n2, t3, e3, r3);
+  };
+  var U2 = l.unmount;
+  function V2(n2, t3, e3) {
+    return n2 && (n2.__c && n2.__c.__H && (n2.__c.__H.__.forEach(function(n3) {
+      "function" == typeof n3.__c && n3.__c();
+    }), n2.__c.__H = null), null != (n2 = g3({}, n2)).__c && (n2.__c.__P === e3 && (n2.__c.__P = t3), n2.__c.__e = true, n2.__c = null), n2.__k = n2.__k && n2.__k.map(function(n3) {
+      return V2(n3, t3, e3);
+    })), n2;
+  }
+  function W2(n2, t3, e3) {
+    return n2 && e3 && (n2.__v = null, n2.__k = n2.__k && n2.__k.map(function(n3) {
+      return W2(n3, t3, e3);
+    }), n2.__c && n2.__c.__P === t3 && (n2.__e && e3.appendChild(n2.__e), n2.__c.__e = true, n2.__c.__P = e3)), n2;
+  }
+  function P3() {
+    this.__u = 0, this.o = null, this.__b = null;
+  }
+  function j3(n2) {
+    var t3 = n2.__ && n2.__.__c;
+    return t3 && t3.__a && t3.__a(n2);
+  }
+  function B3() {
+    this.i = null, this.l = null;
+  }
+  l.unmount = function(n2) {
+    var t3 = n2.__c;
+    t3 && (t3.__z = true), t3 && t3.__R && t3.__R(), t3 && 32 & n2.__u && (n2.type = null), U2 && U2(n2);
+  }, (P3.prototype = new C()).__c = function(n2, t3) {
+    var e3 = t3.__c, r3 = this;
+    null == r3.o && (r3.o = []), r3.o.push(e3);
+    var u4 = j3(r3.__v), o2 = false, i3 = function() {
+      o2 || r3.__z || (o2 = true, e3.__R = null, u4 ? u4(f4) : f4());
+    };
+    e3.__R = i3;
+    var l3 = e3.__P;
+    e3.__P = null;
+    var f4 = function() {
+      if (!--r3.__u) {
+        if (r3.state.__a) {
+          var n3 = r3.state.__a;
+          r3.__v.__k[0] = W2(n3, n3.__c.__P, n3.__c.__O);
+        }
+        var t4;
+        for (r3.setState({ __a: r3.__b = null }); t4 = r3.o.pop(); ) t4.__P = l3, t4.forceUpdate();
+      }
+    };
+    r3.__u++ || 32 & t3.__u || r3.setState({ __a: r3.__b = r3.__v.__k[0] }), n2.then(i3, i3);
+  }, P3.prototype.componentWillUnmount = function() {
+    this.o = [];
+  }, P3.prototype.render = function(n2, e3) {
+    if (this.__b) {
+      if (this.__v.__k) {
+        var r3 = document.createElement("div"), o2 = this.__v.__k[0].__c;
+        this.__v.__k[0] = V2(this.__b, r3, o2.__O = o2.__P);
+      }
+      this.__b = null;
+    }
+    var i3 = e3.__a && k(S, null, n2.fallback);
+    return i3 && (i3.__u &= -33), [k(S, null, e3.__a ? null : n2.children), i3];
+  };
+  var H2 = function(n2, t3, e3) {
+    if (++e3[1] === e3[0] && n2.l.delete(t3), n2.props.revealOrder && ("t" !== n2.props.revealOrder[0] || !n2.l.size)) for (e3 = n2.i; e3; ) {
+      for (; e3.length > 3; ) e3.pop()();
+      if (e3[1] < e3[0]) break;
+      n2.i = e3 = e3[2];
+    }
+  };
+  function Z(n2) {
+    return this.getChildContext = function() {
+      return n2.context;
+    }, n2.children;
+  }
+  function Y(n2) {
+    var e3 = this, r3 = n2.h;
+    if (e3.componentWillUnmount = function() {
+      R(null, e3.v), e3.v = null, e3.h = null;
+    }, e3.h && e3.h !== r3 && e3.componentWillUnmount(), !e3.v) {
+      for (var u4 = e3.__v; null !== u4 && !u4.__m && null !== u4.__; ) u4 = u4.__;
+      e3.h = r3, e3.v = { nodeType: 1, parentNode: r3, childNodes: [], __k: { __m: u4.__m }, contains: function() {
+        return true;
+      }, namespaceURI: r3.namespaceURI, insertBefore: function(n3, t3) {
+        this.childNodes.push(n3), e3.h.insertBefore(n3, t3);
+      }, removeChild: function(n3) {
+        this.childNodes.splice(this.childNodes.indexOf(n3) >>> 1, 1), e3.h.removeChild(n3);
+      } };
+    }
+    R(k(Z, { context: e3.context }, n2.__v), e3.v);
+  }
+  function $2(n2, e3) {
+    var r3 = k(Y, { __v: n2, h: e3 });
+    return r3.containerInfo = e3, r3;
+  }
+  (B3.prototype = new C()).__a = function(n2) {
+    var t3 = this, e3 = j3(t3.__v), r3 = t3.l.get(n2);
+    return r3[0]++, function(u4) {
+      var o2 = function() {
+        t3.props.revealOrder ? (r3.push(u4), H2(t3, n2, r3)) : u4();
+      };
+      e3 ? e3(o2) : o2();
+    };
+  }, B3.prototype.render = function(n2) {
+    this.i = null, this.l = /* @__PURE__ */ new Map();
+    var t3 = F(n2.children);
+    n2.revealOrder && "b" === n2.revealOrder[0] && t3.reverse();
+    for (var e3 = t3.length; e3--; ) this.l.set(t3[e3], this.i = [1, 0, this.i]);
+    return n2.children;
+  }, B3.prototype.componentDidUpdate = B3.prototype.componentDidMount = function() {
+    var n2 = this;
+    this.l.forEach(function(t3, e3) {
+      H2(n2, e3, t3);
+    });
+  };
+  var q3 = "undefined" != typeof Symbol && Symbol.for && /* @__PURE__ */ Symbol.for("react.element") || 60103;
+  var G2 = /^(?:accent|alignment|arabic|baseline|cap|clip(?!PathU)|color|dominant|fill|flood|font|glyph(?!R)|horiz|image(!S)|letter|lighting|marker(?!H|W|U)|overline|paint|pointer|shape|stop|strikethrough|stroke|text(?!L)|transform|underline|unicode|units|v|vector|vert|word|writing|x(?!C))[A-Z]/;
+  var J2 = /^on(Ani|Tra|Tou|BeforeInp|Compo)/;
+  var K2 = /[A-Z0-9]/g;
+  var Q2 = "undefined" != typeof document;
+  var X2 = function(n2) {
+    return ("undefined" != typeof Symbol && "symbol" == typeof /* @__PURE__ */ Symbol() ? /fil|che|rad/ : /fil|che|ra/).test(n2);
+  };
+  function nn(n2, t3, e3) {
+    return null == t3.__k && (t3.textContent = ""), R(n2, t3), "function" == typeof e3 && e3(), n2 ? n2.__c : null;
+  }
+  C.prototype.isReactComponent = true, ["componentWillMount", "componentWillReceiveProps", "componentWillUpdate"].forEach(function(t3) {
+    Object.defineProperty(C.prototype, t3, { configurable: true, get: function() {
+      return this["UNSAFE_" + t3];
+    }, set: function(n2) {
+      Object.defineProperty(this, t3, { configurable: true, writable: true, value: n2 });
+    } });
+  });
+  var en = l.event;
+  l.event = function(n2) {
+    return en && (n2 = en(n2)), n2.persist = function() {
+    }, n2.isPropagationStopped = function() {
+      return this.cancelBubble;
+    }, n2.isDefaultPrevented = function() {
+      return this.defaultPrevented;
+    }, n2.nativeEvent = n2;
+  };
+  var rn;
+  var un = { configurable: true, get: function() {
+    return this.class;
+  } };
+  var on = l.vnode;
+  l.vnode = function(n2) {
+    "string" == typeof n2.type && (function(n3) {
+      var t3 = n3.props, e3 = n3.type, u4 = {}, o2 = -1 == e3.indexOf("-");
+      for (var i3 in t3) {
+        var l3 = t3[i3];
+        if (!("value" === i3 && "defaultValue" in t3 && null == l3 || Q2 && "children" === i3 && "noscript" === e3 || "class" === i3 || "className" === i3)) {
+          var f4 = i3.toLowerCase();
+          "defaultValue" === i3 && "value" in t3 && null == t3.value ? i3 = "value" : "download" === i3 && true === l3 ? l3 = "" : "translate" === f4 && "no" === l3 ? l3 = false : "o" === f4[0] && "n" === f4[1] ? "ondoubleclick" === f4 ? i3 = "ondblclick" : "onchange" !== f4 || "input" !== e3 && "textarea" !== e3 || X2(t3.type) ? "onfocus" === f4 ? i3 = "onfocusin" : "onblur" === f4 ? i3 = "onfocusout" : J2.test(i3) && (i3 = f4) : f4 = i3 = "oninput" : o2 && G2.test(i3) ? i3 = i3.replace(K2, "-$&").toLowerCase() : null === l3 && (l3 = void 0), "oninput" === f4 && u4[i3 = f4] && (i3 = "oninputCapture"), u4[i3] = l3;
+        }
+      }
+      "select" == e3 && (u4.multiple && Array.isArray(u4.value) && (u4.value = F(t3.children).forEach(function(n4) {
+        n4.props.selected = -1 != u4.value.indexOf(n4.props.value);
+      })), null != u4.defaultValue && (u4.value = F(t3.children).forEach(function(n4) {
+        n4.props.selected = u4.multiple ? -1 != u4.defaultValue.indexOf(n4.props.value) : u4.defaultValue == n4.props.value;
+      }))), t3.class && !t3.className ? (u4.class = t3.class, Object.defineProperty(u4, "className", un)) : t3.className && (u4.class = u4.className = t3.className), n3.props = u4;
+    })(n2), n2.$$typeof = q3, on && on(n2);
+  };
+  var ln = l.__r;
+  l.__r = function(n2) {
+    ln && ln(n2), rn = n2.__c;
+  };
+  var fn = l.diffed;
+  l.diffed = function(n2) {
+    fn && fn(n2);
+    var t3 = n2.props, e3 = n2.__e;
+    null != e3 && "textarea" === n2.type && "value" in t3 && t3.value !== e3.value && (e3.value = null == t3.value ? "" : t3.value), rn = null;
+  };
+  function hn(n2) {
+    return !!n2 && n2.$$typeof === q3;
+  }
+  function pn(n2) {
+    return !!n2.__k && (R(null, n2), true);
+  }
+  var bn = function(n2, t3) {
+    var r3, u4 = l.debounceRendering;
+    l.debounceRendering = function(n3) {
+      r3 = n3;
+    };
+    try {
+      var o2 = n2(t3);
+      return r3 && r3(), o2;
+    } finally {
+      l.debounceRendering = u4;
+    }
+  };
+
+  // node_modules/preact/compat/client.mjs
+  function createRoot(container) {
+    return {
+      // eslint-disable-next-line
+      render: function(children) {
+        nn(children, container);
+      },
+      // eslint-disable-next-line
+      unmount: function() {
+        pn(container);
+      }
+    };
+  }
+
+  // node_modules/temporal-utils/dist/diff.js
+  function createDiffFunc(unit) {
+    return (date0, date1, options2) => {
+      const normOptions = normalizeDiffOptions(options2);
+      if (normOptions.roundingMode) {
+        return date0.until(date1, {
+          ...normOptions,
+          largestUnit: unit,
+          smallestUnit: unit
+        })[unit];
+      }
+      const duration = date0.until(date1, {
+        ...normOptions,
+        largestUnit: unit
+      });
+      if (isTimeUnit(unit)) {
+        return duration.total(unit);
+      }
+      const relativeTo = !("day" in date0) && "toPlainDate" in date0 ? date0.toPlainDate({ day: 1 }) : date0;
+      return duration.total({ unit, relativeTo });
+    };
+  }
+  function isTimeUnit(unit) {
+    return unit === "hours" || unit === "minutes" || unit === "seconds" || unit === "milliseconds" || unit === "microseconds" || unit === "nanoseconds";
+  }
+  var diffYears = createDiffFunc("years");
+  var diffMonths = createDiffFunc("months");
+  var diffWeeks = createDiffFunc("weeks");
+  var diffDays2 = createDiffFunc("days");
+  var diffHours = createDiffFunc("hours");
+  var diffMinutes = createDiffFunc("minutes");
+  var diffSeconds = createDiffFunc("seconds");
+  var diffMilliseconds = createDiffFunc("milliseconds");
+  var diffMicroseconds = createDiffFunc("microseconds");
+  var diffNanoseconds = createDiffFunc("nanoseconds");
+  function normalizeDiffOptions(options2) {
+    return typeof options2 === "string" ? { roundingMode: options2 } : options2 || {};
+  }
+
   // node_modules/temporal-polyfill/chunks/funcApi.js
   var PlainYearMonthRecordBranding = `${PlainYearMonthBranding}Record`;
   var PlainMonthDayRecordBranding = `${PlainMonthDayBranding}Record`;
@@ -3605,28 +6741,28 @@
   function getCalendarSlotsIfPresent(record) {
     return calendarMap.get(record);
   }
-  function getInstantSlots(record) {
-    return getInstantSlotsIfPresent(record) || invalidRecordType();
+  function getInstantSlots2(record) {
+    return getInstantSlotsIfPresent2(record) || invalidRecordType();
   }
-  function getInstantSlotsIfPresent(record) {
+  function getInstantSlotsIfPresent2(record) {
     return instantMap.get(record);
   }
   function setInstantSlots(instance, slots) {
     instantMap.set(instance, slots);
   }
-  function getZonedDateTimeSlots(record) {
-    return getZonedDateTimeSlotsIfPresent(record) || invalidRecordType();
+  function getZonedDateTimeSlots2(record) {
+    return getZonedDateTimeSlotsIfPresent2(record) || invalidRecordType();
   }
-  function getZonedDateTimeSlotsIfPresent(record) {
+  function getZonedDateTimeSlotsIfPresent2(record) {
     return zonedDateTimeMap.get(record);
   }
   function setZonedDateTimeSlots(instance, slots) {
     zonedDateTimeMap.set(instance, slots);
   }
-  function getPlainDateTimeSlots(record) {
-    return getPlainDateTimeSlotsIfPresent(record) || invalidRecordType();
+  function getPlainDateTimeSlots2(record) {
+    return getPlainDateTimeSlotsIfPresent2(record) || invalidRecordType();
   }
-  function getPlainDateTimeSlotsIfPresent(record) {
+  function getPlainDateTimeSlotsIfPresent2(record) {
     return plainDateTimeMap.get(record);
   }
   function setPlainDateTimeSlots(instance, slots) {
@@ -3649,7 +6785,7 @@
   function getValidatedCalendarId(record) {
     return getCalendarRecordImplCreator(record), getCalendarRecordId(record);
   }
-  var getNativePlainDateTime = getPlainDateTimeSlots;
+  var getNativePlainDateTime = getPlainDateTimeSlots2;
   var NativePlainDateTimeRecord = /* @__PURE__ */ defineTemporalClass(PlainDateTimeRecordBranding, class {
     get calendarId() {
       return getNativePlainDateTime(this).calendarId;
@@ -3671,7 +6807,7 @@
   function toZonedDateTime$1(record, timeZoneId, options2) {
     return createNativeZonedDateTimeRecord(getNativePlainDateTime(record).toZonedDateTime(timeZoneId, options2));
   }
-  var getNativeZonedDateTime = getZonedDateTimeSlots;
+  var getNativeZonedDateTime = getZonedDateTimeSlots2;
   var NativeZonedDateTimeRecord = /* @__PURE__ */ defineTemporalClass(ZonedDateTimeRecordBranding, class {
     get calendarId() {
       return getNativeZonedDateTime(this).calendarId;
@@ -3699,7 +6835,7 @@
   function offsetNanoseconds(record) {
     return getNativeZonedDateTime(record).offsetNanoseconds;
   }
-  var getNativeInstant = getInstantSlots;
+  var getNativeInstant = getInstantSlots2;
   var NativeInstantRecord = /* @__PURE__ */ defineTemporalClass(InstantRecordBranding, class {
     get epochMilliseconds() {
       return getNativeInstant(this).epochMilliseconds;
@@ -3732,7 +6868,7 @@
   function getCalendarRecordImpl(record) {
     return getCalendarRecordImplCreator(record)();
   }
-  var getShimPlainDateTimeSlots = getPlainDateTimeSlots;
+  var getShimPlainDateTimeSlots = getPlainDateTimeSlots2;
   var ShimPlainDateTimeRecord = /* @__PURE__ */ defineTemporalClass(PlainDateTimeRecordBranding, class {
     get calendarId() {
       return getCalendarSlotId(getShimPlainDateTimeSlots(this).calendar);
@@ -3766,7 +6902,7 @@
   function toZonedDateTime$12(record, timeZoneId, options2) {
     return createShimZonedDateTimeRecord(plainDateTimeToZonedDateTime(getShimPlainDateTimeSlots(record), queryTimeZone(refineTimeZoneId(timeZoneId)), options2));
   }
-  var getShimZonedDateTimeSlots = getZonedDateTimeSlots;
+  var getShimZonedDateTimeSlots = getZonedDateTimeSlots2;
   var ShimZonedDateTimeRecord = /* @__PURE__ */ defineTemporalClass(ZonedDateTimeRecordBranding, class {
     get calendarId() {
       return getCalendarSlotId(getShimZonedDateTimeSlots(this).calendar);
@@ -3854,7 +6990,7 @@
       });
     };
   }
-  var getShimInstantSlots = getInstantSlots;
+  var getShimInstantSlots = getInstantSlots2;
   var ShimInstantRecord = /* @__PURE__ */ defineTemporalClass(InstantRecordBranding, class {
     get epochMilliseconds() {
       return getEpochMilli(getShimInstantSlots(this));
@@ -4191,7 +7327,7 @@
   }
   var INTERNAL_UNITS = ["years", "months", "days", "milliseconds"];
   var PARSE_RE = /^(-?)(?:(\d+)\.)?(\d+):(\d\d)(?::(\d\d)(?:\.(\d\d\d))?)?/;
-  function createDuration(input, unit) {
+  function createDuration2(input, unit) {
     if (typeof input === "string") {
       return parseString(input);
     }
@@ -5302,7 +8438,7 @@
   var BASE_OPTION_REFINERS = {
     navLinkDayClick: identity,
     navLinkWeekClick: identity,
-    duration: createDuration,
+    duration: createDuration2,
     buttons: identity,
     toolbarElements: identity,
     prevText: String,
@@ -5323,16 +8459,16 @@
     buttonDisplay: identity,
     buttonGroupClass: refineClassNameGenerator,
     buttonClass: refineClassNameGenerator,
-    defaultAllDayEventDuration: createDuration,
-    defaultTimedEventDuration: createDuration,
-    nextDayThreshold: createDuration,
-    scrollTime: createDuration,
+    defaultAllDayEventDuration: createDuration2,
+    defaultTimedEventDuration: createDuration2,
+    nextDayThreshold: createDuration2,
+    scrollTime: createDuration2,
     scrollTimeReset: Boolean,
-    slotMinTime: createDuration,
-    slotMaxTime: createDuration,
+    slotMinTime: createDuration2,
+    slotMaxTime: createDuration2,
     popoverFormat: createFormatter,
-    slotDuration: createDuration,
-    snapDuration: createDuration,
+    slotDuration: createDuration2,
+    snapDuration: createDuration2,
     headerToolbar: identity,
     footerToolbar: identity,
     forceEventDuration: Boolean,
@@ -5487,7 +8623,7 @@
     dayMaxEvents: identity,
     dayMaxEventRows: identity,
     dayMinWidth: Number,
-    slotHeaderInterval: createDuration,
+    slotHeaderInterval: createDuration2,
     // in core because more-popover needs it
     dayHeaderClass: refineClassNameGenerator,
     dayHeaderInnerClass: refineClassNameGenerator,
@@ -5538,7 +8674,7 @@
     firstDay: Number,
     dayCount: Number,
     dateAlignment: String,
-    dateIncrement: createDuration,
+    dateIncrement: createDuration2,
     hiddenDays: identity,
     fixedWeekCount: Boolean,
     validRange: identity,
@@ -5887,7 +9023,7 @@
     let end = addDays3(start, dayCnt);
     return { start, end };
   }
-  function computeVisibleDayRange(timedRange, nextDayThreshold = createDuration(0)) {
+  function computeVisibleDayRange(timedRange, nextDayThreshold = createDuration2(0)) {
     let startDay = null;
     let endDay = null;
     if (timedRange.end) {
@@ -5907,10 +9043,10 @@
   }
   function diffDates(date0, date1, dateEnv, largeUnit) {
     if (largeUnit === "year") {
-      return createDuration(dateEnv.diffWholeYears(date0, date1), "year");
+      return createDuration2(dateEnv.diffWholeYears(date0, date1), "year");
     }
     if (largeUnit === "month") {
-      return createDuration(dateEnv.diffWholeMonths(date0, date1), "month");
+      return createDuration2(dateEnv.diffWholeMonths(date0, date1), "month");
     }
     return diffDayAndTime(date0, date1);
   }
@@ -6646,19 +9782,19 @@
       }
     }
     moveStart(deltaInput) {
-      let delta = createDuration(deltaInput);
+      let delta = createDuration2(deltaInput);
       if (delta) {
         this.mutate({ startDelta: delta });
       }
     }
     moveEnd(deltaInput) {
-      let delta = createDuration(deltaInput);
+      let delta = createDuration2(deltaInput);
       if (delta) {
         this.mutate({ endDelta: delta });
       }
     }
     moveDates(deltaInput) {
-      let delta = createDuration(deltaInput);
+      let delta = createDuration2(deltaInput);
       if (delta) {
         this.mutate({ datesDelta: delta });
       }
@@ -7796,9 +10932,9 @@
   }
   var SIMPLE_RECURRING_REFINERS = {
     daysOfWeek: identity,
-    startTime: createDuration,
-    endTime: createDuration,
-    duration: createDuration,
+    startTime: createDuration2,
+    endTime: createDuration2,
+    duration: createDuration2,
     startRecur: identity,
     endRecur: identity
   };
@@ -8341,7 +11477,7 @@
       if (nowIndicatorSnap) {
         nowDate = dateEnv.startOf(unroundedNow, unit);
         nowMs = resolveSnappedInstant(nowDate, unroundedNowMs, dateEnv);
-        let nextUnitStart = dateEnv.add(nowDate, createDuration(1, unit));
+        let nextUnitStart = dateEnv.add(nowDate, createDuration2(1, unit));
         waitMs = resolveNextSnappedInstant(nextUnitStart, unroundedNowMs, dateEnv) - unroundedNowMs;
       } else {
         nowDate = unroundedNow;
@@ -9267,7 +12403,7 @@
       return { duration, unit, range };
     }
     getFallbackDuration() {
-      return createDuration({ day: 1 });
+      return createDuration2({ day: 1 });
     }
     // Returns a new activeRange to have time values (un-ambiguate)
     // slotMinTime or slotMaxTime causes the range to expand.
@@ -9371,12 +12507,12 @@
         return dateIncrement;
       }
       if (customAlignment = this.props.dateAlignment) {
-        return createDuration(1, customAlignment);
+        return createDuration2(1, customAlignment);
       }
       if (fallback) {
         return fallback;
       }
-      return createDuration({ days: 1 });
+      return createDuration2({ days: 1 });
     }
     refineRange(rangeInput) {
       if (rangeInput) {
@@ -9930,7 +13066,7 @@
     let json = JSON.stringify(durationInput);
     let res = durationInputMap[json];
     if (res === void 0) {
-      res = createDuration(durationInput);
+      res = createDuration2(durationInput);
       durationInputMap[json] = res;
     }
     return res;
@@ -10903,7 +14039,7 @@
     }
     incrementDate(deltaInput) {
       let state = this.getCurrentData();
-      let delta = createDuration(deltaInput);
+      let delta = createDuration2(deltaInput);
       if (delta) {
         this.unselect();
         this.dispatch({
@@ -10958,7 +14094,7 @@
         };
       }
       let state = this.getCurrentData();
-      let selection = parseDateSpan(selectionInput, state.dateEnv, createDuration({ days: 1 }));
+      let selection = parseDateSpan(selectionInput, state.dateEnv, createDuration2({ days: 1 }));
       if (selection) {
         this.dispatch({ type: "SELECT_DATES", selection });
         triggerDateSelect(selection, null, state);
@@ -11106,7 +14242,7 @@
     // Scroll
     // -----------------------------------------------------------------------------------------------------------------
     scrollToTime(timeInput) {
-      let time = createDuration(timeInput);
+      let time = createDuration2(timeInput);
       if (time) {
         this.trigger("_timeScrollRequest", time);
       }
@@ -15385,7 +18521,7 @@
   function buildSlatMetas(slotMinTime, slotMaxTime, explicitLabelInterval, slotDuration, dateEnv) {
     let dayStart = /* @__PURE__ */ new Date(0);
     let slatTime = slotMinTime;
-    let slatIterator = createDuration(0);
+    let slatIterator = createDuration2(0);
     let labelInterval = explicitLabelInterval || computeLabelInterval(slotDuration);
     let metas = [];
     let i3 = 0;
@@ -15412,7 +18548,7 @@
     let labelInterval;
     let slotsPerLabel;
     for (i3 = STOCK_SUB_DURATIONS.length - 1; i3 >= 0; i3 -= 1) {
-      labelInterval = createDuration(STOCK_SUB_DURATIONS[i3]);
+      labelInterval = createDuration2(STOCK_SUB_DURATIONS[i3]);
       slotsPerLabel = wholeDivideDurations(labelInterval, slotDuration);
       if (slotsPerLabel !== null && slotsPerLabel > 1) {
         return labelInterval;
@@ -15573,7 +18709,7 @@
     if (!startOfDayDate) {
       startOfDayDate = startOfDay4(date2);
     }
-    return computeTimeTopFrac(createDuration(date2.valueOf() - startOfDayDate.valueOf()), dateProfile);
+    return computeTimeTopFrac(createDuration2(date2.valueOf() - startOfDayDate.valueOf()), dateProfile);
   }
   function computeTimeTopFrac(time, dateProfile) {
     const startMs = asRoughMs(dateProfile.slotMinTime);
@@ -18728,7 +21864,7 @@
     const date0 = options2.date0 || hit0.dateSpan.range.start;
     const date1 = options2.date1 || hit1.dateSpan.range.start;
     return {
-      delta: instantDeltaMs != null ? createDuration(instantDeltaMs) : diffDates(date0, date1, hit0.context.dateEnv, options2.largeUnit),
+      delta: instantDeltaMs != null ? createDuration2(instantDeltaMs) : diffDates(date0, date1, hit0.context.dateEnv, options2.largeUnit),
       instantDeltaMs
     };
   }
@@ -19181,8 +22317,8 @@
           context.emitter.trigger("eventResize", {
             ...eventChangeData,
             el: this.draggingSegEl,
-            startDelta: this.validMutation.startDelta || createDuration(0),
-            endDelta: this.validMutation.endDelta || createDuration(0),
+            startDelta: this.validMutation.startDelta || createDuration2(0),
+            endDelta: this.validMutation.endDelta || createDuration2(0),
             jsEvent: ev.origEvent,
             view: context.viewApi
           });
@@ -19322,55 +22458,6 @@
     },
     noEventsText: "\u6CA1\u6709\u4E8B\u4EF6\u663E\u793A"
   };
-
-  // Clients/Obsidian/dom.ts
-  function el(parent, tag, cls = "", text) {
-    const node = parent.ownerDocument.createElement(tag);
-    node.className = cls;
-    if (text != null) node.textContent = text;
-    parent.append(node);
-    return node;
-  }
-  function button(parent, text, action, cls = "", label) {
-    const b2 = el(parent, "button", cls, text);
-    b2.type = "button";
-    if (label) {
-      b2.title = label;
-      b2.setAttribute("aria-label", label);
-    }
-    b2.onclick = action;
-    return b2;
-  }
-  function field(parent, label, type, value) {
-    const l3 = el(parent, "label", "ctt-field");
-    el(l3, "span", "", label);
-    const input = el(l3, "input");
-    input.type = type;
-    input.value = value;
-    input.setAttribute("aria-label", label);
-    if (type === "datetime-local") input.step = "1";
-    return input;
-  }
-  function options(select, sources, value, placeholder = "\u9009\u62E9\u5206\u7C7B") {
-    const signature = JSON.stringify(sources.map((c3) => [c3.id, c3.name]));
-    if (select.dataset.options !== signature) {
-      select.replaceChildren();
-      const empty = el(select, "option", "", placeholder);
-      empty.value = "";
-      for (const c3 of sources) {
-        const o2 = el(select, "option", "", c3.name);
-        o2.value = c3.id;
-      }
-      select.dataset.options = signature;
-    }
-    if (value && !sources.some((c3) => c3.id === value)) {
-      if (!Array.from(select.options).some((o2) => o2.value === value)) {
-        const o2 = el(select, "option", "", "\u5206\u7C7B\u5DF2\u4E0D\u53EF\u7528");
-        o2.value = value;
-      }
-    }
-    select.value = value;
-  }
 
   // Clients/Obsidian/calendarPanel.ts
   init_time();
@@ -19660,7 +22747,7 @@
   };
   var DURATION_LETTERS = /([PDWHMTS]{1,1})/;
   var DATA_PROPS_TO_COPY = ["weeks", "days", "hours", "minutes", "seconds", "isNegative"];
-  var Duration = class _Duration {
+  var Duration2 = class _Duration {
     /**
      * Returns a new ICAL.Duration instance from the passed seconds value.
      *
@@ -19985,8 +23072,8 @@
         start: Time.fromDateTimeString(parts[0], prop)
       };
       let end = parts[1];
-      if (Duration.isValueString(end)) {
-        options2.duration = Duration.fromString(end);
+      if (Duration2.isValueString(end)) {
+        options2.duration = Duration2.fromString(end);
       } else {
         options2.end = Time.fromDateTimeString(end, prop);
       }
@@ -20023,10 +23110,10 @@
           return Time.fromDateTimeString(aValue, dateProp);
         }
       }
-      if (Duration.isValueString(aData[1])) {
+      if (Duration2.isValueString(aData[1])) {
         return _Period.fromData({
           start: fromDateOrDateTimeString(aData[0], aProp),
-          duration: Duration.fromString(aData[1])
+          duration: Duration2.fromString(aData[1])
         });
       } else {
         return _Period.fromData({
@@ -20062,7 +23149,7 @@
         this.end = aData.end;
       }
       if (aData && "duration" in aData) {
-        if (aData.duration && !(aData.duration instanceof Duration)) {
+        if (aData.duration && !(aData.duration instanceof Duration2)) {
           throw new TypeError(".duration must be an instance of ICAL.Duration");
         }
         this.duration = aData.duration;
@@ -21009,7 +24096,7 @@
     subtractDate(aDate) {
       let unixTime = this.toUnixTime() + this.utcOffset();
       let other = aDate.toUnixTime() + aDate.utcOffset();
-      return Duration.fromSeconds(unixTime - other);
+      return Duration2.fromSeconds(unixTime - other);
     }
     /**
      * Subtract the date details, taking timezones into account.
@@ -21020,7 +24107,7 @@
     subtractDateTz(aDate) {
       let unixTime = this.toUnixTime();
       let other = aDate.toUnixTime();
-      return Duration.fromSeconds(unixTime - other);
+      return Duration2.fromSeconds(unixTime - other);
     }
     /**
      * Compares the ICAL.Time instance with another one, or a period.
@@ -21856,7 +24943,7 @@
       let change_num_to_use = -1;
       let step = 1;
       for (; ; ) {
-        let change = clone(this.changes[change_num], true);
+        let change = clone2(this.changes[change_num], true);
         if (change.utcOffset < change.prevUtcOffset) {
           _Timezone.adjust_change(change, 0, 0, 0, change.utcOffset);
         } else {
@@ -21888,7 +24975,7 @@
       let zone_change = this.changes[change_num_to_use];
       let utcOffset_change = zone_change.utcOffset - zone_change.prevUtcOffset;
       if (utcOffset_change < 0 && change_num_to_use > 0) {
-        let tmp_change = clone(zone_change, true);
+        let tmp_change = clone2(zone_change, true);
         _Timezone.adjust_change(tmp_change, 0, 0, 0, tmp_change.prevUtcOffset);
         if (_Timezone._compare_change_fn(tt_change, tmp_change) < 0) {
           let prev_zone_change = this.changes[change_num_to_use - 1];
@@ -22206,7 +25293,7 @@
     else
       return mid;
   }
-  function clone(aSrc, aDeep) {
+  function clone2(aSrc, aDeep) {
     if (!aSrc || typeof aSrc != "object") {
       return aSrc;
     } else if (aSrc instanceof Date) {
@@ -22216,14 +25303,14 @@
     } else if (Array.isArray(aSrc)) {
       let arr = [];
       for (let i3 = 0; i3 < aSrc.length; i3++) {
-        arr.push(aDeep ? clone(aSrc[i3], true) : aSrc[i3]);
+        arr.push(aDeep ? clone2(aSrc[i3], true) : aSrc[i3]);
       }
       return arr;
     } else {
       let obj = {};
       for (let [name, value] of Object.entries(aSrc)) {
         if (aDeep) {
-          obj[name] = clone(value, true);
+          obj[name] = clone2(value, true);
         } else {
           obj[name] = value;
         }
@@ -22282,7 +25369,7 @@
   var helpers = /* @__PURE__ */ Object.freeze({
     __proto__: null,
     binsearchInsert,
-    clone,
+    clone: clone2,
     extend,
     foldline,
     formatClassType,
@@ -22691,7 +25778,7 @@
       if (options2.by_data) {
         this.by_data = options2.by_data;
       } else {
-        this.by_data = clone(this.rule.parts, true);
+        this.by_data = clone2(this.rule.parts, true);
       }
       if (options2.occurrence_number)
         this.occurrence_number = options2.occurrence_number;
@@ -24046,7 +27133,7 @@
         if (Array.isArray(kparts) && kparts.length == 1) {
           res[k3.toLowerCase()] = kparts[0];
         } else {
-          res[k3.toLowerCase()] = clone(kparts);
+          res[k3.toLowerCase()] = clone2(kparts);
         }
       }
       if (this.until) {
@@ -24494,7 +27581,7 @@
     },
     duration: {
       decorate: function(aValue) {
-        return Duration.fromString(aValue);
+        return Duration2.fromString(aValue);
       },
       undecorate: function(aValue) {
         return aValue.toString();
@@ -24504,7 +27591,7 @@
       fromICAL: function(string) {
         let parts = string.split("/");
         parts[0] = icalValues["date-time"].fromICAL(parts[0]);
-        if (!Duration.isValueString(parts[1])) {
+        if (!Duration2.isValueString(parts[1])) {
           parts[1] = icalValues["date-time"].fromICAL(parts[1]);
         }
         return parts;
@@ -24516,7 +27603,7 @@
         } else {
           parts[0] = icalValues["date-time"].toICAL(parts[0]);
         }
-        if (!Duration.isValueString(parts[1])) {
+        if (!Duration2.isValueString(parts[1])) {
           if (!design.strict && parts[1].length == 10) {
             parts[1] = icalValues.date.toICAL(parts[1]);
           } else {
@@ -26912,7 +29999,7 @@
     Binary,
     Component,
     ComponentParser,
-    Duration,
+    Duration: Duration2,
     Event,
     Period,
     Property,
@@ -26929,933 +30016,6 @@
     design,
     helpers
   };
-
-  // node_modules/temporal-polyfill/chunks/classApi-basic.js
-  function resolveBasicCalendarId(rawCalendarId) {
-    const lowerRawCalendarId = requireString(rawCalendarId).toLowerCase();
-    return lowerRawCalendarId === isoCalendarId ? isoCalendarImpl : lowerRawCalendarId === gregoryCalendarId ? gregoryCalendarImpl : void throwRangeError(exoticCalendarRequired(rawCalendarId, "temporal-polyfill/full"));
-  }
-  function resolveBasicCalendarArg(rawCalendarId = isoCalendarId) {
-    return resolveBasicCalendarId(rawCalendarId);
-  }
-  var zonedDateTimeSlotsMap = /* @__PURE__ */ new WeakMap();
-  var ZonedDateTime = /* @__PURE__ */ defineTemporalClass(ZonedDateTimeBranding, class {
-    constructor(epochNanoseconds, timeZoneId, calendar = void 0) {
-      const epochNano = checkEpochNanoInBounds(toBigInt(epochNanoseconds));
-      const timeZone = queryTimeZone(refineTimeZoneId(timeZoneId));
-      const calendarImpl = resolveBasicCalendarArg(calendar);
-      initZonedDateTime(this, createZonedEpochNanoSlots(epochNano, timeZone, calendarImpl));
-    }
-    static from(arg, options2 = void 0) {
-      return createZonedDateTime(toZonedDateTimeSlots(arg, options2));
-    }
-    static compare(arg0, arg1) {
-      return compareZonedDateTimes(toZonedDateTimeSlots(arg0), toZonedDateTimeSlots(arg1));
-    }
-    get calendarId() {
-      return getCalendarSlotId(getZonedDateTimeSlots2(this).calendar);
-    }
-    get timeZoneId() {
-      return getZonedDateTimeSlots2(this).timeZone.id;
-    }
-    get epochMilliseconds() {
-      return getEpochMilli(getZonedDateTimeSlots2(this));
-    }
-    get epochNanoseconds() {
-      return getEpochNano(getZonedDateTimeSlots2(this));
-    }
-    get offset() {
-      return formatOffsetNano(zonedEpochSlotsToIso(getZonedDateTimeSlots2(this)).offsetNanoseconds);
-    }
-    get offsetNanoseconds() {
-      return zonedEpochSlotsToIso(getZonedDateTimeSlots2(this)).offsetNanoseconds;
-    }
-    get hoursInDay() {
-      return computeZonedHoursInDay(getZonedDateTimeSlots2(this));
-    }
-    with(mod, options2 = void 0) {
-      return createZonedDateTime(mergeZonedDateTimeFields(getZonedDateTimeSlots2(this), validateBag2(mod), options2));
-    }
-    withCalendar(calendarArg) {
-      return createZonedDateTime({
-        ...getZonedDateTimeSlots2(this),
-        calendar: refineCalendarArg(calendarArg)
-      });
-    }
-    withTimeZone(timeZoneArg) {
-      return createZonedDateTime({
-        ...getZonedDateTimeSlots2(this),
-        timeZone: queryTimeZone(refineTimeZoneArg(timeZoneArg))
-      });
-    }
-    withPlainTime(plainTimeArg = void 0) {
-      return createZonedDateTime(zonedDateTimeWithPlainTime(getZonedDateTimeSlots2(this), optionalToPlainTimeFields(plainTimeArg)));
-    }
-    add(durationArg, options2 = void 0) {
-      const slots = getZonedDateTimeSlots2(this);
-      return createZonedDateTime(moveZonedEpochSlots(slots, toDurationSlots(durationArg), options2));
-    }
-    subtract(durationArg, options2 = void 0) {
-      const slots = getZonedDateTimeSlots2(this);
-      return createZonedDateTime(moveZonedEpochSlots(slots, negateDurationFields(toDurationSlots(durationArg)), options2));
-    }
-    until(otherArg, options2 = void 0) {
-      const slots = getZonedDateTimeSlots2(this);
-      const other = toZonedDateTimeSlots(otherArg);
-      const calendar = getCommonCalendar(slots.calendar, other.calendar);
-      return createDuration2(createDurationSlots(diffZonedDateTimes(0, calendar, slots, other, options2)));
-    }
-    since(otherArg, options2 = void 0) {
-      const slots = getZonedDateTimeSlots2(this);
-      const other = toZonedDateTimeSlots(otherArg);
-      const calendar = getCommonCalendar(slots.calendar, other.calendar);
-      return createDuration2(createDurationSlots(diffZonedDateTimes(1, calendar, slots, other, options2)));
-    }
-    round(options2) {
-      const slots = getZonedDateTimeSlots2(this);
-      const [smallestUnit, roundingInc, roundingMode] = refineRoundingOptions(options2);
-      return createZonedDateTime(roundZonedEpochSlotsToUnit(slots, smallestUnit, roundingInc, roundingMode));
-    }
-    startOfDay() {
-      return createZonedDateTime(computeZonedStartOfDay(getZonedDateTimeSlots2(this)));
-    }
-    equals(otherArg) {
-      return zonedDateTimesEqual(getZonedDateTimeSlots2(this), toZonedDateTimeSlots(otherArg));
-    }
-    toInstant() {
-      return createInstant(zonedDateTimeToInstant(getZonedDateTimeSlots2(this)));
-    }
-    toPlainDateTime() {
-      return createPlainDateTime(zonedDateTimeToPlainDateTime(getZonedDateTimeSlots2(this)));
-    }
-    toPlainDate() {
-      return createPlainDate(zonedDateTimeToPlainDate(getZonedDateTimeSlots2(this)));
-    }
-    toPlainTime() {
-      return createPlainTime(zonedDateTimeToPlainTime(getZonedDateTimeSlots2(this)));
-    }
-    toLocaleString(locales = void 0, options2 = {}) {
-      const slots = getZonedDateTimeSlots2(this);
-      const format = new RawDateTimeFormat(locales, applyZonedFormatTimeZone(transformZonedOptions(options2), getZonedTimeZoneId(slots)));
-      return checkResolvedCalendarCompatible(format, slots), format.format(getEpochMilli(slots));
-    }
-    toString(options2 = void 0) {
-      return formatZonedDateTimeIso(getZonedDateTimeSlots2(this), options2);
-    }
-    toJSON() {
-      return formatZonedDateTimeIso(getZonedDateTimeSlots2(this));
-    }
-    getTimeZoneTransition(options2) {
-      const slots = getZonedDateTimeSlots2(this);
-      const newEpochNano = getTimeZoneTransitionEpochNanoseconds(slots, options2);
-      return newEpochNano ? createZonedDateTime({
-        ...slots,
-        epochNanoseconds: newEpochNano
-      }) : null;
-    }
-    valueOf() {
-      return forbiddenValueOf2();
-    }
-  }, getZonedDateTimeIsoSlots, dateFieldGetters$1, dateDerivedGetters, timeGetters);
-  function createZonedDateTime(slots) {
-    return initZonedDateTime(Object.create(ZonedDateTime.prototype), slots);
-  }
-  function getZonedDateTimeSlots2(obj) {
-    return getZonedDateTimeSlotsIfPresent2(obj) || invalidRecordType();
-  }
-  function getZonedDateTimeIsoSlots(obj) {
-    const slots = getZonedDateTimeSlots2(obj);
-    return {
-      ...zonedEpochSlotsToIso(slots),
-      calendar: slots.calendar
-    };
-  }
-  function getZonedDateTimeSlotsIfPresent2(obj) {
-    return zonedDateTimeSlotsMap.get(obj);
-  }
-  function toZonedDateTimeSlots(arg, options2) {
-    if (isObjectLike2(arg)) {
-      const ownSlots = getZonedDateTimeSlotsIfPresent2(arg);
-      if (ownSlots) {
-        return refineZonedFieldOptions(options2), ownSlots;
-      }
-      const calendar = getCalendarFromBag(arg);
-      return refineZonedDateTimeObjectLike(refineTimeZoneArg, calendar, arg, options2);
-    }
-    return parseZonedDateTime(arg, resolveBasicCalendarId, options2);
-  }
-  function initZonedDateTime(instance, slots) {
-    return zonedDateTimeSlotsMap.set(instance, slots), attachDebugString(instance), instance;
-  }
-  function refineTimeZoneArg(arg) {
-    if (isObjectLike2(arg)) {
-      const slots = getZonedDateTimeSlotsIfPresent2(arg);
-      return slots || throwTypeError(invalidTimeZone(arg)), slots.timeZone.id;
-    }
-    return ((arg2) => resolveTimeZoneId(parseTimeZoneId(requireString(arg2))))(arg);
-  }
-  var instantSlotsMap = /* @__PURE__ */ new WeakMap();
-  var Instant = /* @__PURE__ */ defineTemporalClass(InstantBranding, class {
-    constructor(epochNanoseconds) {
-      const epochNano = checkEpochNanoInBounds(toBigInt(epochNanoseconds));
-      initInstant(this, createEpochNanoSlots(epochNano));
-    }
-    static from(arg) {
-      return createInstant(toInstantSlots(arg));
-    }
-    static fromEpochMilliseconds(epochMilli) {
-      return createInstant(epochMilliToInstant(epochMilli));
-    }
-    static fromEpochNanoseconds(epochNano) {
-      return createInstant(epochNanoToInstant(epochNano));
-    }
-    static compare(a3, b2) {
-      return compareInstants(toInstantSlots(a3), toInstantSlots(b2));
-    }
-    get epochMilliseconds() {
-      return getEpochMilli(getInstantSlots2(this));
-    }
-    get epochNanoseconds() {
-      return getEpochNano(getInstantSlots2(this));
-    }
-    add(durationArg) {
-      const slots = getInstantSlots2(this);
-      return createInstant(createEpochNanoSlots(moveEpochNano(slots.epochNanoseconds, toDurationSlots(durationArg))));
-    }
-    subtract(durationArg) {
-      const slots = getInstantSlots2(this);
-      return createInstant(createEpochNanoSlots(moveEpochNano(slots.epochNanoseconds, negateDurationFields(toDurationSlots(durationArg)))));
-    }
-    until(otherArg, options2 = void 0) {
-      return createDuration2(diffInstants(0, getInstantSlots2(this), toInstantSlots(otherArg), options2));
-    }
-    since(otherArg, options2 = void 0) {
-      return createDuration2(diffInstants(1, getInstantSlots2(this), toInstantSlots(otherArg), options2));
-    }
-    round(options2) {
-      const slots = getInstantSlots2(this);
-      const [smallestUnit, roundingInc, roundingMode] = refineRoundingOptions(options2, 5, 1);
-      return createInstant(createEpochNanoSlots(roundBigNanoToDayOriginInc(slots.epochNanoseconds, computeBigNanoInc(smallestUnit, roundingInc), roundingMode)));
-    }
-    equals(otherArg) {
-      return instantsEqual(getInstantSlots2(this), toInstantSlots(otherArg));
-    }
-    toZonedDateTimeISO(timeZoneArg) {
-      return createZonedDateTime(instantToZonedDateTime(getInstantSlots2(this), queryTimeZone(refineTimeZoneArg(timeZoneArg))));
-    }
-    toLocaleString(locales = void 0, options2 = {}) {
-      const slots = getInstantSlots2(this);
-      return new RawDateTimeFormat(locales, transformInstantOptions(options2)).format(getEpochMilli(slots));
-    }
-    toString(options2 = void 0) {
-      return formatInstantIso(refineTimeZoneArg, getInstantSlots2(this), options2);
-    }
-    toJSON() {
-      return formatInstantIso(refineTimeZoneArg, getInstantSlots2(this));
-    }
-    valueOf() {
-      return forbiddenValueOf2();
-    }
-  });
-  function createInstant(slots) {
-    return initInstant(Object.create(Instant.prototype), slots);
-  }
-  function getInstantSlots2(obj) {
-    return getInstantSlotsIfPresent2(obj) || invalidRecordType();
-  }
-  function getInstantSlotsIfPresent2(obj) {
-    return instantSlotsMap.get(obj);
-  }
-  function toInstantSlots(arg) {
-    if (isObjectLike2(arg)) {
-      const ownSlots = getInstantSlotsIfPresent2(arg);
-      if (ownSlots) {
-        return ownSlots;
-      }
-      const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent2(arg);
-      if (zonedDateTimeSlots) {
-        return createEpochNanoSlots(zonedDateTimeSlots.epochNanoseconds);
-      }
-    }
-    return parseInstant(arg);
-  }
-  var { toTemporalInstant } = {
-    toTemporalInstant() {
-      const epochMilli = Date.prototype.valueOf.call(this);
-      return createInstant(createEpochNanoSlots(BigInt(requireNumberIsInteger(epochMilli)) * bigNanoInMilli));
-    }
-  };
-  function initInstant(instance, slots) {
-    return instantSlotsMap.set(instance, slots), attachDebugString(instance), instance;
-  }
-  var plainMonthDaySlotsMap = /* @__PURE__ */ new WeakMap();
-  var PlainMonthDay = /* @__PURE__ */ defineTemporalClass(PlainMonthDayBranding, class {
-    constructor(isoMonth, isoDay, calendar = void 0, referenceIsoYear) {
-      const isoMonthInt = toIntegerWithTrunc(isoMonth);
-      const isoDayInt = toIntegerWithTrunc(isoDay);
-      const calendarImpl = resolveBasicCalendarArg(calendar);
-      const isoYearInt = toIntegerWithTrunc(referenceIsoYear ?? isoEpochFirstLeapYear);
-      const fields = checkIsoDateInBounds(validateIsoDateFields({
-        year: isoYearInt,
-        month: isoMonthInt,
-        day: isoDayInt
-      }));
-      initPlainMonthDay(this, createDateSlots(fields, calendarImpl));
-    }
-    static from(arg, options2 = void 0) {
-      return createPlainMonthDay(toPlainMonthDaySlots(arg, options2));
-    }
-    get calendarId() {
-      return getCalendarSlotId(getPlainMonthDaySlots2(this).calendar);
-    }
-    with(mod, options2 = void 0) {
-      return createPlainMonthDay(mergePlainMonthDayFields(getPlainMonthDaySlots2(this), validateBag2(mod), options2));
-    }
-    equals(otherArg) {
-      return plainMonthDaysEqual(getPlainMonthDaySlots2(this), toPlainMonthDaySlots(otherArg));
-    }
-    toPlainDate(bag) {
-      const slots = getPlainMonthDaySlots2(this);
-      return createPlainDate(convertPlainMonthDayToDate(slots.calendar, this, bag));
-    }
-    toLocaleString(locales = void 0, options2 = {}) {
-      const slots = getPlainMonthDaySlots2(this);
-      const format = new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformMonthDayOptions(options2)));
-      return checkResolvedCalendarCompatible(format, slots, 1), format.format(isoDateToEpochMilli(slots));
-    }
-    toString(options2 = void 0) {
-      return formatPlainMonthDayIso(getPlainMonthDaySlots2(this), options2);
-    }
-    toJSON() {
-      return formatPlainMonthDayIso(getPlainMonthDaySlots2(this));
-    }
-    valueOf() {
-      return forbiddenValueOf2();
-    }
-  }, getPlainMonthDaySlots2, monthDayFieldGetters$1);
-  function createPlainMonthDay(slots) {
-    return initPlainMonthDay(Object.create(PlainMonthDay.prototype), slots);
-  }
-  function getPlainMonthDaySlots2(obj) {
-    return getPlainMonthDaySlotsIfPresent(obj) || invalidRecordType();
-  }
-  function getPlainMonthDaySlotsIfPresent(obj) {
-    return plainMonthDaySlotsMap.get(obj);
-  }
-  function toPlainMonthDaySlots(arg, options2) {
-    if (isObjectLike2(arg)) {
-      const ownSlots = getPlainMonthDaySlotsIfPresent(arg);
-      if (ownSlots) {
-        return refineOverflowOptions(options2), ownSlots;
-      }
-      const calendarMaybe = extractCalendarFromBag(arg);
-      return refinePlainMonthDayObjectLike(void 0 === calendarMaybe ? isoCalendarImpl : calendarMaybe, void 0 === calendarMaybe, arg, options2);
-    }
-    const res = parsePlainMonthDay(arg, resolveBasicCalendarId);
-    return refineOverflowOptions(options2), res;
-  }
-  function initPlainMonthDay(instance, slots) {
-    return plainMonthDaySlotsMap.set(instance, slots), attachDebugString(instance), instance;
-  }
-  var plainYearMonthSlotsMap = /* @__PURE__ */ new WeakMap();
-  var PlainYearMonth = /* @__PURE__ */ defineTemporalClass(PlainYearMonthBranding, class {
-    constructor(isoYear, isoMonth, calendar = void 0, referenceIsoDay) {
-      const isoYearInt = toIntegerWithTrunc(isoYear);
-      const isoMonthInt = toIntegerWithTrunc(isoMonth);
-      const calendarImpl = resolveBasicCalendarArg(calendar);
-      const isoDayInt = toIntegerWithTrunc(referenceIsoDay ?? 1);
-      const fields = checkIsoYearMonthInBounds(validateIsoDateFields({
-        year: isoYearInt,
-        month: isoMonthInt,
-        day: isoDayInt
-      }));
-      initPlainYearMonth(this, createDateSlots(fields, calendarImpl));
-    }
-    static from(arg, options2 = void 0) {
-      return createPlainYearMonth(toPlainYearMonthSlots(arg, options2));
-    }
-    static compare(arg0, arg1) {
-      return compareIsoDateFields(toPlainYearMonthSlots(arg0), toPlainYearMonthSlots(arg1));
-    }
-    get calendarId() {
-      return getCalendarSlotId(getPlainYearMonthSlots2(this).calendar);
-    }
-    with(mod, options2 = void 0) {
-      return createPlainYearMonth(mergePlainYearMonthFields(getPlainYearMonthSlots2(this), validateBag2(mod), options2));
-    }
-    add(durationArg, options2 = void 0) {
-      const slots = getPlainYearMonthSlots2(this);
-      return createPlainYearMonth(createDateSlots(moveYearMonth(0, slots.calendar, slots, toDurationSlots(durationArg), options2), slots.calendar));
-    }
-    subtract(durationArg, options2 = void 0) {
-      const slots = getPlainYearMonthSlots2(this);
-      return createPlainYearMonth(createDateSlots(moveYearMonth(1, slots.calendar, slots, toDurationSlots(durationArg), options2), slots.calendar));
-    }
-    until(otherArg, options2 = void 0) {
-      const slots = getPlainYearMonthSlots2(this);
-      const other = toPlainYearMonthSlots(otherArg);
-      const calendar = getCommonCalendar(slots.calendar, other.calendar);
-      return createDuration2(diffPlainYearMonth(0, calendar, slots, other, options2));
-    }
-    since(otherArg, options2 = void 0) {
-      const slots = getPlainYearMonthSlots2(this);
-      const other = toPlainYearMonthSlots(otherArg);
-      const calendar = getCommonCalendar(slots.calendar, other.calendar);
-      return createDuration2(diffPlainYearMonth(1, calendar, slots, other, options2));
-    }
-    equals(otherArg) {
-      return plainYearMonthsEqual(getPlainYearMonthSlots2(this), toPlainYearMonthSlots(otherArg));
-    }
-    toPlainDate(bag) {
-      const slots = getPlainYearMonthSlots2(this);
-      return createPlainDate(convertPlainYearMonthToDate(slots.calendar, this, bag));
-    }
-    toLocaleString(locales = void 0, options2 = {}) {
-      const slots = getPlainYearMonthSlots2(this);
-      const format = new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformYearMonthOptions(options2)));
-      return checkResolvedCalendarCompatible(format, slots, 1), format.format(isoDateToEpochMilli(slots));
-    }
-    toString(options2 = void 0) {
-      return formatPlainYearMonthIso(getPlainYearMonthSlots2(this), options2);
-    }
-    toJSON() {
-      return formatPlainYearMonthIso(getPlainYearMonthSlots2(this));
-    }
-    valueOf() {
-      return forbiddenValueOf2();
-    }
-  }, getPlainYearMonthSlots2, yearMonthFieldGetters$1, yearMonthDerivedGetters);
-  function createPlainYearMonth(slots) {
-    return initPlainYearMonth(Object.create(PlainYearMonth.prototype), slots);
-  }
-  function getPlainYearMonthSlots2(obj) {
-    return getPlainYearMonthSlotsIfPresent(obj) || invalidRecordType();
-  }
-  function getPlainYearMonthSlotsIfPresent(obj) {
-    return plainYearMonthSlotsMap.get(obj);
-  }
-  function toPlainYearMonthSlots(arg, options2) {
-    if (isObjectLike2(arg)) {
-      const ownSlots = getPlainYearMonthSlotsIfPresent(arg);
-      if (ownSlots) {
-        return refineOverflowOptions(options2), ownSlots;
-      }
-      const calendar = getCalendarFromBag(arg);
-      return refinePlainYearMonthObjectLike(calendar, arg, options2);
-    }
-    const res = parsePlainYearMonth(arg, resolveBasicCalendarId);
-    return refineOverflowOptions(options2), res;
-  }
-  function initPlainYearMonth(instance, slots) {
-    return plainYearMonthSlotsMap.set(instance, slots), attachDebugString(instance), instance;
-  }
-  function getTemporalBrandingAndSlots(obj) {
-    if (!isObjectLike2(obj)) {
-      return;
-    }
-    let slots = getInstantSlotsIfPresent2(obj);
-    return slots ? [InstantBranding, slots] : (slots = getZonedDateTimeSlotsIfPresent2(obj), slots ? [ZonedDateTimeBranding, slots] : (slots = getPlainDateTimeSlotsIfPresent2(obj), slots ? [PlainDateTimeBranding, slots] : (slots = getPlainDateSlotsIfPresent2(obj), slots ? [PlainDateBranding, slots] : (slots = getPlainTimeSlotsIfPresent2(obj), slots ? [PlainTimeBranding, slots] : (slots = getPlainYearMonthSlotsIfPresent(obj), slots ? [PlainYearMonthBranding, slots] : (slots = getPlainMonthDaySlotsIfPresent(obj), slots ? [PlainMonthDayBranding, slots] : (slots = getDurationSlotsIfPresent(obj), slots ? [DurationBranding, slots] : void 0)))))));
-  }
-  function validateBag2(bag) {
-    return (getTemporalBrandingAndSlots(bag) || void 0 !== bag.calendar || void 0 !== bag.timeZone) && throwTypeError(invalidBag), bag;
-  }
-  var plainTimeSlotsMap = /* @__PURE__ */ new WeakMap();
-  var PlainTime = /* @__PURE__ */ defineTemporalClass(PlainTimeBranding, class {
-    constructor(hour = 0, minute = 0, second = 0, millisecond = 0, microsecond = 0, nanosecond = 0) {
-      const fields = validateTimeFields(mapProps(toIntegerWithTrunc, {
-        hour,
-        minute,
-        second,
-        millisecond,
-        microsecond,
-        nanosecond
-      }));
-      initPlainTime(this, createTimeSlots(fields));
-    }
-    static from(arg, options2 = void 0) {
-      return createPlainTime(toPlainTimeSlots(arg, options2));
-    }
-    static compare(arg0, arg1) {
-      return compareTimeFields(toPlainTimeSlots(arg0), toPlainTimeSlots(arg1));
-    }
-    with(mod, options2 = void 0) {
-      return createPlainTime(mergePlainTimeFields(getPlainTimeSlots2(this), validateBag2(mod), options2));
-    }
-    add(durationArg) {
-      const slots = getPlainTimeSlots2(this);
-      return createPlainTime(moveTime(slots, toDurationSlots(durationArg))[0]);
-    }
-    subtract(durationArg) {
-      const slots = getPlainTimeSlots2(this);
-      return createPlainTime(moveTime(slots, negateDurationFields(toDurationSlots(durationArg)))[0]);
-    }
-    until(otherArg, options2 = void 0) {
-      return createDuration2(diffPlainTimes(0, getPlainTimeSlots2(this), toPlainTimeSlots(otherArg), options2));
-    }
-    since(otherArg, options2 = void 0) {
-      return createDuration2(diffPlainTimes(1, getPlainTimeSlots2(this), toPlainTimeSlots(otherArg), options2));
-    }
-    round(options2) {
-      const slots = getPlainTimeSlots2(this);
-      const [smallestUnit, roundingInc, roundingMode] = refineRoundingOptions(options2, 5);
-      return createPlainTime(roundTimeToNano(slots, computeNanoInc(smallestUnit, roundingInc), roundingMode)[0]);
-    }
-    equals(other) {
-      return plainTimesEqual(getPlainTimeSlots2(this), toPlainTimeSlots(other));
-    }
-    toLocaleString(locales = void 0, options2 = {}) {
-      const slots = getPlainTimeSlots2(this);
-      return new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformTimeOptions(options2))).format(timeFieldsToMilli(slots));
-    }
-    toString(options2 = void 0) {
-      return formatPlainTimeIso(getPlainTimeSlots2(this), options2);
-    }
-    toJSON() {
-      return formatPlainTimeIso(getPlainTimeSlots2(this));
-    }
-    valueOf() {
-      return forbiddenValueOf2();
-    }
-  }, getPlainTimeSlots2, timeGetters);
-  function createPlainTime(slots) {
-    return initPlainTime(Object.create(PlainTime.prototype), slots);
-  }
-  function getPlainTimeSlots2(obj) {
-    return getPlainTimeSlotsIfPresent2(obj) || invalidRecordType();
-  }
-  function getPlainTimeSlotsIfPresent2(obj) {
-    return plainTimeSlotsMap.get(obj);
-  }
-  function toPlainTimeSlots(arg, options2) {
-    if (isObjectLike2(arg)) {
-      const ownSlots = getPlainTimeSlotsIfPresent2(arg);
-      if (ownSlots) {
-        return refineOverflowOptions(options2), ownSlots;
-      }
-      const dateTimeSlots = getPlainDateTimeSlotsIfPresent2(arg);
-      if (dateTimeSlots) {
-        return refineOverflowOptions(options2), createTimeSlots(dateTimeSlots);
-      }
-      const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent2(arg);
-      return zonedDateTimeSlots ? (refineOverflowOptions(options2), zonedDateTimeToPlainTime(zonedDateTimeSlots)) : refinePlainTimeObjectLike(arg, options2);
-    }
-    const timeSlots = parsePlainTime(arg);
-    return refineOverflowOptions(options2), timeSlots;
-  }
-  function optionalToPlainTimeFields(timeArg) {
-    return void 0 === timeArg ? void 0 : toPlainTimeSlots(timeArg);
-  }
-  function initPlainTime(instance, slots) {
-    return plainTimeSlotsMap.set(instance, slots), attachDebugString(instance), instance;
-  }
-  var plainDateTimeSlotsMap = /* @__PURE__ */ new WeakMap();
-  var PlainDateTime = /* @__PURE__ */ defineTemporalClass(PlainDateTimeBranding, class {
-    constructor(isoYear, isoMonth, isoDay, hour = 0, minute = 0, second = 0, millisecond = 0, microsecond = 0, nanosecond = 0, calendar = void 0) {
-      const fields = checkIsoDateTimeInBounds(validateIsoDateTimeFields(mapProps(toIntegerWithTrunc, {
-        year: isoYear,
-        month: isoMonth,
-        day: isoDay,
-        hour,
-        minute,
-        second,
-        millisecond,
-        microsecond,
-        nanosecond
-      })));
-      const calendarImpl = resolveBasicCalendarArg(calendar);
-      initPlainDateTime(this, createDateTimeSlots(fields, calendarImpl));
-    }
-    static from(arg, options2 = void 0) {
-      return createPlainDateTime(toPlainDateTimeSlots(arg, options2));
-    }
-    static compare(arg0, arg1) {
-      const slots0 = toPlainDateTimeSlots(arg0);
-      const slots1 = toPlainDateTimeSlots(arg1);
-      return compareIsoDateTimeFields(slots0, slots1);
-    }
-    get calendarId() {
-      return getCalendarSlotId(getPlainDateTimeSlots2(this).calendar);
-    }
-    with(mod, options2 = void 0) {
-      return createPlainDateTime(mergePlainDateTimeFields(getPlainDateTimeSlots2(this), validateBag2(mod), options2));
-    }
-    withCalendar(calendarArg) {
-      const slots = getPlainDateTimeSlots2(this);
-      return createPlainDateTime(createDateTimeSlots(slots, refineCalendarArg(calendarArg)));
-    }
-    withPlainTime(plainTimeArg = void 0) {
-      const slots = getPlainDateTimeSlots2(this);
-      return createPlainDateTime(createPlainDateTimeFromRefinedFields(slots, optionalToPlainTimeFields(plainTimeArg), slots.calendar));
-    }
-    add(durationArg, options2 = void 0) {
-      const slots = getPlainDateTimeSlots2(this);
-      return createPlainDateTime(createDateTimeSlots(moveDateTime(slots.calendar, slots, toDurationSlots(durationArg), options2), slots.calendar));
-    }
-    subtract(durationArg, options2 = void 0) {
-      const slots = getPlainDateTimeSlots2(this);
-      return createPlainDateTime(createDateTimeSlots(moveDateTime(slots.calendar, slots, negateDurationFields(toDurationSlots(durationArg)), options2), slots.calendar));
-    }
-    until(otherArg, options2 = void 0) {
-      const slots = getPlainDateTimeSlots2(this);
-      const other = toPlainDateTimeSlots(otherArg);
-      const calendar = getCommonCalendar(slots.calendar, other.calendar);
-      return createDuration2(diffPlainDateTimes(0, calendar, slots, other, options2));
-    }
-    since(otherArg, options2 = void 0) {
-      const slots = getPlainDateTimeSlots2(this);
-      const other = toPlainDateTimeSlots(otherArg);
-      const calendar = getCommonCalendar(slots.calendar, other.calendar);
-      return createDuration2(diffPlainDateTimes(1, calendar, slots, other, options2));
-    }
-    round(options2) {
-      const slots = getPlainDateTimeSlots2(this);
-      const [smallestUnit, roundingInc, roundingMode] = refineRoundingOptions(options2);
-      return createPlainDateTime(createDateTimeSlots(roundDateTimeToNano(slots, computeNanoInc(smallestUnit, roundingInc), roundingMode), slots.calendar));
-    }
-    equals(otherArg) {
-      return plainDateTimesEqual(getPlainDateTimeSlots2(this), toPlainDateTimeSlots(otherArg));
-    }
-    toZonedDateTime(timeZoneArg, options2 = void 0) {
-      return createZonedDateTime(plainDateTimeToZonedDateTime(getPlainDateTimeSlots2(this), queryTimeZone(refineTimeZoneArg(timeZoneArg)), options2));
-    }
-    toPlainDate() {
-      const slots = getPlainDateTimeSlots2(this);
-      return createPlainDate(createDateSlots(slots, slots.calendar));
-    }
-    toPlainTime() {
-      return createPlainTime(createTimeSlots(getPlainDateTimeSlots2(this)));
-    }
-    toLocaleString(locales = void 0, options2 = {}) {
-      const slots = getPlainDateTimeSlots2(this);
-      const format = new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformDateTimeOptions(options2)));
-      return checkResolvedCalendarCompatible(format, slots), format.format(isoDateTimeToEpochMilli(slots));
-    }
-    toString(options2 = void 0) {
-      return formatPlainDateTimeIso(getPlainDateTimeSlots2(this), options2);
-    }
-    toJSON() {
-      return formatPlainDateTimeIso(getPlainDateTimeSlots2(this));
-    }
-    valueOf() {
-      return forbiddenValueOf2();
-    }
-  }, getPlainDateTimeSlots2, dateFieldGetters$1, dateDerivedGetters, timeGetters);
-  function createPlainDateTime(slots) {
-    return initPlainDateTime(Object.create(PlainDateTime.prototype), slots);
-  }
-  function getPlainDateTimeSlots2(obj) {
-    return getPlainDateTimeSlotsIfPresent2(obj) || invalidRecordType();
-  }
-  function getPlainDateTimeSlotsIfPresent2(obj) {
-    return plainDateTimeSlotsMap.get(obj);
-  }
-  function toPlainDateTimeSlots(arg, options2) {
-    if (isObjectLike2(arg)) {
-      const ownSlots = getPlainDateTimeSlotsIfPresent2(arg);
-      if (ownSlots) {
-        return refineOverflowOptions(options2), ownSlots;
-      }
-      const dateSlots = getPlainDateSlotsIfPresent2(arg);
-      if (dateSlots) {
-        return refineOverflowOptions(options2), createDateTimeSlots(combineDateAndTime(dateSlots, timeFieldDefaults), dateSlots.calendar);
-      }
-      const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent2(arg);
-      if (zonedDateTimeSlots) {
-        return refineOverflowOptions(options2), zonedDateTimeToPlainDateTime(zonedDateTimeSlots);
-      }
-      const calendar = getCalendarFromBag(arg);
-      return refinePlainDateTimeObjectLike(calendar, arg, options2);
-    }
-    const res = parsePlainDateTime(arg, resolveBasicCalendarId);
-    return refineOverflowOptions(options2), res;
-  }
-  function initPlainDateTime(instance, slots) {
-    return plainDateTimeSlotsMap.set(instance, slots), attachDebugString(instance), instance;
-  }
-  var plainDateSlotsMap = /* @__PURE__ */ new WeakMap();
-  var PlainDate = /* @__PURE__ */ defineTemporalClass(PlainDateBranding, class {
-    constructor(isoYear, isoMonth, isoDay, calendar = void 0) {
-      const fields = checkIsoDateInBounds(validateIsoDateFields(mapProps(toIntegerWithTrunc, {
-        year: isoYear,
-        month: isoMonth,
-        day: isoDay
-      })));
-      const calendarImpl = resolveBasicCalendarArg(calendar);
-      initPlainDate(this, createDateSlots(fields, calendarImpl));
-    }
-    static from(arg, options2 = void 0) {
-      return createPlainDate(toPlainDateSlots(arg, options2));
-    }
-    static compare(arg0, arg1) {
-      return compareIsoDateFields(toPlainDateSlots(arg0), toPlainDateSlots(arg1));
-    }
-    get calendarId() {
-      return getCalendarSlotId(getPlainDateSlots2(this).calendar);
-    }
-    with(mod, options2 = void 0) {
-      const slots = getPlainDateSlots2(this);
-      return createPlainDate(mergePlainDateFields(slots, validateBag2(mod), options2));
-    }
-    withCalendar(calendarArg) {
-      const slots = getPlainDateSlots2(this);
-      return createPlainDate(createDateSlots(slots, refineCalendarArg(calendarArg)));
-    }
-    add(durationArg, options2 = void 0) {
-      const slots = getPlainDateSlots2(this);
-      return createPlainDate(createDateSlots(moveDate(slots.calendar, slots, toDurationSlots(durationArg), options2), slots.calendar));
-    }
-    subtract(durationArg, options2 = void 0) {
-      const slots = getPlainDateSlots2(this);
-      return createPlainDate(createDateSlots(moveDate(slots.calendar, slots, negateDurationFields(toDurationSlots(durationArg)), options2), slots.calendar));
-    }
-    until(otherArg, options2 = void 0) {
-      const slots = getPlainDateSlots2(this);
-      const other = toPlainDateSlots(otherArg);
-      const calendar = getCommonCalendar(slots.calendar, other.calendar);
-      return createDuration2(diffPlainDates(0, calendar, slots, other, options2));
-    }
-    since(otherArg, options2 = void 0) {
-      const slots = getPlainDateSlots2(this);
-      const other = toPlainDateSlots(otherArg);
-      const calendar = getCommonCalendar(slots.calendar, other.calendar);
-      return createDuration2(diffPlainDates(1, calendar, slots, other, options2));
-    }
-    equals(otherArg) {
-      return plainDatesEqual(getPlainDateSlots2(this), toPlainDateSlots(otherArg));
-    }
-    toZonedDateTime(options2) {
-      const optionsObj = isObjectLike2(options2) ? {
-        timeZone: options2.timeZone,
-        plainTime: options2.plainTime
-      } : {
-        timeZone: options2
-      };
-      return createZonedDateTime(plainDateToZonedDateTime(refineTimeZoneArg, toPlainTimeSlots, getPlainDateSlots2(this), optionsObj));
-    }
-    toPlainDateTime(plainTimeArg = void 0) {
-      const slots = getPlainDateSlots2(this);
-      return createPlainDateTime(createPlainDateTimeFromRefinedFields(slots, optionalToPlainTimeFields(plainTimeArg), slots.calendar));
-    }
-    toPlainYearMonth() {
-      const slots = getPlainDateSlots2(this);
-      return createPlainYearMonth(convertToPlainYearMonth(slots.calendar, this));
-    }
-    toPlainMonthDay() {
-      const slots = getPlainDateSlots2(this);
-      return createPlainMonthDay(convertToPlainMonthDay(slots.calendar, this));
-    }
-    toLocaleString(locales = void 0, options2 = {}) {
-      const slots = getPlainDateSlots2(this);
-      const format = new RawDateTimeFormat(locales, applyPlainFormatTimeZone(transformDateOptions(options2)));
-      return checkResolvedCalendarCompatible(format, slots), format.format(isoDateToEpochMilli(slots));
-    }
-    toString(options2 = void 0) {
-      return formatPlainDateIso(getPlainDateSlots2(this), options2);
-    }
-    toJSON() {
-      return formatPlainDateIso(getPlainDateSlots2(this));
-    }
-    valueOf() {
-      return forbiddenValueOf2();
-    }
-  }, getPlainDateSlots2, dateFieldGetters$1, dateDerivedGetters);
-  function createPlainDate(slots) {
-    return initPlainDate(Object.create(PlainDate.prototype), slots);
-  }
-  function getPlainDateSlots2(obj) {
-    return getPlainDateSlotsIfPresent2(obj) || invalidRecordType();
-  }
-  function getPlainDateSlotsIfPresent2(obj) {
-    return plainDateSlotsMap.get(obj);
-  }
-  function toPlainDateSlots(arg, options2) {
-    if (isObjectLike2(arg)) {
-      const ownSlots = getPlainDateSlotsIfPresent2(arg);
-      if (ownSlots) {
-        return refineOverflowOptions(options2), ownSlots;
-      }
-      const dateTimeSlots = getPlainDateTimeSlotsIfPresent2(arg);
-      if (dateTimeSlots) {
-        return refineOverflowOptions(options2), createDateSlots(dateTimeSlots, dateTimeSlots.calendar);
-      }
-      const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent2(arg);
-      if (zonedDateTimeSlots) {
-        return refineOverflowOptions(options2), zonedDateTimeToPlainDate(zonedDateTimeSlots);
-      }
-      const calendar = getCalendarFromBag(arg);
-      return refinePlainDateObjectLike(calendar, arg, options2);
-    }
-    const res = parsePlainDate(arg, resolveBasicCalendarId);
-    return refineOverflowOptions(options2), res;
-  }
-  function initPlainDate(instance, slots) {
-    return plainDateSlotsMap.set(instance, slots), attachDebugString(instance), instance;
-  }
-  function getCalendarFromBag(bag) {
-    const calendar = extractCalendarFromBag(bag);
-    return void 0 === calendar ? isoCalendarImpl : calendar;
-  }
-  function extractCalendarFromBag(bag) {
-    const { calendar: calendarArg } = bag;
-    if (void 0 !== calendarArg) {
-      return refineCalendarArg(calendarArg);
-    }
-  }
-  function refineCalendarArg(arg) {
-    if (isObjectLike2(arg)) {
-      const slots = getPlainDateSlotsIfPresent2(arg) || getPlainDateTimeSlotsIfPresent2(arg) || getZonedDateTimeSlotsIfPresent2(arg) || getPlainMonthDaySlotsIfPresent(arg) || getPlainYearMonthSlotsIfPresent(arg);
-      return slots || throwTypeError(invalidCalendar(arg)), slots.calendar;
-    }
-    return ((arg2) => resolveBasicCalendarId(parseCalendarId(requireString(arg2))))(arg);
-  }
-  var durationSlotsMap = /* @__PURE__ */ new WeakMap();
-  var Duration2 = /* @__PURE__ */ defineTemporalClass(DurationBranding, class {
-    constructor(years = 0, months = 0, weeks = 0, days = 0, hours = 0, minutes = 0, seconds = 0, milliseconds = 0, microseconds = 0, nanoseconds = 0) {
-      const fields = validateDurationFields(mapProps(toStrictInteger, {
-        years,
-        months,
-        weeks,
-        days,
-        hours,
-        minutes,
-        seconds,
-        milliseconds,
-        microseconds,
-        nanoseconds
-      }));
-      initDuration(this, createDurationSlots(fields));
-    }
-    static from(arg) {
-      return createDuration2(toDurationSlots(arg));
-    }
-    static compare(durationArg0, durationArg1, options2 = void 0) {
-      return compareDurations(refinePublicRelativeTo, toDurationSlots(durationArg0), toDurationSlots(durationArg1), options2);
-    }
-    get sign() {
-      return getDurationSlots2(this).sign;
-    }
-    get blank() {
-      return !getDurationSlots2(this).sign;
-    }
-    with(mod) {
-      return createDuration2(mergeDurationFields(getDurationSlots2(this), mod));
-    }
-    negated() {
-      return createDuration2(negateDuration(getDurationSlots2(this)));
-    }
-    abs() {
-      return createDuration2(absDuration(getDurationSlots2(this)));
-    }
-    add(otherArg, options2 = void 0) {
-      return createDuration2(addDurations(refinePublicRelativeTo, 0, getDurationSlots2(this), toDurationSlots(otherArg), options2));
-    }
-    subtract(otherArg, options2 = void 0) {
-      return createDuration2(addDurations(refinePublicRelativeTo, 1, getDurationSlots2(this), toDurationSlots(otherArg), options2));
-    }
-    round(roundTo) {
-      return createDuration2(roundDuration(refinePublicRelativeTo, getDurationSlots2(this), roundTo));
-    }
-    total(totalOf) {
-      return totalDuration(refinePublicRelativeTo, getDurationSlots2(this), totalOf);
-    }
-    toLocaleString(locales = void 0, options2) {
-      const slots = getDurationSlots2(this);
-      return Intl.DurationFormat ? new Intl.DurationFormat(locales, options2).format(slots) : formatDurationIso(slots, options2);
-    }
-    toString(options2 = void 0) {
-      return formatDurationIso(getDurationSlots2(this), options2);
-    }
-    toJSON() {
-      return formatDurationIso(getDurationSlots2(this));
-    }
-    valueOf() {
-      return forbiddenValueOf2();
-    }
-  }, getDurationSlots2, durationGetters);
-  function createDuration2(slots) {
-    return initDuration(Object.create(Duration2.prototype), slots);
-  }
-  function getDurationSlots2(obj) {
-    return getDurationSlotsIfPresent(obj) || invalidRecordType();
-  }
-  function getDurationSlotsIfPresent(obj) {
-    return durationSlotsMap.get(obj);
-  }
-  function toDurationSlots(arg) {
-    if (isObjectLike2(arg)) {
-      return getDurationSlotsIfPresent(arg) || refineDurationObjectLike(arg);
-    }
-    return parseDuration(arg);
-  }
-  function refinePublicRelativeTo(relativeTo) {
-    if (void 0 !== relativeTo) {
-      if (isObjectLike2(relativeTo)) {
-        const zonedDateTimeSlots = getZonedDateTimeSlotsIfPresent2(relativeTo);
-        if (zonedDateTimeSlots) {
-          return zonedDateTimeSlots;
-        }
-        const dateSlots = getPlainDateSlotsIfPresent2(relativeTo);
-        if (dateSlots) {
-          return dateSlots;
-        }
-        const dateTimeSlots = getPlainDateTimeSlotsIfPresent2(relativeTo);
-        if (dateTimeSlots) {
-          return createDateSlots(dateTimeSlots, dateTimeSlots.calendar);
-        }
-        const calendar = getCalendarFromBag(relativeTo);
-        return refineMaybeZonedDateTimeObjectLike(refineTimeZoneArg, calendar, relativeTo);
-      }
-      return parseRelativeToSlots(relativeTo, resolveBasicCalendarId);
-    }
-  }
-  function initDuration(instance, slots) {
-    return durationSlotsMap.set(instance, slots), attachDebugString(instance), instance;
-  }
-  var Now = /* @__PURE__ */ Object.defineProperties({}, {
-    ...createStringTagDescriptors("Temporal.Now"),
-    ...createPropDescriptors({
-      timeZoneId() {
-        return getCurrentTimeZoneId();
-      },
-      instant() {
-        return createInstant(createEpochNanoSlots(getCurrentEpochNano()));
-      },
-      zonedDateTimeISO(timeZoneArg = getCurrentTimeZoneId()) {
-        const timeZone = queryTimeZone(refineTimeZoneArg(timeZoneArg));
-        return createZonedDateTime(createZonedEpochNanoSlots(getCurrentEpochNano(), timeZone));
-      },
-      plainDateTimeISO(timeZoneArg = getCurrentTimeZoneId()) {
-        const isoDateTime = getCurrentIsoDateTime(queryTimeZone(refineTimeZoneArg(timeZoneArg)));
-        return createPlainDateTime(createDateTimeSlots(isoDateTime));
-      },
-      plainDateISO(timeZoneArg = getCurrentTimeZoneId()) {
-        const isoDateTime = getCurrentIsoDateTime(queryTimeZone(refineTimeZoneArg(timeZoneArg)));
-        return createPlainDate(createDateSlots(isoDateTime));
-      },
-      plainTimeISO(timeZoneArg = getCurrentTimeZoneId()) {
-        const isoDateTime = getCurrentIsoDateTime(queryTimeZone(refineTimeZoneArg(timeZoneArg)));
-        return createPlainTime(createTimeSlots(isoDateTime));
-      }
-    })
-  });
-  var Temporal2 = /* @__PURE__ */ Object.defineProperties({}, {
-    ...createStringTagDescriptors("Temporal"),
-    ...createPropDescriptors({
-      PlainYearMonth,
-      PlainMonthDay,
-      PlainDate,
-      PlainTime,
-      PlainDateTime,
-      ZonedDateTime,
-      Instant,
-      Duration: Duration2,
-      Now
-    })
-  });
-
-  // node_modules/temporal-polyfill/index.js
-  var Temporal3 = NativeTemporal || Temporal2;
-  var toTemporalInstant2 = NativeTemporal ? Date.prototype.toTemporalInstant : toTemporalInstant;
 
   // Providers/Calendar/ical.ts
   init_time();
@@ -28054,395 +30214,6 @@
       done(category.value);
     };
     return category;
-  }
-
-  // Shared/contracts.ts
-  var clone2 = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
-  var uid = () => globalThis.crypto.randomUUID();
-  function sameEvent(a3, b2) {
-    const stable = (v3) => Array.isArray(v3) ? v3.map(stable) : v3 && typeof v3 === "object" ? Object.fromEntries(Object.entries(v3).filter(([, x4]) => x4 !== void 0).sort(([a4], [b3]) => a4.localeCompare(b3)).map(([k3, x4]) => [k3, stable(x4)])) : v3;
-    return JSON.stringify(stable(a3)) === JSON.stringify(stable(b2));
-  }
-  function comparableEventContent(event) {
-    const { etag: _tag, caldavHref: _href, ...value } = event;
-    if (value.type === "single" && (value.allDay === false || value.allDay == null)) {
-      value.allDay ??= false;
-      value.isTask ??= false;
-      value.endDate ??= value.date;
-      for (const field2 of ["startTime", "endTime"]) {
-        const time = value[field2];
-        if (typeof time === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) value[field2] = `${time}:00`;
-      }
-    }
-    return value;
-  }
-  function sameEventContent(a3, b2) {
-    return sameEvent(comparableEventContent(a3), comparableEventContent(b2));
-  }
-  function isMissingResource(error2) {
-    const value = error2;
-    return value?.status === 404 || value?.status === 410 || /\bHTTP\s+(?:404|410)\b/i.test(typeof error2 === "string" ? error2 : value?.message || "");
-  }
-
-  // Shared/application.ts
-  init_time();
-  var defaultFilters = () => ({ association: "all", status: "open", due: "all", date: dayKey() });
-  var refKey = (task) => JSON.stringify([task.kind, task.path || "", task.id]);
-  var appPage = (value) => value === "timer" || value === "calendar" ? value : "tasks";
-  var focusLimit = (value) => typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(10, Math.round(value))) : 5;
-  function focusRefs(value) {
-    if (!Array.isArray(value)) return [];
-    const seen = /* @__PURE__ */ new Set();
-    return value.flatMap((r3) => {
-      if (r3?.kind !== "local" || typeof r3.path !== "string" || !r3.path || typeof r3.id !== "string" || !r3.id) return [];
-      const key2 = refKey(r3);
-      if (seen.has(key2)) return [];
-      seen.add(key2);
-      return [{ kind: "local", path: r3.path, id: r3.id }];
-    });
-  }
-  function filterTasks(tasks2, filters, linked, today2 = dayKey()) {
-    return tasks2.filter((t3) => (filters.status === "all" || t3.completed === (filters.status === "done")) && (filters.association === "all" || linked.has(refKey(t3)) === (filters.association === "linked")) && (filters.due === "all" || filters.due === "none" && !t3.due || filters.due === "today" && t3.due === today2 || filters.due === "overdue" && !!t3.due && t3.due < today2 || filters.due === "date" && t3.due === filters.date));
-  }
-  var timerSnapshot = (active, available) => clone2({ active, available });
-
-  // Clients/Obsidian/api.ts
-  var EntryError = class extends Error {
-    constructor(code, message) {
-      super(message);
-      this.code = code;
-    }
-    code;
-  };
-  var taskRef = (task) => ({ kind: "local", path: task.path || "", id: task.id });
-  var sameTask = (task, ref) => task.kind === ref.kind && task.path === ref.path && task.id === ref.id;
-  var TimerApi = class {
-    constructor(host2) {
-      this.host = host2;
-    }
-    host;
-    version = 1;
-    listeners = /* @__PURE__ */ new Set();
-    timerListeners = /* @__PURE__ */ new Set();
-    serial = Promise.resolve();
-    disposed = false;
-    getState() {
-      return clone2({ ...this.host.state(), available: !this.disposed });
-    }
-    subscribe(listener) {
-      if (this.disposed) {
-        listener(this.getState());
-        return () => {
-        };
-      }
-      this.listeners.add(listener);
-      try {
-        listener(this.getState());
-      } catch {
-        this.listeners.delete(listener);
-      }
-      return () => {
-        this.listeners.delete(listener);
-      };
-    }
-    getTimerState() {
-      return this.host.timerState ? clone2({ ...this.host.timerState(), available: !this.disposed }) : timerSnapshot(this.host.controller.state.active, !this.disposed);
-    }
-    subscribeTimer(listener) {
-      if (this.disposed) {
-        listener(this.getTimerState());
-        return () => {
-        };
-      }
-      this.timerListeners.add(listener);
-      try {
-        listener(this.getTimerState());
-      } catch {
-        this.timerListeners.delete(listener);
-      }
-      return () => {
-        this.timerListeners.delete(listener);
-      };
-    }
-    notify() {
-      for (const listener of this.listeners) {
-        try {
-          listener(this.getState());
-        } catch {
-        }
-      }
-      for (const listener of this.timerListeners) {
-        try {
-          listener(this.getTimerState());
-        } catch {
-        }
-      }
-    }
-    dispose() {
-      this.disposed = true;
-      this.notify();
-      this.listeners.clear();
-      this.timerListeners.clear();
-    }
-    action(fn2) {
-      const result = this.serial.then(async () => {
-        if (this.disposed) return { ok: false, code: "unavailable", message: "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u3002" };
-        try {
-          return await this.host.execute(fn2);
-        } catch (e3) {
-          return { ok: false, code: e3 instanceof EntryError ? e3.code : "action-error", message: e3.message || String(e3), sessionId: this.host.controller.state.active?.id };
-        }
-      });
-      this.serial = result;
-      return result;
-    }
-    start(ref, context) {
-      return this.action(async () => {
-        if (!ref || ref.kind !== "local" || !ref.id || !ref.path) throw new EntryError("invalid-task", "\u8BF7\u63D0\u4F9B\u5F85\u529E\u6587\u4EF6\u8DEF\u5F84\u548C\u7A33\u5B9A\u4EFB\u52A1 ID\u3002");
-        const current = await this.host.resolve(ref, context);
-        if (current.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
-        const active = this.host.controller.state.active;
-        if (active) {
-          if (sameTask(active.task, ref)) return { ok: true, sessionId: active.id };
-          throw new EntryError("active-session", `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u660E\u786E\u7ED3\u675F\u8BE5\u4F1A\u8BDD\u518D\u5207\u6362\u4EFB\u52A1\u3002`);
-        }
-        const task = await this.host.prepare(current);
-        if (task.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
-        await this.host.controller.start(task, task.calendarId);
-        return { ok: true, sessionId: this.host.controller.state.active.id };
-      });
-    }
-    session(id) {
-      if (!id || this.host.controller.state.active?.id !== id) throw new EntryError("stale-session", "\u6B64\u4F1A\u8BDD\u5DF2\u7ED3\u675F\u6216\u5207\u6362\uFF0C\u8BF7\u4F7F\u7528\u5F53\u524D\u72B6\u6001\u91CD\u8BD5\u3002");
-    }
-    pause(sessionId) {
-      return this.action(async () => {
-        this.session(sessionId);
-        await this.host.controller.pause(sessionId);
-        return { ok: true, sessionId };
-      });
-    }
-    resume(sessionId) {
-      return this.action(async () => {
-        this.session(sessionId);
-        if (this.host.controller.state.active.runningSince == null) await this.host.controller.resume(sessionId);
-        return { ok: true, sessionId };
-      });
-    }
-    finish(sessionId, completeTask2 = false) {
-      return this.action(async () => {
-        this.session(sessionId);
-        const record = await this.host.controller.finish(completeTask2 === true, sessionId);
-        let warning = record.error;
-        try {
-          await this.host.refresh();
-        } catch (e3) {
-          warning ||= e3.message;
-        }
-        return { ok: true, sessionId, recordId: record.id, pending: record.status === "pending", warning };
-      });
-    }
-  };
-
-  // Clients/Obsidian/componentsButtons.ts
-  init_time();
-  var FIELD = ".components--DynamicDataView-PageProperty_button";
-  var VALUE = ".components--DynamicDataView-PageProperty-Value";
-  var ComponentsTimerButtons = class {
-    constructor(doc, host2) {
-      this.doc = doc;
-      this.host = host2;
-      this.state = host2.api.getTimerState();
-      this.observer = new MutationObserver((changes) => {
-        if (changes.some((c3) => c3.type === "attributes" ? c3.target.matches(`a[data-href],${VALUE}`) : [...c3.addedNodes, ...c3.removedNodes].some((n2) => n2.nodeType === 1))) this.schedule();
-      });
-      this.observer.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-href", "aria-label"] });
-      this.unsubscribe = host2.api.subscribeTimer((state) => {
-        this.state = state;
-        for (const button2 of this.buttons.values()) this.paint(button2);
-      });
-    }
-    doc;
-    host;
-    scopes = [];
-    buttons = /* @__PURE__ */ new Map();
-    observer;
-    unsubscribe;
-    frame = 0;
-    stopped = false;
-    state;
-    setScopes(scopes) {
-      if (!this.stopped) {
-        this.scopes = scopes;
-        this.reconcile();
-      }
-    }
-    schedule() {
-      if (this.frame || this.stopped) return;
-      this.frame = this.doc.defaultView.requestAnimationFrame(() => {
-        this.frame = 0;
-        this.reconcile();
-      });
-    }
-    reconcile() {
-      const found = /* @__PURE__ */ new Set();
-      for (const scope of this.scopes) {
-        if (!scope.root.isConnected) continue;
-        for (const field2 of scope.root.querySelectorAll(FIELD)) {
-          const value = field2.querySelector(VALUE);
-          if (!value || !scope.labels.has(value.getAttribute("aria-label") || "")) continue;
-          const card = field2.closest(".components--DynamicDataView-PageCard");
-          const link = card?.querySelector(".components--DynamicDataView-PageTitle a[data-href]");
-          const note = link?.getAttribute("data-href");
-          const button2 = value.querySelector(".components--DynamicDataView-Button"), label = button2?.querySelector(".components--DynamicDataView-ButtonLabel");
-          const content2 = field2.closest(".components--DynamicDataView-PageCardContent");
-          if (!note?.endsWith(".md") || !button2 || !label || !content2 || card?.classList.contains("components--DynamicDataView-PageCard_preview")) continue;
-          found.add(field2);
-          const previous = this.buttons.get(field2);
-          if (previous?.button === button2 && previous.label === label && previous.note === note) continue;
-          previous?.restore();
-          this.buttons.set(field2, this.mount(field2, button2, label, content2, note));
-        }
-      }
-      for (const [field2, button2] of this.buttons) if (!found.has(field2)) {
-        button2.restore();
-        this.buttons.delete(field2);
-      }
-      for (const button2 of this.buttons.values()) this.paint(button2);
-    }
-    mount(field2, button2, label, content2, note) {
-      const original = { text: label.textContent || "", title: button2.getAttribute("title"), role: button2.getAttribute("role"), tab: button2.getAttribute("tabindex"), aria: button2.getAttribute("aria-label"), disabled: button2.getAttribute("aria-disabled") };
-      const item = { field: field2, button: button2, label, content: content2, note, expected: null, working: false, error: "", restore: () => {
-      } };
-      const activate = (e3) => {
-        e3.preventDefault();
-        e3.stopImmediatePropagation();
-        if (item.working || !this.state.available || e3 instanceof MouseEvent && e3.detail > 1) return;
-        const expected = item.expected;
-        item.working = true;
-        item.error = "";
-        this.paint(item);
-        void this.host.toggle(note, expected).then((r3) => {
-          if (!r3.ok && r3.code !== "cancelled") item.error = r3.message;
-        }).catch((e4) => {
-          item.error = e4.message;
-        }).finally(() => {
-          item.working = false;
-          if (!this.stopped && this.buttons.get(field2) === item) this.paint(item);
-        });
-      };
-      const key2 = (e3) => {
-        if (e3.key !== "Enter" && e3.key !== " ") return;
-        if (e3.repeat) {
-          e3.preventDefault();
-          e3.stopImmediatePropagation();
-          return;
-        }
-        activate(e3);
-      };
-      button2.addEventListener("click", activate, true);
-      button2.addEventListener("keydown", key2, true);
-      button2.setAttribute("role", "button");
-      button2.tabIndex = 0;
-      field2.classList.add("ctt-components-timer-field");
-      content2.classList.add("ctt-components-timer-header");
-      button2.classList.add("ctt-components-timer-button");
-      item.restore = () => {
-        button2.removeEventListener("click", activate, true);
-        button2.removeEventListener("keydown", key2, true);
-        label.textContent = original.text;
-        for (const [name, value] of Object.entries({ title: original.title, role: original.role, tabindex: original.tab, "aria-label": original.aria, "aria-disabled": original.disabled })) value == null ? button2.removeAttribute(name) : button2.setAttribute(name, value);
-        button2.classList.remove("ctt-components-timer-button");
-        button2.removeAttribute("data-ctt-state");
-        field2.classList.remove("ctt-components-timer-field");
-        if (!content2.querySelector(".ctt-components-timer-field")) content2.classList.remove("ctt-components-timer-header");
-      };
-      return item;
-    }
-    paint(item) {
-      const active = this.state.active, ref = this.host.binding(item.note), own = active && ref && sameTask(active.task, ref);
-      item.expected = own ? active.id : null;
-      const phase = !this.state.available ? "unavailable" : item.working ? "working" : own ? active.runningSince == null ? "paused" : "running" : active ? "blocked" : "idle";
-      const text = phase === "unavailable" ? "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D" : item.working ? "\u5904\u7406\u4E2D\u2026" : own ? `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u25CF"} ${secondsText(elapsed(active))} \xB7 \u7ED3\u675F` : "\u5F00\u59CB\u8BA1\u65F6";
-      if (item.label.textContent !== text) item.label.textContent = text;
-      item.button.dataset.cttState = phase;
-      const title = item.error || (own ? "\u70B9\u51FB\u7ED3\u675F\uFF0C\u53EA\u8BB0\u5F55\u5DE5\u65F6\uFF0C\u4FDD\u7559\u4EFB\u52A1\u672A\u5B8C\u6210" : active ? `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u7ED3\u675F\u8BE5\u4F1A\u8BDD` : "\u70B9\u51FB\u5F00\u59CB\u6B64\u8BFE\u9898\u5173\u8054\u7684\u4EFB\u52A1");
-      if (item.button.title !== title) item.button.title = title;
-      if (item.button.getAttribute("aria-label") !== text) item.button.setAttribute("aria-label", text);
-      item.button.setAttribute("aria-disabled", String(item.working || !this.state.available));
-    }
-    dispose() {
-      if (this.stopped) return;
-      this.stopped = true;
-      this.observer.disconnect();
-      this.unsubscribe();
-      if (this.frame) this.doc.defaultView.cancelAnimationFrame(this.frame);
-      for (const button2 of this.buttons.values()) button2.restore();
-      this.buttons.clear();
-      this.scopes = [];
-    }
-  };
-
-  // Clients/Obsidian/components.ts
-  async function toggleNoteTimer(note, expected, host2) {
-    const state = host2.state(), ref = host2.binding(note), active = state.active;
-    if (expected === null) return host2.start(note);
-    if (typeof expected === "string") {
-      if (!ref || active?.id !== expected || !sameTask(active.task, ref)) return { ok: false, code: "stale-session", message: "\u5361\u7247\u5BF9\u5E94\u7684\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u6309\u6700\u65B0\u72B6\u6001\u91CD\u8BD5\u3002" };
-      return host2.finish(expected);
-    }
-    return active && ref && sameTask(active.task, ref) ? host2.finish(active.id) : host2.start(note);
-  }
-
-  // Preview/componentsFixture.ts
-  function componentsFixture(api2, bindings) {
-    const style = document.createElement("style");
-    style.textContent = `
-    #ctt-native-fixture { position:fixed;top:65px;left:20px;width:900px;max-width:calc(100vw - 40px);z-index:30;background:var(--background-primary);border:1px solid var(--background-modifier-border);padding:12px;box-shadow:0 8px 30px #0002; }
-    #ctt-native-fixture .fixture-cards { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; }
-    #ctt-native-fixture .components--DynamicDataView-PageCard { position:relative;min-width:0;border:1px solid var(--background-modifier-border);border-radius:10px; }
-    #ctt-native-fixture .components--DynamicDataView-PageCardContent { padding-block:8px; }
-    #ctt-native-fixture .components--DynamicDataView-PageContextMenu { position:absolute;top:4px;right:4px;z-index:3;display:flex;width:60px;height:24px;background:var(--background-primary);opacity:0; }
-    #ctt-native-fixture .components--DynamicDataView-PageCard:hover .components--DynamicDataView-PageContextMenu { opacity:1; }
-    #ctt-native-fixture .components--DynamicDataView-PageContextMenu button { width:30px;height:24px;padding:0; }
-
-    #ctt-native-fixture .components--DynamicDataView-PageTitle { display:flex;align-items:center;padding-inline:8px;overflow:hidden;font-size:14px;line-height:1.4; }
-    #ctt-native-fixture .components--DynamicDataView-PageTitleLink { width:100%;overflow:hidden; }
-    #ctt-native-fixture .components--DynamicDataView-PageTitle a { color:var(--text-normal);text-decoration:none;white-space:nowrap; }
-    #ctt-native-fixture .components--DynamicDataView-PagePropertyList { display:flex;flex-direction:column;gap:2px;padding:4px 8px; }
-    #ctt-native-fixture .ctt-components-timer-header > .components--DynamicDataView-PagePropertyList { display:contents; }
-    #ctt-native-fixture .components--DynamicDataView-Button { display:inline-flex;position:relative; }
-    #ctt-native-fixture .components--DynamicDataView-ButtonLabel { display:flex;align-items:center;padding:4px 8px;min-width:30px;border-radius:4px;border:1px solid var(--background-modifier-border);cursor:pointer;font-size:13px; }
-  `;
-    document.head.append(style);
-    const root = document.createElement("aside");
-    root.id = "ctt-native-fixture";
-    root.innerHTML = `<div class="fixture-cards">${[["research.md", "\u89C6\u9891\u611F\u77E5\u4F18\u5316"], ["reading.md", "Paper Reading"]].map(([path, title]) => `
-    <div class="components--DynamicDataView-PageCard" data-note="${path}"><div class="components--DynamicDataView-PageContextMenu"><button aria-label="\u7F16\u8F91">\u270E</button><button aria-label="\u66F4\u591A">\u22EF</button></div><div class="components--DynamicDataView-PageCardContent">
-      <div class="components--DynamicDataView-PageTitle"><div class="components--DynamicDataView-PageTitleLink"><a class="internal-link" data-href="${path}" href="${path}">${title}</a></div></div>
-      <div class="components--DynamicDataView-PagePropertyList">
-        <div class="components--DynamicDataView-PageProperty components--DynamicDataView-PageProperty_button"><div class="components--DynamicDataView-PageProperty-Value" aria-label="\u5F00\u59CB\u8BA1\u65F6"><span class="components--DynamicDataView-Button"><div class="components--DynamicDataView-ButtonLabel">\u5F00\u59CB\u8BA1\u65F6</div></span></div></div>
-        <div class="components--DynamicDataView-PageProperty"><p>\u8BFE\u9898\u4E2D\u7684\u539F\u6709\u4EFB\u52A1\u5217\u8868</p><p>\u25A1 \u7EE7\u7EED\u7814\u7A76\u5DE5\u4F5C</p></div>
-      </div>
-    </div></div>`).join("")}</div>`;
-    document.body.append(root);
-    const counts = { escapedClicks: 0 };
-    root.addEventListener("click", () => {
-      counts.escapedClicks++;
-    });
-    const toggle = (note, expected) => toggleNoteTimer(note, expected, {
-      state: () => api2.getState(),
-      binding: (note2) => bindings[note2],
-      start: (note2) => api2.start(bindings[note2], { source: "components", path: note2 }),
-      finish: (id) => api2.finish(id, false)
-    });
-    const manager = new ComponentsTimerButtons(document, { api: api2, binding: (note) => bindings[note], toggle });
-    manager.setScopes([{ root, labels: /* @__PURE__ */ new Set(["\u5F00\u59CB\u8BA1\u65F6"]) }]);
-    return { root, manager, counts, toggle, dispose: () => {
-      manager.dispose();
-      root.remove();
-      style.remove();
-    } };
   }
 
   // Clients/Obsidian/diary.ts
@@ -28673,7 +30444,7 @@ ${DIARY_END}
     return Object.entries(calendarContent(desired)).every(([key2, value]) => value === void 0 || sameEvent({ type: "", title: "", date: "", value: normalized[key2] }, { type: "", title: "", date: "", value }));
   }
   function content(event) {
-    const { caldavHref: _href, etag: _etag, ...data } = clone2(event);
+    const { caldavHref: _href, etag: _etag, ...data } = clone(event);
     return data;
   }
   var CalendarBridge = class {
@@ -28709,10 +30480,10 @@ ${DIARY_END}
       if (!this.sources().some((s2) => s2.id === id) || !this.api().getProviderCapabilities(id)?.canCreate) throw new Error("\u5206\u7C7B\u65E5\u5386\u4E0D\u53EF\u5199\u6216\u5DF2\u79FB\u9664\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9\u3002");
     }
     entries() {
-      return this.api().getAllEvents().flatMap((g4) => (g4.events || []).map((x4) => ({ id: x4.id, calendarId: g4.id, color: g4.color, event: clone2(x4.event) })));
+      return this.api().getAllEvents().flatMap((g4) => (g4.events || []).map((x4) => ({ id: x4.id, calendarId: g4.id, color: g4.color, event: clone(x4.event) })));
     }
     find(calendarId, eventUid) {
-      const matches = this.api().getAllEvents().filter((g4) => g4.id === calendarId).flatMap((g4) => (g4.events || []).filter((x4) => x4.event.uid === eventUid).map((x4) => ({ id: x4.id, calendarId, color: g4.color, event: clone2(x4.event) })));
+      const matches = this.api().getAllEvents().filter((g4) => g4.id === calendarId).flatMap((g4) => (g4.events || []).filter((x4) => x4.event.uid === eventUid).map((x4) => ({ id: x4.id, calendarId, color: g4.color, event: clone(x4.event) })));
       if (matches.length > 1) throw new Error("\u540C\u4E00\u65E5\u5386\u51FA\u73B0\u91CD\u590D UID\uFF0C\u8BF7\u5148\u5728\u5B8C\u6574\u65E5\u5386\u4E2D\u6838\u5BF9\u3002");
       return matches[0];
     }
@@ -28729,7 +30500,7 @@ ${DIARY_END}
       if (!this.canDelete(original)) throw new Error("\u6B64\u65E5\u7A0B\u65E0\u6CD5\u5728\u8FD9\u91CC\u5220\u9664\uFF0C\u8BF7\u4F7F\u7528\u5B8C\u6574\u65E5\u5386\u3002");
       const current = this.find(original.calendarId, original.event.uid);
       if (!current || !sameEvent(current.event, original.event)) throw new Error("\u65E5\u7A0B\u5DF2\u4FEE\u6539\u6216\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
-      return { calendarId: original.calendarId, uid: original.event.uid, before: clone2(original.event) };
+      return { calendarId: original.calendarId, uid: original.event.uid, before: clone(original.event) };
     }
     async deleteEvent(target) {
       const current = this.find(target.calendarId, target.uid);
@@ -28753,7 +30524,7 @@ ${DIARY_END}
       const old = this.readByUid(calendarId, event.uid);
       if (old) {
         if (!containsEvent(old, event)) throw new Error("\u540C\u4E00 UID \u7684\u65E5\u5386\u5185\u5BB9\u5DF2\u53D8\u5316\uFF0C\u505C\u6B62\u91CD\u590D\u5199\u5165\u3002");
-        return clone2(old);
+        return clone(old);
       }
       if (!this.hasCalendarData(calendarId)) throw new Error("\u65E5\u5386\u7F13\u5B58\u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002");
       if (await this.api().createEvent(calendarId, content(event)) !== true) {
@@ -28762,7 +30533,7 @@ ${DIARY_END}
       }
       const saved = this.readByUid(calendarId, event.uid);
       if (!saved || !containsEvent(saved, event)) throw new Error("\u65E5\u5386\u5199\u5165\u7ED3\u679C\u672A\u80FD\u6838\u5BF9\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
-      return clone2(saved);
+      return clone(saved);
     }
     async reconcileStep(step, checkpoint) {
       if (step.stage === "done") return;
@@ -28789,7 +30560,7 @@ ${DIARY_END}
         }
         const saved = this.readByUid(step.toCalendarId, step.uid);
         if (!saved || !containsEvent(saved, step.after)) throw new Error("\u65E5\u7A0B\u4FEE\u6539\u7ED3\u679C\u672A\u80FD\u6838\u5BF9\u3002");
-        step.after = clone2(saved);
+        step.after = clone(saved);
         step.stage = "done";
         await checkpoint();
         return;
@@ -28804,7 +30575,7 @@ ${DIARY_END}
         target = this.find(step.toCalendarId, step.uid);
       }
       if (!target || !containsEvent(target.event, step.after)) throw new Error("\u76EE\u6807\u65E5\u5386\u4E2D\u540C UID \u5185\u5BB9\u4E0D\u540C\uFF0C\u505C\u6B62\u79FB\u52A8\u3002");
-      step.after = clone2(target.event);
+      step.after = clone(target.event);
       step.stage = "target-confirmed";
       await checkpoint();
       source = this.find(step.fromCalendarId, step.uid);
@@ -28826,7 +30597,7 @@ ${DIARY_END}
       nextDay.setDate(nextDay.getDate() + 1);
       const query = this.api().getEvents({}, []).filter((q4) => Number.isFinite(q4.startMillis) && q4.startMillis < +nextDay && Math.max(q4.startMillis, (q4.endMillis ?? q4.startMillis + 36e5) - 1) >= dayStart);
       const byId = new Map(query.map((e3) => [e3.id, e3]));
-      const entries2 = this.api().getAllEvents().flatMap((g4) => (g4.events || []).filter((x4) => byId.has(x4.id)).map((x4) => ({ id: x4.id, calendarId: g4.id, color: g4.color, event: clone2(x4.event) })));
+      const entries2 = this.api().getAllEvents().flatMap((g4) => (g4.events || []).filter((x4) => byId.has(x4.id)).map((x4) => ({ id: x4.id, calendarId: g4.id, color: g4.color, event: clone(x4.event) })));
       return entries2.flatMap((original) => {
         const e3 = original.event, q4 = byId.get(original.id);
         if (e3.isTask || e3.completed != null || !q4 || !Number.isFinite(q4.startMillis)) return [];
@@ -28919,1191 +30690,8 @@ ${DIARY_END}
     }
   };
 
-  // Shared/timer.ts
-  init_time();
-  var blankJournal = () => ({ version: 2, active: null, records: [], operations: [] });
-  function validateJournal(input) {
-    const data = clone2(input);
-    if (!data || ![1, 2].includes(data.version) || !Array.isArray(data.records)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u683C\u5F0F\u4E0D\u6B63\u786E\uFF0C\u5DF2\u4FDD\u7559\u539F\u6587\u4EF6\u3002");
-    data.operations ??= [];
-    if (!Array.isArray(data.operations) || data.operations.some((o2) => !o2.id || !o2.step?.uid || !["pending", "saved"].includes(o2.status))) throw new Error("\u65E5\u7A0B\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
-    if (data.deletions && (!Array.isArray(data.deletions) || data.deletions.some((o2) => !o2.id || !o2.uid || !o2.calendarId || !o2.before || o2.before.uid !== o2.uid || !Number.isFinite(o2.start) || !Number.isFinite(o2.end) || !["pending", "saved"].includes(o2.status)))) throw new Error("\u5220\u9664\u64CD\u4F5C\u65E5\u5FD7\u635F\u574F\u3002");
-    for (const s2 of [data.active, ...data.records].filter(Boolean)) {
-      if (s2.ownerDeviceId !== void 0 && (typeof s2.ownerDeviceId !== "string" || !s2.ownerDeviceId || s2.ownerDeviceId.length > 128)) throw new Error("\u4F1A\u8BDD\u5F52\u5C5E\u65E0\u6548\u3002");
-      if (!s2.id || !s2.task?.id || !s2.calendarId || !s2.zone || !Number.isFinite(s2.startedAt) || !Number.isFinite(s2.lastHeartbeat) || !Array.isArray(s2.segments) || s2.runningSince != null && !Number.isFinite(s2.runningSince)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
-      new Intl.DateTimeFormat("en", { timeZone: s2.zone });
-      let end = -Infinity;
-      for (const p3 of s2.segments) {
-        if (!Number.isFinite(p3.start) || !Number.isFinite(p3.end) || p3.end < p3.start || p3.start < end) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u533A\u95F4\u635F\u574F\u3002");
-        end = p3.end;
-      }
-      if (s2.runningSince != null && s2.runningSince < end) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u533A\u95F4\u91CD\u53E0\u3002");
-    }
-    for (const r3 of data.records) {
-      if (!Number.isFinite(r3.endedAt) || !["saved", "pending"].includes(r3.status) || r3.segments.some((p3) => !p3.uid)) throw new Error("\u5386\u53F2\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
-      if (r3.edit) {
-        validateSegments(r3.edit.segments, Infinity);
-        if (r3.edit.steps.length !== r3.edit.segments.length || r3.edit.steps.some((p3) => !p3.uid || !p3.before || !p3.after || !["prepared", "target-confirmed", "done"].includes(p3.stage))) throw new Error("\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
-      }
-    }
-    for (const job of [...data.records, ...data.operations, ...data.deletions || []]) {
-      if (job.sync && (!Number.isInteger(job.sync.revision) || job.sync.revision < 0 || !Number.isInteger(job.sync.attempt) || job.sync.attempt < 0 || !Number.isFinite(job.sync.retryAt))) throw new Error("\u540C\u6B65\u8FDB\u5EA6\u65E5\u5FD7\u635F\u574F\u3002");
-    }
-    data.version = 2;
-    return data;
-  }
-  function pauseSession(session, now) {
-    if (!session) throw new Error("\u6CA1\u6709\u6B63\u5728\u8BA1\u65F6\u7684\u5F85\u529E\u3002");
-    const s2 = clone2(session);
-    if (s2.runningSince != null) {
-      if (now < s2.runningSince) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
-      if (now > s2.runningSince) s2.segments.push({ start: s2.runningSince, end: now });
-      s2.runningSince = null;
-    }
-    s2.lastHeartbeat = now;
-    return s2;
-  }
-  var TimerController = class {
-    constructor(deps) {
-      this.deps = deps;
-      this.state = validateJournal(deps.state || blankJournal());
-    }
-    deps;
-    state;
-    serial = Promise.resolve();
-    flights = /* @__PURE__ */ new Map();
-    stopped = false;
-    now() {
-      return this.deps.now?.() ?? Date.now();
-    }
-    lock(fn2) {
-      const p3 = this.serial.then(fn2);
-      this.serial = p3.catch(() => {
-      });
-      return p3;
-    }
-    async commit(next, notify = true) {
-      this.live();
-      await this.deps.persist(clone2(next));
-      this.state = next;
-      if (notify) this.deps.onChange?.();
-    }
-    recover() {
-      return this.lock(async () => {
-        if (this.state.active?.runningSince == null) return false;
-        const s2 = this.state.active;
-        await this.commit({ ...this.state, active: pauseSession(s2, Math.max(s2.runningSince, Math.min(s2.lastHeartbeat, this.now()))) });
-        return true;
-      });
-    }
-    stopRemote() {
-      this.stopped = true;
-    }
-    live() {
-      if (this.stopped) throw new Error("\u540C\u6B65\u5668\u5DF2\u505C\u6B62\uFF1B\u64CD\u4F5C\u4FDD\u7559\u5230\u4E0B\u6B21\u542F\u52A8\u3002");
-    }
-    info(job) {
-      return { revision: job?.sync?.revision || 0, attempt: job?.sync?.attempt || 0, retryAt: job?.sync?.retryAt || 0, issue: job?.sync?.issue };
-    }
-    job(key2) {
-      const [type, id] = key2.split(":");
-      return type === "work" ? this.state.records.find((r3) => r3.id === id) : type === "event" ? this.state.operations.find((o2) => o2.id === id) : this.state.deletions?.find((o2) => o2.id === id);
-    }
-    jobs() {
-      return [...this.state.records.filter((r3) => r3.status === "pending").map((r3) => ({ key: `work:${r3.id}`, value: r3 })), ...this.state.operations.filter((o2) => o2.status === "pending").map((o2) => ({ key: `event:${o2.id}`, value: o2 })), ...(this.state.deletions || []).filter((o2) => o2.status === "pending").map((o2) => ({ key: `delete:${o2.id}`, value: o2 }))];
-    }
-    async updateJob(key2, change) {
-      const current = this.job(key2);
-      if (!current) throw new Error("\u540C\u6B65\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
-      const next = clone2(current);
-      change(next);
-      const [type, id] = key2.split(":");
-      await this.commit({ ...this.state, ...type === "work" ? { records: this.state.records.map((r3) => r3.id === id ? next : r3) } : type === "event" ? { operations: this.state.operations.map((o2) => o2.id === id ? next : o2) } : { deletions: this.state.deletions.map((o2) => o2.id === id ? next : o2) } });
-    }
-    requestRetry(key2) {
-      return this.lock(async () => {
-        if (this.flights.has(key2)) return;
-        await this.updateJob(key2, (job) => {
-          job.error = "";
-          job.sync = { ...this.info(job), retryAt: 0, issue: void 0 };
-        });
-      });
-    }
-    runJob(key2, execute2, automatic = false) {
-      const prior = this.flights.get(key2);
-      if (prior) return prior;
-      const promise = (async () => {
-        const ready = await this.lock(async () => {
-          this.live();
-          const current2 = this.job(key2);
-          if (automatic && (!current2 || current2.status !== "pending" || !current2.sync && current2.error || current2.sync?.issue && current2.sync.issue !== "network" || (current2.sync?.retryAt || 0) > this.now())) return false;
-          if (current2?.status === "pending") await this.updateJob(key2, (job) => {
-            job.sync = { ...this.info(job), attempt: (job.sync?.attempt || 0) + 1 };
-          });
-          return true;
-        });
-        if (!ready) return clone2(this.job(key2));
-        const result = await execute2();
-        await this.lock(async () => {
-          this.live();
-          if (this.job(key2)?.status !== "pending") return;
-          await this.updateJob(key2, (job) => {
-            const info = this.info(job), issue = classifySyncError(job.error);
-            job.sync = { ...info, issue, retryAt: issue === "network" ? this.now() + Math.round(Math.min(3e5, 2e3 * 2 ** Math.min(info.attempt - 1, 8)) * (0.85 + Math.random() * 0.3)) : 0 };
-          });
-        });
-        const current = this.job(key2);
-        return current ? clone2(current) : result;
-      })();
-      this.flights.set(key2, promise);
-      void promise.finally(() => this.flights.delete(key2)).catch(() => {
-      });
-      return promise;
-    }
-    sync(key2) {
-      const [type, id] = key2.split(":");
-      return this.runJob(key2, async () => type === "work" ? this.flush(id) : type === "event" ? this.flushOperation(id) : this.flushDeletion(id), true);
-    }
-    guard(key2, revision) {
-      this.live();
-      const current = this.job(key2);
-      if (!current || current.status !== "pending" || (current.sync?.revision || 0) !== revision) throw new Error("\u64CD\u4F5C\u7248\u672C\u5DF2\u53D8\u5316\uFF0C\u5FFD\u7565\u65E7\u540C\u6B65\u7ED3\u679C\u3002");
-    }
-    start(task, calendarId) {
-      return this.lock(async () => {
-        if (this.state.active) throw new Error("\u8BF7\u5148\u7ED3\u675F\u5F53\u524D\u8BA1\u65F6\u3002");
-        if (!task.id || !task.title.trim()) throw new Error("\u8BF7\u9009\u62E9\u6709\u6548\u5F85\u529E\u3002");
-        this.deps.calendar.assertWritable(calendarId);
-        const now = this.now();
-        const active = {
-          id: uid(),
-          ownerDeviceId: this.deps.ownerDeviceId,
-          title: task.title,
-          task: clone2(task),
-          calendarId,
-          zone: this.deps.zone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-          startedAt: now,
-          runningSince: now,
-          lastHeartbeat: now,
-          segments: []
-        };
-        await this.commit({ ...this.state, active });
-      });
-    }
-    checkSession(expectedId) {
-      if (expectedId !== void 0 && this.state.active?.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-    }
-    pause(expectedId) {
-      return this.lock(() => {
-        this.checkSession(expectedId);
-        return this.commit({ ...this.state, active: pauseSession(this.state.active, this.now()) });
-      });
-    }
-    resume(expectedId) {
-      return this.lock(async () => {
-        this.checkSession(expectedId);
-        const s2 = this.state.active, now = this.now();
-        if (!s2 || s2.runningSince != null) throw new Error("\u5F53\u524D\u72B6\u6001\u4E0D\u80FD\u7EE7\u7EED\u3002");
-        if (now < (s2.segments.at(-1)?.end ?? s2.startedAt)) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
-        await this.commit({ ...this.state, active: { ...s2, runningSince: now, lastHeartbeat: now } });
-      });
-    }
-    heartbeat() {
-      return this.lock(async () => {
-        if (this.state.active?.runningSince != null) await this.commit({
-          ...this.state,
-          active: { ...this.state.active, lastHeartbeat: this.now() }
-        }, false);
-      });
-    }
-    updateActive(patch, expectedId) {
-      return this.lock(async () => {
-        const s2 = clone2(this.state.active);
-        if (!s2) throw new Error("\u6CA1\u6709\u5F53\u524D\u8BA1\u65F6\u3002");
-        if (expectedId && s2.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-        if (patch.calendarId) {
-          this.deps.calendar.assertWritable(patch.calendarId);
-          s2.calendarId = patch.calendarId;
-        }
-        if (patch.startedAt != null) {
-          const boundary = s2.segments[0]?.end ?? (s2.runningSince == null ? s2.lastHeartbeat : this.now());
-          if (!Number.isFinite(patch.startedAt) || patch.startedAt > this.now() || patch.startedAt > boundary - (s2.segments.length ? 1e3 : 0)) throw new Error("\u5F00\u59CB\u65F6\u95F4\u4E0D\u80FD\u665A\u4E8E\u9996\u6BB5\u7ED3\u675F\u6216\u5F53\u524D\u65F6\u95F4\u3002");
-          s2.startedAt = patch.startedAt;
-          if (s2.segments.length) s2.segments[0].start = patch.startedAt;
-          else if (s2.runningSince != null) s2.runningSince = patch.startedAt;
-          else if (patch.startedAt < boundary) s2.segments.push({ start: patch.startedAt, end: boundary });
-        }
-        await this.commit({ ...this.state, active: s2 });
-      });
-    }
-    finish(completeTask2 = true, expectedId) {
-      return this.lock(async () => {
-        this.checkSession(expectedId);
-        const now = this.now(), s2 = pauseSession(this.state.active, now);
-        const segments = s2.segments.filter((p3) => p3.end - p3.start >= 1e3).map((p3, i3) => ({ ...p3, uid: `simple-task-timer-${s2.id}-${i3}`, saved: false }));
-        validateSegments(segments, now);
-        const record = { ...s2, segments, endedAt: now, completeTask: completeTask2, taskSaved: !completeTask2, status: "pending", error: "", sync: this.info(), localFirst: !!this.deps.background && s2.task.kind === "local" };
-        await this.commit({ ...this.state, active: null, records: [...this.state.records, record] });
-        if (record.localFirst && completeTask2) {
-          try {
-            await this.deps.tasks.complete(record.task);
-            record.taskSaved = true;
-            await this.replace(record);
-          } catch (e3) {
-            const durable = clone2(this.state.records.find((r3) => r3.id === record.id));
-            durable.error = e3.message;
-            durable.sync = { ...this.info(durable), issue: "conflict" };
-            await this.replace(durable);
-            return durable;
-          }
-        }
-        return record;
-      }).then((r3) => this.deps.background ? r3 : this.retry(r3.id));
-    }
-    retry(id) {
-      return this.runJob(`work:${id}`, () => this.flush(id));
-    }
-    async replace(record) {
-      await this.commit({ ...this.state, records: this.state.records.map((r3) => r3.id === record.id ? clone2(record) : r3) });
-    }
-    checkpointRecord(r3) {
-      return this.lock(async () => {
-        this.guard(`work:${r3.id}`, r3.sync?.revision || 0);
-        await this.replace(r3);
-      });
-    }
-    async flush(id) {
-      let r3 = await this.lock(() => Promise.resolve(clone2(this.state.records.find((r4) => r4.id === id))));
-      if (!r3) throw new Error("\u8BB0\u5F55\u4E0D\u5B58\u5728\u3002");
-      if (r3.status === "saved" && !r3.edit) return r3;
-      try {
-        this.live();
-        if (r3.localFirst && r3.completeTask && !r3.taskSaved) {
-          await this.deps.tasks.complete(r3.task);
-          r3.taskSaved = true;
-          await this.checkpointRecord(r3);
-        }
-        this.deps.calendar.assertWritable(r3.calendarId);
-        if (r3.edit) {
-          for (const step of r3.edit.steps) {
-            this.live();
-            await this.deps.calendar.reconcileStep(step, () => this.checkpointRecord(r3));
-          }
-          r3.calendarId = r3.edit.calendarId;
-          r3.title = r3.edit.title;
-          r3.segments = r3.edit.segments.map((p3, i3) => ({ ...p3, saved: true, snapshot: r3.edit.steps[i3].after }));
-          r3.startedAt = r3.segments[0].start;
-          r3.endedAt = r3.segments.at(-1).end;
-          delete r3.edit;
-          await this.checkpointRecord(r3);
-        } else {
-          for (const p3 of r3.segments) {
-            if (p3.saved) continue;
-            this.live();
-            p3.snapshot = await this.deps.calendar.ensureEvent(r3.calendarId, eventForSegment(r3, p3));
-            p3.saved = true;
-            await this.checkpointRecord(r3);
-          }
-        }
-        this.live();
-        if (r3.completeTask && !r3.taskSaved) {
-          await this.deps.tasks.complete(r3.task);
-          r3.taskSaved = true;
-        }
-        await this.lock(async () => {
-          this.guard(`work:${id}`, r3.sync?.revision || 0);
-          r3.status = "saved";
-          r3.error = "";
-          await this.replace(r3);
-        });
-      } catch (e3) {
-        await this.lock(async () => {
-          this.guard(`work:${id}`, r3.sync?.revision || 0);
-          r3 = clone2(this.state.records.find((x4) => x4.id === id));
-          r3.error = e3.message;
-          await this.replace(r3);
-        });
-      }
-      return r3;
-    }
-    editRecord(id, draft, expected) {
-      return this.lock(async () => {
-        const current = this.state.records.find((r4) => r4.id === id);
-        if (!current || JSON.stringify(current) !== JSON.stringify(expected)) throw new Error("\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-        if (current.status !== "saved" || current.edit) throw new Error("\u8BF7\u5148\u5904\u7406\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u518D\u4FEE\u6539\u8BB0\u5F55\u3002");
-        if (this.state.deletions?.some((o2) => o2.recordId === id && o2.status !== "saved")) throw new Error("\u6B64\u8BB0\u5F55\u6709\u5F85\u540C\u6B65\u7684\u5220\u9664\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5904\u7406\u3002");
-        const title = draft.title.trim();
-        if (!title) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
-        this.deps.calendar.assertWritable(draft.calendarId);
-        validateSegments(draft.segments, this.now());
-        if (draft.segments.length !== current.segments.length) throw new Error("\u672C\u7248\u4E0D\u589E\u52A0\u6216\u5220\u9664\u5386\u53F2\u5206\u6BB5\u3002");
-        const r3 = clone2(current);
-        const steps = current.segments.map((p3, i3) => {
-          const remote = this.deps.calendar.readByUid(current.calendarId, p3.uid);
-          if (!remote) throw new Error("\u65E5\u5386\u4E2D\u7684\u539F\u8BB0\u5F55\u5DF2\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\uFF1B\u4E0D\u4F1A\u81EA\u52A8\u91CD\u5EFA\u3002");
-          const before = draft.snapshots?.[i3] ?? p3.snapshot ?? eventForSegment(current, p3);
-          if (draft.snapshots?.[i3] || p3.snapshot ? !sameEventContent(remote, before) : !Object.entries(before).every(([k3, v3]) => v3 === void 0 || JSON.stringify(remote[k3]) === JSON.stringify(v3))) throw new Error("\u65E5\u5386\u8BB0\u5F55\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
-          const after = { ...remote, ...eventForSegment({ title }, { ...draft.segments[i3], uid: p3.uid }) };
-          return { uid: p3.uid, fromCalendarId: current.calendarId, toCalendarId: draft.calendarId, before: clone2(remote), after, stage: "prepared" };
-        });
-        r3.status = "pending";
-        r3.error = "";
-        r3.sync = { revision: (r3.sync?.revision || 0) + 1, attempt: 0, retryAt: 0 };
-        r3.edit = { calendarId: draft.calendarId, title, segments: draft.segments.map((p3, i3) => ({ start: p3.start, end: p3.end, uid: current.segments[i3].uid })), steps };
-        await this.replace(r3);
-        return r3;
-      }).then((r3) => this.deps.background ? r3 : this.retry(id));
-    }
-    keepCalendarOnly(id) {
-      return this.lock(async () => {
-        if (this.flights.has(`work:${id}`)) throw new Error("\u6B64\u8BB0\u5F55\u6B63\u5728\u540C\u6B65\uFF0C\u8BF7\u7B49\u672C\u6B21\u8BF7\u6C42\u7ED3\u675F\u3002");
-        const r3 = this.state.records.find((r4) => r4.id === id);
-        if (!r3 || r3.edit || r3.segments.some((p3) => !p3.saved)) throw new Error("\u8BF7\u5148\u6210\u529F\u4FDD\u5B58\u5168\u90E8\u65E5\u5386\u65F6\u95F4\u6BB5\u3002");
-        await this.replace({ ...r3, completeTask: false, taskSaved: true, status: "saved", error: "" });
-      });
-    }
-    saveEvent(step) {
-      return this.lock(async () => {
-        if (this.jobs().some((j4) => j4.key.startsWith("event:") && j4.value.step.uid === step.uid)) throw new Error("\u6B64\u65E5\u7A0B\u5DF2\u6709\u5F85\u540C\u6B65\u4FEE\u6539\uFF0C\u8BF7\u5148\u5904\u7406\u8BE5\u9879\u3002");
-        const id = uid();
-        const op = { id, title: step.after.title, step: clone2(step), status: "pending", error: "", sync: this.info() };
-        await this.commit({ ...this.state, operations: [...this.state.operations, op] });
-        return op;
-      }).then((op) => this.deps.background ? op : this.retryEvent(op.id));
-    }
-    retryEvent(id) {
-      return this.runJob(`event:${id}`, () => this.flushOperation(id));
-    }
-    async flushOperation(id) {
-      let op = clone2(this.state.operations.find((o2) => o2.id === id));
-      if (!op) throw new Error("\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
-      if (op.status === "saved") return op;
-      const revision = op.sync?.revision || 0;
-      const checkpoint = () => this.lock(async () => {
-        this.guard(`event:${id}`, revision);
-        await this.commit({ ...this.state, operations: this.state.operations.map((o2) => o2.id === id ? clone2(op) : o2) });
-      });
-      try {
-        this.live();
-        await this.deps.calendar.reconcileStep(op.step, checkpoint);
-        op.status = "saved";
-        op.error = "";
-        await checkpoint();
-      } catch (e3) {
-        op = clone2(this.state.operations.find((o2) => o2.id === id));
-        op.error = e3.message;
-        await checkpoint();
-      }
-      return op;
-    }
-    deleteEvent(target, range, record) {
-      return this.lock(async () => {
-        if (record) {
-          const current = this.state.records.find((r3) => r3.id === record.id);
-          if (!current || JSON.stringify(current) !== JSON.stringify(record)) throw new Error("\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-          if (current.status !== "saved" || current.edit || !current.segments.some((p3) => p3.uid === target.uid) || current.calendarId !== target.calendarId) throw new Error("\u8BF7\u5148\u5904\u7406\u8BB0\u5F55\u7684\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u518D\u5220\u9664\u3002");
-        }
-        if (this.state.deletions?.some((o2) => o2.status !== "saved" && (o2.recordId && o2.recordId === record?.id || o2.uid === target.uid && o2.calendarId === target.calendarId))) throw new Error("\u6B64\u8BB0\u5F55\u5DF2\u5728\u7B49\u5F85\u5220\u9664\uFF0C\u8BF7\u5728\u5F85\u540C\u6B65\u4E2D\u91CD\u8BD5\u3002");
-        if (this.state.operations.some((o2) => o2.status !== "saved" && o2.step.uid === target.uid && [o2.step.fromCalendarId, o2.step.toCalendarId].includes(target.calendarId))) throw new Error("\u6B64\u65E5\u7A0B\u6B63\u5728\u4FEE\u6539\uFF0C\u8BF7\u5148\u5904\u7406\u5F85\u540C\u6B65\u64CD\u4F5C\u3002");
-        if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) throw new Error("\u5220\u9664\u8BB0\u5F55\u7684\u65F6\u95F4\u8303\u56F4\u65E0\u6548\u3002");
-        const remote = this.deps.calendar.readByUid(target.calendarId, target.uid);
-        if (!remote || !sameEvent(remote, target.before)) throw new Error("\u65E5\u7A0B\u5DF2\u4FEE\u6539\u6216\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
-        const op = { ...clone2(target), ...range, id: uid(), title: target.before.title, recordId: record?.id, status: "pending", error: "", sync: this.info() };
-        await this.commit({ ...this.state, deletions: [...this.state.deletions || [], op] });
-        return op;
-      }).then((op) => this.deps.background ? op : this.retryDeletion(op.id));
-    }
-    retryDeletion(id) {
-      return this.runJob(`delete:${id}`, () => this.flushDeletion(id));
-    }
-    reconcileDeletions() {
-      return this.lock(async () => {
-        let count = 0;
-        for (const op of this.state.deletions?.filter((o2) => o2.status === "pending") || []) {
-          if (this.flights.has(`delete:${op.id}`)) continue;
-          if (!this.deps.calendar.hasCalendarData?.(op.calendarId)) continue;
-          if (this.deps.calendar.readByUid(op.calendarId, op.uid)) continue;
-          await this.confirmDeletion({ ...clone2(op), resolution: "absent-in-fcr" });
-          count++;
-        }
-        return count;
-      });
-    }
-    confirmRemoteDeletion(id) {
-      return this.lock(async () => {
-        if (this.flights.has(`delete:${id}`)) throw new Error("\u6B64\u8BB0\u5F55\u6B63\u5728\u540C\u6B65\uFF0C\u8BF7\u7B49\u672C\u6B21\u8BF7\u6C42\u7ED3\u675F\u518D\u6838\u5BF9\u3002");
-        const op = this.state.deletions?.find((o2) => o2.id === id);
-        if (!op) throw new Error("\u5220\u9664\u8BF7\u6C42\u4E0D\u5B58\u5728\u3002");
-        if (op.status === "saved") return;
-        if (!isMissingResource(op.error)) throw new Error("\u6B64\u8BF7\u6C42\u5C1A\u672A\u62A5\u544A\u8D44\u6E90\u4E0D\u5B58\u5728\uFF0C\u8BF7\u5148\u5237\u65B0\u6216\u91CD\u8BD5\u3002");
-        const current = this.deps.calendar.readByUid(op.calendarId, op.uid);
-        if (current && !sameEventContent(current, op.before)) throw new Error("\u65E5\u7A0B\u5185\u5BB9\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5148\u5728\u5B8C\u6574\u65E5\u5386\u4E2D\u6838\u5BF9\u3002");
-        await this.confirmDeletion({ ...clone2(op), resolution: "user-confirmed-remote-deletion" });
-      });
-    }
-    async confirmDeletion(op) {
-      op.status = "saved";
-      op.error = "";
-      const records = this.state.records.map((r3) => {
-        if (r3.id !== op.recordId) return r3;
-        const segments = r3.segments.filter((p3) => p3.uid !== op.uid);
-        return { ...r3, segments, startedAt: segments[0]?.start ?? r3.startedAt, endedAt: segments.at(-1)?.end ?? r3.endedAt };
-      });
-      await this.commit({ ...this.state, records, deletions: this.state.deletions.map((o2) => o2.id === op.id ? clone2(op) : o2) });
-    }
-    async flushDeletion(id) {
-      let op = clone2(this.state.deletions?.find((o2) => o2.id === id));
-      if (!op) throw new Error("\u5220\u9664\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
-      if (op.status === "saved") return op;
-      try {
-        this.live();
-        await this.deps.calendar.deleteEvent(op);
-        op.resolution = "deleted";
-        await this.lock(async () => {
-          this.guard(`delete:${id}`, op.sync?.revision || 0);
-          await this.confirmDeletion(op);
-        });
-        op = clone2(this.state.deletions.find((o2) => o2.id === id));
-      } catch (e3) {
-        await this.lock(async () => {
-          this.guard(`delete:${id}`, op.sync?.revision || 0);
-          op = clone2(this.state.deletions.find((o2) => o2.id === id));
-          op.error = e3.message;
-          await this.commit({ ...this.state, deletions: this.state.deletions.map((o2) => o2.id === id ? clone2(op) : o2) });
-        });
-      }
-      return op;
-    }
-  };
-  function classifySyncError(message) {
-    if (/授权|请先连接|请启用兼容|scope|HTTP\s+(401|403)\b/i.test(message)) return "auth";
-    if (/外部|已变化|已删除|找不到|不存在|同 UID|分类日历|无法|不允许|只读|HTTP\s+(404|410)\b/i.test(message)) return "conflict";
-    if (/network|offline|fetch|timeout|timed? out|ECONN|ENET|网络|断网|超时|未确认|未能核对|尚未就绪|lost.*response|HTTP\s+(429|5\d\d)\b/i.test(message)) return "network";
-    return "conflict";
-  }
-
   // Preview/preview.ts
   init_time();
-
-  // Shared/timeline.ts
-  init_time();
-  function mergeTimeline(remote, records, date2, operations = [], deletions = []) {
-    const rows = clone2(remote).filter((r3) => !deletions.some((op) => op.status === "saved" && ["absent-in-fcr", "user-confirmed-remote-deletion"].includes(op.resolution || "") && op.calendarId === r3.calendarId && op.uid === r3.original?.event.uid && sameEventContent(op.before, r3.original.event)));
-    const index2 = new Map(rows.flatMap((r3) => r3.original?.event.uid ? [[`${r3.calendarId}:${r3.original.event.uid}`, r3]] : []));
-    for (const record of records) {
-      const visible = record.edit ? { ...record, ...record.edit } : record;
-      visible.segments.forEach((part) => {
-        const found = index2.get(`${visible.calendarId}:${part.uid}`);
-        if (record.status === "saved") {
-          if (found) {
-            found.recordId = record.id;
-            found.segmentUid = part.uid;
-          }
-          return;
-        }
-        const known = rows.filter((r3) => r3.original?.event.uid === part.uid && [record.calendarId, visible.calendarId].includes(r3.calendarId));
-        known.forEach((r3) => {
-          r3.recordId = record.id;
-          r3.segmentUid = part.uid;
-        });
-        known.forEach((r3) => rows.splice(rows.indexOf(r3), 1));
-        if (date2 < dayKey(part.start) || date2 > dayKey(Math.max(part.start, part.end - 1))) return;
-        rows.push({
-          key: `work:${record.id}:${part.uid}`,
-          title: visible.title,
-          calendarId: visible.calendarId,
-          start: part.start,
-          end: part.end,
-          recordId: record.id,
-          segmentUid: part.uid,
-          pending: true,
-          error: record.error
-        });
-      });
-    }
-    for (const op of operations.filter((o2) => o2.status === "pending")) {
-      const step = op.step, event = step.after;
-      const instant2 = (date3, time) => {
-        try {
-          return event.allDay ? +/* @__PURE__ */ new Date(date3 + "T00:00:00") : event.timezone && event.timezone !== "UTC" ? Temporal3.ZonedDateTime.from(`${date3}T${time}[${event.timezone}]`).epochMilliseconds : Date.parse(`${date3}T${time}${event.timezone === "UTC" ? "Z" : ""}`);
-        } catch {
-          return NaN;
-        }
-      };
-      const start = instant2(event.date, event.startTime), end = event.isTask ? start + (event.allDay ? 864e5 : 36e5) : instant2(event.endDate || event.date, event.endTime);
-      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
-      const known = rows.filter((r3) => r3.original?.event.uid === step.uid && [step.fromCalendarId, step.toCalendarId].includes(r3.calendarId));
-      known.forEach((r3) => rows.splice(rows.indexOf(r3), 1));
-      if (date2 < dayKey(start) || date2 > dayKey(Math.max(start, end - 1))) continue;
-      rows.push({ key: `event-operation:${op.id}`, title: event.title, calendarId: step.toCalendarId, start, end, allDay: !!event.allDay, pending: true, error: op.error });
-    }
-    for (const op of deletions.filter((o2) => o2.status !== "saved")) {
-      const known = rows.filter((r3) => r3.original?.event.uid === op.uid && r3.calendarId === op.calendarId || r3.recordId === op.recordId && r3.segmentUid === op.uid);
-      known.forEach((r3) => rows.splice(rows.indexOf(r3), 1));
-      if (date2 < dayKey(op.start) || date2 > dayKey(Math.max(op.start, op.end - 1))) continue;
-      rows.push({ key: `delete:${op.id}`, deletionId: op.id, title: op.title, calendarId: op.calendarId, start: op.start, end: op.end, recordId: op.recordId, segmentUid: op.uid, pending: true, deleting: true, error: op.error });
-    }
-    return rows.sort((a3, b2) => Number(b2.allDay) - Number(a3.allDay) || a3.start - b2.start);
-  }
-
-  // Clients/Obsidian/ui.ts
-  init_time();
-
-  // Clients/Obsidian/appearance.ts
-  var DEFAULT_APPEARANCE = { fontSize: 15, fontWeight: 500 };
-  function appearance(value) {
-    return {
-      fontSize: Number.isFinite(value?.fontSize) ? Math.max(13, Math.min(20, value.fontSize)) : DEFAULT_APPEARANCE.fontSize,
-      fontWeight: [400, 500, 600].includes(value?.fontWeight ?? 0) ? value.fontWeight : DEFAULT_APPEARANCE.fontWeight
-    };
-  }
-  function applyAppearance(root, value) {
-    const normalized = appearance(value);
-    root.style.setProperty("--ctt-font-size", `${normalized.fontSize}px`);
-    root.style.setProperty("--ctt-font-weight", String(normalized.fontWeight));
-  }
-  function mountTimerView(content2) {
-    content2.classList.add("ctt-view-host");
-    content2.style.padding = "0";
-    content2.style.overflow = "hidden";
-    const mount = content2.ownerDocument.createElement("div");
-    content2.replaceChildren(mount);
-    return mount;
-  }
-
-  // Clients/Obsidian/categories.ts
-  function categoryPreferences(value) {
-    const ids = (v3) => Array.isArray(v3) ? [...new Set(v3.filter((id) => typeof id === "string" && !!id))] : [];
-    return { categoryOrder: ids(value?.categoryOrder), hiddenCategoryIds: ids(value?.hiddenCategoryIds) };
-  }
-  function orderedCategories(calendars2, value, visibleOnly = false) {
-    const prefs = categoryPreferences(value), positions = new Map(prefs.categoryOrder.map((id, i3) => [id, i3]));
-    return calendars2.filter((c3) => !visibleOnly || !prefs.hiddenCategoryIds.includes(c3.id)).map((c3, i3) => ({ c: c3, i: i3 })).sort((a3, b2) => (positions.get(a3.c.id) ?? Infinity) - (positions.get(b2.c.id) ?? Infinity) || a3.i - b2.i).map((x4) => x4.c);
-  }
-  function renderCategorySettings(root, calendars2, initial2, save) {
-    let prefs = categoryPreferences(initial2), busy2 = false, error2 = "";
-    root.classList.add("ctt-category-settings");
-    const update = async (next, focusId) => {
-      if (busy2) return;
-      const before = prefs;
-      busy2 = true;
-      error2 = "";
-      prefs = next;
-      draw();
-      try {
-        await save(next);
-      } catch (e3) {
-        prefs = before;
-        error2 = e3.message;
-      } finally {
-        busy2 = false;
-        draw();
-        if (focusId) root.querySelector(`[data-category-index="${orderedCategories(calendars2, prefs).findIndex((c3) => c3.id === focusId)}"] input`)?.focus();
-      }
-    };
-    const draw = () => {
-      root.replaceChildren();
-      el(root, "p", "ctt-muted", "\u6392\u5E8F\u548C\u9690\u85CF\u4EC5\u5F71\u54CD\u5F85\u529E\u7B5B\u9009\u680F\u3002\u201C\u5168\u90E8\u201D\u4ECD\u5305\u542B\u6240\u6709\u5F85\u529E\u3002");
-      const list = el(root, "div", "ctt-category-setting-list");
-      const categories2 = orderedCategories(calendars2, prefs);
-      if (!categories2.length) el(list, "p", "ctt-muted", "\u8FDE\u63A5\u65E5\u5386\u540E\u53EF\u8BBE\u7F6E\u5206\u7C7B\u3002");
-      categories2.forEach((c3, index2) => {
-        const row = el(list, "div", "ctt-category-setting");
-        row.dataset.categoryIndex = String(index2);
-        const label = el(row, "label", "ctt-category-visibility"), checkbox = el(label, "input");
-        checkbox.type = "checkbox";
-        checkbox.checked = !prefs.hiddenCategoryIds.includes(c3.id);
-        checkbox.disabled = busy2;
-        checkbox.setAttribute("aria-label", `\u663E\u793A\u5206\u7C7B ${c3.name}`);
-        const dot = el(label, "span", "ctt-category-dot");
-        dot.style.background = c3.color || "var(--interactive-accent)";
-        dot.setAttribute("aria-hidden", "true");
-        el(label, "span", "", c3.name);
-        checkbox.onchange = () => {
-          void update({ ...prefs, hiddenCategoryIds: checkbox.checked ? prefs.hiddenCategoryIds.filter((id) => id !== c3.id) : [...prefs.hiddenCategoryIds, c3.id] }, c3.id);
-        };
-        const move = (offset3) => {
-          const order = categories2.map((c4) => c4.id), other = index2 + offset3;
-          [order[index2], order[other]] = [order[other], order[index2]];
-          void update({ ...prefs, categoryOrder: [...order, ...prefs.categoryOrder.filter((id) => !order.includes(id))] }, c3.id);
-        };
-        const up = button(row, "\u2191", () => move(-1), "ctt-category-move", `\u4E0A\u79FB ${c3.name}`);
-        up.disabled = busy2 || index2 === 0;
-        const down = button(row, "\u2193", () => move(1), "ctt-category-move", `\u4E0B\u79FB ${c3.name}`);
-        down.disabled = busy2 || index2 === categories2.length - 1;
-      });
-      const message = el(root, "div", "ctt-dialog-error", error2);
-      message.setAttribute("role", "alert");
-      const reset = button(root, "\u6062\u590D\u9ED8\u8BA4\u6392\u5E8F\u4E0E\u663E\u793A", () => {
-        void update({ categoryOrder: [], hiddenCategoryIds: [] });
-      }, "ctt-quiet");
-      reset.disabled = busy2;
-    };
-    draw();
-  }
-
-  // Clients/Obsidian/taskOrder.ts
-  var TASK_SORT_LABELS = { manual: "\u624B\u52A8\u6392\u5E8F", due: "\u6309\u65E5\u671F", title: "\u6309\u6807\u9898" };
-  function taskSort(value) {
-    return value === "due" || value === "title" ? value : "manual";
-  }
-  function sortedTasks(tasks2, mode = "manual") {
-    return tasks2.map((task, index2) => ({ task, index: index2 })).sort((a3, b2) => {
-      const cmp = mode === "due" ? (a3.task.due || "9999").localeCompare(b2.task.due || "9999") : mode === "title" ? a3.task.title.localeCompare(b2.task.title, "zh-CN", { numeric: true }) : 0;
-      return cmp || a3.index - b2.index;
-    }).map((x4) => x4.task);
-  }
-  function reorderTaskSlots(tasks2, nextIds, expectedIds) {
-    const selected = new Set(expectedIds);
-    if (!expectedIds.length || selected.size !== expectedIds.length || new Set(nextIds).size !== nextIds.length || nextIds.length !== expectedIds.length || nextIds.some((id) => !selected.has(id))) throw new Error("\u6392\u5E8F\u5217\u8868\u65E0\u6548\u3002");
-    const current = tasks2.filter((t3) => selected.has(t3.id));
-    if (current.length !== expectedIds.length || current.some((t3, i4) => t3.completed || t3.id !== expectedIds[i4])) throw new Error("\u5F85\u529E\u987A\u5E8F\u6216\u5B8C\u6210\u72B6\u6001\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
-    const byId = new Map(current.map((t3) => [t3.id, t3]));
-    let i3 = 0;
-    return tasks2.map((t3) => selected.has(t3.id) ? byId.get(nextIds[i3++]) : t3);
-  }
-
-  // Clients/Obsidian/ui.ts
-  function toolButton(parent, label, action, paths) {
-    const b2 = button(parent, "", action, "ctt-icon", label), svg = parent.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
-    for (const [name, value] of Object.entries({ viewBox: "0 0 24 24", width: "18", height: "18", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false" })) svg.setAttribute(name, value);
-    for (const d3 of paths) {
-      const path = parent.ownerDocument.createElementNS(svg.namespaceURI, "path");
-      path.setAttribute("d", d3);
-      svg.append(path);
-    }
-    b2.append(svg);
-    return b2;
-  }
-  var TimerUI = class {
-    constructor(root, actions2) {
-      this.root = root;
-      this.actions = actions2;
-      root.classList.add("ctt-shell");
-      root.replaceChildren();
-      this.header = el(root, "header", "ctt-header");
-      const tools = el(this.header, "nav", "ctt-tools");
-      tools.setAttribute("aria-label", "\u63D2\u4EF6\u5DE5\u5177");
-      this.connect = button(tools, "\u8FDE\u63A5\u65E5\u5386", actions2.connect, "ctt-primary");
-      this.syncMenu = el(tools, "details", "ctt-sync-menu");
-      this.syncMenu.hidden = true;
-      this.syncSummary = el(this.syncMenu, "summary", "ctt-sync-summary");
-      this.syncSummary.setAttribute("aria-label", "\u540C\u6B65\u72B6\u6001");
-      const syncPanel = el(this.syncMenu, "div", "ctt-sync-panel");
-      el(syncPanel, "strong", "", "\u540C\u6B65\u961F\u5217");
-      this.syncError = el(syncPanel, "div", "ctt-dialog-error");
-      this.syncError.setAttribute("role", "alert");
-      this.pending = el(syncPanel, "div", "ctt-pending");
-      root.ownerDocument.addEventListener("pointerdown", this.closeSync);
-      root.ownerDocument.addEventListener("keydown", this.escapeSync);
-      toolButton(tools, "\u5237\u65B0", actions2.refresh, ["M20 7v5h-5", "M19.5 12a7.5 7.5 0 1 1-2-5.1L20 9"]);
-      toolButton(tools, "\u8BBE\u7F6E", actions2.settings, ["M4 7h5m4 0h7M4 17h9m4 0h3", "M13 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]);
-      tools.append(this.syncMenu);
-      this.scroll = el(root, "div", "ctt-scroll");
-      this.error = el(this.scroll, "div", "ctt-error");
-      this.error.setAttribute("role", "alert");
-      this.error.hidden = true;
-      const navigation = el(this.header, "nav", "ctt-page-tabs");
-      this.header.prepend(navigation);
-      navigation.setAttribute("role", "tablist");
-      navigation.setAttribute("aria-label", "\u529F\u80FD\u9875\u9762");
-      const viewId = `ctt-${crypto.randomUUID()}`;
-      for (const [id, label] of [["timer", "\u8BA1\u65F6"], ["tasks", "\u5F85\u529E"], ["calendar", "\u65E5\u5386"]]) {
-        const b2 = button(navigation, label, () => this.selectPage(id), "ctt-page-tab");
-        b2.id = `${viewId}-tab-${id}`;
-        b2.setAttribute("role", "tab");
-        b2.setAttribute("aria-controls", `${viewId}-page-${id}`);
-        b2.onkeydown = (e3) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e3.key)) return;
-          e3.preventDefault();
-          const ids = ["timer", "tasks", "calendar"], i3 = ids.indexOf(id), next = e3.key === "Home" ? 0 : e3.key === "End" ? 2 : (i3 + (e3.key === "ArrowLeft" ? 2 : 1)) % 3;
-          this.selectPage(ids[next]);
-          this.pageButtons.get(ids[next]).focus();
-        };
-        this.pageButtons.set(id, b2);
-      }
-      this.timerBadge = el(this.pageButtons.get("timer"), "span", "ctt-page-timer-badge");
-      this.timerBadge.setAttribute("aria-hidden", "true");
-      for (const id of ["timer", "tasks", "calendar"]) {
-        const panel = el(this.scroll, "section", `ctt-page ctt-${id}-page`);
-        panel.id = `${viewId}-page-${id}`;
-        panel.setAttribute("role", "tabpanel");
-        panel.setAttribute("aria-labelledby", `${viewId}-tab-${id}`);
-        this.pages.set(id, panel);
-      }
-      this.timer = el(this.pages.get("timer"), "section", "ctt-timer");
-      this.timer.setAttribute("aria-label", "\u5F53\u524D\u8BA1\u65F6");
-      this.status = el(this.timer, "div", "ctt-status");
-      this.title = el(this.timer, "h2", "ctt-current-title");
-      const dial = el(this.timer, "div", "ctt-clock");
-      el(dial, "div", "ctt-clock-track");
-      this.hand = el(dial, "div", "ctt-clock-hand");
-      this.readout = el(dial, "div", "ctt-readout", "00:00");
-      this.readout.setAttribute("aria-label", "\u7D2F\u8BA1\u4E13\u6CE8\u65F6\u95F4");
-      el(this.timer, "div", "ctt-idle-label", "\u5F00\u59CB\u4E00\u4E2A\u4EFB\u52A1\u5427");
-      const details = el(this.timer, "div", "ctt-session-details");
-      this.started = button(details, "", actions2.editStart, "ctt-quiet", "\u4FEE\u6539\u5F00\u59CB\u65F6\u95F4");
-      this.category = el(details, "select", "ctt-category");
-      this.category.setAttribute("aria-label", "\u672C\u6B21\u8BA1\u65F6\u5206\u7C7B");
-      this.category.onchange = () => actions2.category(this.category.value);
-      this.controls = el(this.timer, "div", "ctt-timer-controls");
-      this.pause = button(this.controls, "\u6682\u505C", () => this.model.active?.runningSince == null ? actions2.resume(this.model.active?.id || "") : actions2.pause(this.model.active?.id || ""));
-      button(this.controls, "\u7ED3\u675F\u5E76\u5B8C\u6210", () => actions2.finish(true, this.model.active?.id || ""), "ctt-primary");
-      button(this.controls, "\u53EA\u8BB0\u65F6\u95F4", () => actions2.finish(false, this.model.active?.id || ""), "ctt-quiet");
-      const body = el(this.pages.get("tasks"), "div", "ctt-body");
-      const timeline = el(this.pages.get("timer"), "section", "ctt-panel ctt-timeline");
-      const top = el(timeline, "div", "ctt-panel-heading");
-      el(top, "h3", "", "\u6267\u884C\u8BB0\u5F55");
-      const timelineTools = el(top, "div", "ctt-timeline-tools");
-      const nav = el(timelineTools, "div", "ctt-date-nav");
-      button(nav, "\u2039", () => actions2.date(shiftDate(this.model.date, -1)), "ctt-icon", "\u524D\u4E00\u5929");
-      this.dateInput = el(nav, "input");
-      this.dateInput.type = "date";
-      this.dateInput.setAttribute("aria-label", "\u65F6\u95F4\u8F74\u65E5\u671F");
-      this.dateInput.onchange = () => {
-        if (this.dateInput.value) actions2.date(this.dateInput.value);
-      };
-      button(nav, "\u4ECA\u5929", () => actions2.date(dayKey()), "ctt-quiet");
-      button(nav, "\u203A", () => actions2.date(shiftDate(this.model.date, 1)), "ctt-icon", "\u540E\u4E00\u5929");
-      this.rowList = el(timeline, "div", "ctt-timeline-list");
-      this.rowList.setAttribute("aria-label", "\u5F53\u5929\u5DF2\u8BB0\u5F55\u5DE5\u65F6");
-      const tasks2 = el(body, "section", "ctt-panel ctt-tasks");
-      const taskHead = el(tasks2, "div", "ctt-panel-heading");
-      el(taskHead, "h3", "", "\u5F85\u529E");
-      const taskTools = el(taskHead, "div", "ctt-task-tools");
-      this.taskSort = el(taskTools, "select", "ctt-task-sort");
-      this.taskSort.setAttribute("aria-label", "\u5F85\u529E\u6392\u5E8F");
-      for (const [value, text] of Object.entries(TASK_SORT_LABELS)) el(this.taskSort, "option", "", text).value = value;
-      this.taskSort.onchange = () => {
-        void actions2.sortTasks(taskSort(this.taskSort.value));
-      };
-      button(taskTools, "\u21C5", actions2.categorySettings, "ctt-icon", "\u5206\u7C7B\u6392\u5E8F\u4E0E\u663E\u793A");
-      this.sortNotice = el(tasks2, "div", "ctt-sort-notice");
-      this.sortNotice.setAttribute("role", "status");
-      this.sortNotice.setAttribute("aria-live", "polite");
-      this.tabs = el(tasks2, "div", "ctt-tabs");
-      this.tabs.setAttribute("aria-label", "\u5F85\u529E\u5206\u7C7B\u7B5B\u9009");
-      this.filterMenu = el(taskTools, "details", "ctt-filter-menu");
-      this.filterSummary = el(this.filterMenu, "summary", "ctt-filter-summary", "\u7B5B\u9009");
-      this.filterSummary.setAttribute("aria-label", "\u7B5B\u9009\u5F85\u529E");
-      const filters = el(this.filterMenu, "div", "ctt-task-filters");
-      for (const [key2, label, choices] of [["association", "\u5173\u8054\u7B5B\u9009", { "all": "\u5168\u90E8\u5173\u8054", "linked": "Components \u5DF2\u5173\u8054", "unlinked": "\u672A\u5173\u8054" }], ["status", "\u5B8C\u6210\u72B6\u6001", { "open": "\u672A\u5B8C\u6210", "done": "\u5DF2\u5B8C\u6210", "all": "\u5168\u90E8\u72B6\u6001" }], ["due", "\u622A\u6B62\u65E5\u671F\u7B5B\u9009", { "all": "\u5168\u90E8\u622A\u6B62\u65E5\u671F", "today": "\u4ECA\u5929\u622A\u6B62", "overdue": "\u5DF2\u903E\u671F", "none": "\u65E0\u622A\u6B62\u65E5\u671F", "date": "\u6307\u5B9A\u622A\u6B62\u65E5\u671F" }]]) {
-        const select = el(filters, "select");
-        select.setAttribute("aria-label", label);
-        for (const [value, text] of Object.entries(choices)) el(select, "option", "", text).value = value;
-        select.value = this.filters[key2];
-        select.onchange = () => {
-          this.filters[key2] = select.value;
-          this.filterDate.hidden = this.filters.due !== "date";
-          this.updateFilterSummary();
-          this.renderTasks();
-          this.tick();
-        };
-      }
-      this.filterDate = el(filters, "input");
-      this.filterDate.type = "date";
-      this.filterDate.value = this.filters.date;
-      this.filterDate.hidden = true;
-      this.filterDate.setAttribute("aria-label", "\u6307\u5B9A\u622A\u6B62\u65E5\u671F");
-      this.filterDate.onchange = () => {
-        this.filters.date = this.filterDate.value;
-        this.renderTasks();
-        this.tick();
-      };
-      const taskScroll = el(tasks2, "div", "ctt-task-scroll");
-      taskScroll.setAttribute("aria-label", "\u5F85\u529E\u5185\u5BB9");
-      const form = el(taskScroll, "form", "ctt-inbox");
-      this.taskTitle = el(form, "input", "ctt-new-title");
-      this.taskTitle.placeholder = "\u6DFB\u52A0\u4E00\u4EF6\u8981\u505A\u7684\u4E8B\u2026";
-      this.taskTitle.setAttribute("aria-label", "\u65B0\u5F85\u529E\u540D\u79F0");
-      this.taskTitle.required = true;
-      const addTools = el(form, "div", "ctt-inbox-tools");
-      this.newCategory = el(addTools, "select");
-      this.newCategory.setAttribute("aria-label", "\u65B0\u5F85\u529E\u5206\u7C7B");
-      this.newCategory.required = true;
-      const dateLabel = el(addTools, "div", "ctt-optional-date");
-      const dateToggle = button(dateLabel, "+ \u65E5\u671F", () => {
-        this.due.hidden = !this.due.hidden;
-        if (!this.due.hidden) {
-          this.due.focus();
-          try {
-            this.due.showPicker();
-          } catch {
-          }
-        }
-      }, "ctt-quiet", "\u8BBE\u7F6E\u5F85\u529E\u65E5\u671F");
-      this.due = el(dateLabel, "input");
-      this.due.type = "date";
-      this.due.hidden = true;
-      this.due.setAttribute("aria-label", "\u5F85\u529E\u65E5\u671F\uFF0C\u53EF\u7559\u7A7A");
-      this.due.onchange = () => {
-        dateToggle.hidden = !!this.due.value;
-        if (!this.due.value) this.due.hidden = true;
-      };
-      const add3 = el(addTools, "button", "ctt-primary", "\u6DFB\u52A0");
-      add3.type = "submit";
-      form.onsubmit = async (e3) => {
-        e3.preventDefault();
-        if (await actions2.add(this.taskTitle.value, this.due.value, this.newCategory.value)) {
-          this.taskTitle.value = "";
-          this.due.value = "";
-          this.due.hidden = true;
-          dateToggle.hidden = false;
-          this.resetDraftCategory();
-          this.taskTitle.focus();
-        }
-      };
-      this.taskList = el(taskScroll, "div", "ctt-task-list");
-      this.taskList.setAttribute("aria-label", "\u672A\u5B8C\u6210\u5F85\u529E");
-      this.observer = new ResizeObserver((entries2) => {
-        const { width, height } = entries2[0].contentRect;
-        root.classList.toggle("ctt-stacked", width < 840 || width / Math.max(1, height) < 1.15);
-        root.style.setProperty("--ctt-focus-height", `${Math.max(380, Math.min(660, height * 0.62, height - 330))}px`);
-      });
-      this.observer.observe(root);
-    }
-    root;
-    actions;
-    model;
-    filter = "";
-    page = "tasks";
-    filters = defaultFilters();
-    pages = /* @__PURE__ */ new Map();
-    pageButtons = /* @__PURE__ */ new Map();
-    pageScroll = { timer: 0, tasks: 0, calendar: 0 };
-    calendar;
-    timerBadge;
-    filterDate;
-    filterMenu;
-    filterSummary;
-    observer;
-    header;
-    scroll;
-    connect;
-    error;
-    timer;
-    title;
-    status;
-    readout;
-    hand;
-    category;
-    started;
-    controls;
-    pause;
-    taskTitle;
-    due;
-    newCategory;
-    tabs;
-    taskList;
-    rowList;
-    dateInput;
-    pending;
-    syncMenu;
-    syncSummary;
-    syncError;
-    pendingNodes = /* @__PURE__ */ new Map();
-    closeSync = (e3) => {
-      if (this.syncMenu.open && !this.syncMenu.contains(e3.target)) this.syncMenu.open = false;
-      if (this.filterMenu?.open && !this.filterMenu.contains(e3.target)) this.filterMenu.open = false;
-    };
-    escapeSync = (e3) => {
-      if (e3.key === "Escape" && this.filterMenu?.open) {
-        this.filterMenu.open = false;
-        this.filterSummary.focus();
-        e3.preventDefault();
-        return;
-      }
-      if (e3.key === "Escape" && this.syncMenu.open) {
-        this.syncMenu.open = false;
-        this.syncSummary.focus();
-        e3.preventDefault();
-      }
-    };
-    taskSort;
-    sortNotice;
-    dragged;
-    taskNodes = /* @__PURE__ */ new Map();
-    rowNodes = /* @__PURE__ */ new Map();
-    selectPage(page2, remember = true) {
-      this.pageScroll[this.page] = this.scroll.scrollTop;
-      this.page = page2;
-      this.root.dataset.page = page2;
-      for (const [id, panel] of this.pages) {
-        panel.hidden = id !== page2;
-        const b2 = this.pageButtons.get(id);
-        b2.setAttribute("aria-selected", String(id === page2));
-        b2.tabIndex = id === page2 ? 0 : -1;
-      }
-      if (this.model) {
-        if (page2 === "tasks") {
-          this.renderTasks();
-        } else if (page2 === "timer") {
-          this.renderRows();
-        } else if (page2 === "calendar") {
-          if (!this.calendar) this.calendar = this.actions.mountCalendar?.(this.pages.get("calendar"));
-          this.calendar?.activate();
-        }
-        this.tick();
-      }
-      this.scroll.scrollTop = this.pageScroll[page2];
-      if (remember) this.actions.page?.(page2);
-    }
-    update(m3) {
-      const old = this.model;
-      this.model = m3;
-      if (!old) {
-        this.renderRows();
-        this.selectPage(appPage(m3.appPage), false);
-      }
-      applyAppearance(this.root, m3.appearance);
-      this.root.classList.toggle("ctt-active", !!m3.active);
-      this.root.classList.toggle("ctt-paused", !!m3.active && m3.active.runningSince == null);
-      this.root.setAttribute("aria-busy", String(m3.busy));
-      this.connect.hidden = m3.connected;
-      this.taskSort.value = taskSort(m3.taskSort);
-      this.taskSort.disabled = m3.busy;
-      this.error.textContent = m3.error;
-      this.error.hidden = !m3.error;
-      this.title.textContent = m3.active?.title || "";
-      this.status.textContent = m3.active ? m3.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u4E13\u6CE8\u4E2D" : "";
-      this.pause.textContent = m3.active?.runningSince == null ? "\u7EE7\u7EED" : "\u6682\u505C";
-      this.started.textContent = m3.active ? `\u5F00\u59CB\u4E8E ${dateParts(m3.active.startedAt).date.slice(5)} ${dateParts(m3.active.startedAt).time.slice(0, 5)}` : "";
-      options(this.category, m3.calendars, m3.active?.calendarId || "");
-      const draft = this.newCategory.value;
-      options(this.newCategory, m3.calendars, !old || !draft || old.defaultCalendarId !== m3.defaultCalendarId && !this.taskTitle.value ? this.filter || m3.defaultCalendarId : draft);
-      if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m3.date;
-      if (JSON.stringify(old?.calendars) !== JSON.stringify(m3.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m3.categoryPreferences)) this.renderTabs();
-      if (this.page === "tasks") {
-        this.renderTasks();
-      } else if (this.page === "timer") {
-        this.renderRows();
-      } else if (this.page === "calendar") this.calendar?.activate();
-      this.syncMenu.hidden = !m3.pending.length && !m3.sync?.error;
-      this.syncSummary.textContent = `${m3.sync?.activeKey ? "\u21BB" : m3.pending.some((p3) => p3.error) || m3.sync?.error ? "!" : "\u2191"} ${m3.pending.length}`;
-      this.syncSummary.setAttribute("aria-label", `\u540C\u6B65\u72B6\u6001\uFF08${m3.pending.length} \u6761\u5F85\u540C\u6B65\uFF09`);
-      this.syncSummary.title = this.syncSummary.getAttribute("aria-label");
-      this.syncError.textContent = m3.sync?.error ? `\u540C\u6B65\u6682\u505C\uFF1A${m3.sync.error}` : "";
-      this.syncError.hidden = !m3.sync?.error;
-      const pendingIds = new Set(m3.pending.map((p3) => p3.id));
-      for (const [id, node] of this.pendingNodes) if (!pendingIds.has(id)) {
-        node.root.remove();
-        this.pendingNodes.delete(id);
-      }
-      for (const p3 of m3.pending) {
-        let node = this.pendingNodes.get(p3.id);
-        if (!node) {
-          const row = el(this.pending, "div", "ctt-pending-row"), text = el(row, "div");
-          const title = el(text, "strong"), status = el(text, "div", "ctt-muted"), error2 = el(text, "div", "ctt-muted");
-          const buttons = el(row, "div", "ctt-sync-actions");
-          const retry = button(buttons, "\u91CD\u8BD5", () => this.actions.retry(p3.id));
-          const keep = button(buttons, "\u4EC5\u4FDD\u7559\u65E5\u7A0B", () => this.actions.keep(p3.id));
-          const cleanup = button(buttons, "\u6E05\u7406\u672C\u5730\u6B8B\u7559", () => this.actions.resolveDeletion(p3.id.slice(7)));
-          node = { root: row, title, status, error: error2, retry, keep, cleanup };
-          this.pendingNodes.set(p3.id, node);
-        }
-        node.title.textContent = p3.title;
-        node.status.textContent = p3.status || "\u672C\u673A\u5DF2\u4FDD\u5B58\uFF0C\u7B49\u5F85\u540C\u6B65";
-        node.error.textContent = p3.error;
-        node.keep.hidden = !p3.canKeep;
-        node.cleanup.hidden = !p3.canResolveMissing;
-        node.retry.disabled = node.keep.disabled = node.cleanup.disabled = !!p3.working || m3.busy || !m3.connected;
-      }
-      for (const b2 of this.controls.querySelectorAll("button")) b2.disabled = m3.busy;
-      this.category.disabled = m3.busy;
-      this.started.disabled = m3.busy;
-      this.tick();
-    }
-    renderTabs() {
-      const sources = orderedCategories(this.model.calendars, this.model.categoryPreferences, true);
-      if (this.filter && !sources.some((c3) => c3.id === this.filter)) {
-        this.filter = "";
-        this.resetDraftCategory();
-      }
-      this.tabs.replaceChildren();
-      for (const c3 of [{ id: "", name: "\u5168\u90E8" }, ...sources]) {
-        const b2 = button(this.tabs, c3.name, () => {
-          this.filter = c3.id;
-          this.resetDraftCategory();
-          this.renderTabs();
-          this.renderTasks();
-          this.tick();
-        }, "ctt-tab");
-        b2.classList.toggle("is-selected", c3.id === this.filter);
-        b2.setAttribute("aria-pressed", String(c3.id === this.filter));
-      }
-    }
-    updateFilterSummary() {
-      const count = Number(this.filters.association !== "all") + Number(this.filters.status !== "open") + Number(this.filters.due !== "all");
-      this.filterSummary.textContent = count ? `\u7B5B\u9009 \xB7 ${count}` : "\u7B5B\u9009";
-    }
-    resetDraftCategory() {
-      options(this.newCategory, this.model.calendars, this.filter || this.model.defaultCalendarId);
-    }
-    taskSession(task) {
-      const active = this.model.active;
-      return active && active.task.kind === task.kind && active.task.id === task.id && (task.kind === "local" ? active.task.path === task.path : active.task.calendarId === task.calendarId) ? active : null;
-    }
-    renderTasks() {
-      const m3 = this.model, manual = taskSort(m3.taskSort) === "manual" && this.filters.status === "open", linked = new Set((m3.linkedTasks || []).map(refKey)), tasks2 = sortedTasks(filterTasks(m3.tasks, this.filters, linked).filter((t3) => !this.filter || (t3.calendarId || m3.defaultCalendarId) === this.filter), taskSort(m3.taskSort));
-      const ids = tasks2.map((t3) => t3.id);
-      const visibleIds = new Set(ids);
-      for (const [id, item] of this.taskNodes) if (!visibleIds.has(id)) {
-        item.root.remove();
-        this.taskNodes.delete(id);
-      }
-      this.taskList.querySelector(".ctt-empty")?.remove();
-      if (!tasks2.length) el(this.taskList, "div", "ctt-empty", "\u6682\u65E0\u5F85\u529E");
-      tasks2.forEach((task, i3) => {
-        let item = this.taskNodes.get(task.id);
-        if (!item) {
-          const root = el(this.taskList, "div", "ctt-task-row"), handle = button(root, "\u283F", () => {
-          }, "ctt-drag-handle"), check = el(root, "input");
-          check.type = "checkbox";
-          const body = el(root, "div", "ctt-task-text"), text = button(body, "", () => {
-          }, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta"), timing = el(body, "div", "ctt-task-timing");
-          const start = button(root, "\u25B7", () => {
-          }, "ctt-start", "\u5F00\u59CB\u8BA1\u65F6");
-          item = { root, handle, check, text, meta, timing, start };
-          this.taskNodes.set(task.id, item);
-        }
-        item.root.dataset.taskId = task.id;
-        item.handle.hidden = !manual;
-        item.handle.disabled = m3.busy;
-        item.handle.draggable = manual && !m3.busy;
-        item.handle.setAttribute("aria-label", `\u6392\u5E8F ${task.title}`);
-        item.handle.title = "\u62D6\u52A8\u6392\u5E8F\uFF1BAlt + \u2191 / \u2193 \u8C03\u6574\u987A\u5E8F";
-        item.handle.onkeydown = (e3) => {
-          if (!manual || m3.busy || !e3.altKey || !["ArrowUp", "ArrowDown"].includes(e3.key)) return;
-          e3.preventDefault();
-          const to = i3 + (e3.key === "ArrowUp" ? -1 : 1);
-          if (to < 0 || to >= ids.length) return;
-          const next = [...ids];
-          [next[i3], next[to]] = [next[to], next[i3]];
-          void this.saveOrder(next, ids, task.id);
-        };
-        item.handle.ondragstart = (e3) => {
-          if (!manual || m3.busy || !e3.dataTransfer) {
-            e3.preventDefault();
-            return;
-          }
-          this.dragged = { id: task.id, ids: [...ids] };
-          e3.dataTransfer.effectAllowed = "move";
-          e3.dataTransfer.setData("text/plain", task.id);
-          item.root.classList.add("is-dragging");
-        };
-        item.handle.ondragend = () => this.clearDrag();
-        item.root.ondragover = (e3) => {
-          if (!this.dragged || !manual || m3.busy) return;
-          e3.preventDefault();
-          this.taskList.querySelectorAll(".is-drop-before,.is-drop-after").forEach((n2) => n2.classList.remove("is-drop-before", "is-drop-after"));
-          item.root.classList.add(e3.clientY > item.root.getBoundingClientRect().top + item.root.clientHeight / 2 ? "is-drop-after" : "is-drop-before");
-        };
-        item.root.ondrop = (e3) => {
-          if (!this.dragged || !manual || m3.busy) return;
-          e3.preventDefault();
-          const source = this.dragged, next = source.ids.filter((id) => id !== source.id), after = e3.clientY > item.root.getBoundingClientRect().top + item.root.clientHeight / 2;
-          this.clearDrag();
-          if (source.id === task.id || !next.includes(task.id)) return;
-          next.splice(next.indexOf(task.id) + Number(after), 0, source.id);
-          void this.saveOrder(next, source.ids);
-        };
-        const categoryId = task.calendarId || m3.defaultCalendarId, category = m3.sources.find((c3) => c3.id === categoryId);
-        const active = this.taskSession(task), paused = !!active && active.runningSince == null;
-        item.sessionId = active?.id;
-        item.timing.hidden = !active;
-        item.root.dataset.timerState = active ? paused ? "paused" : "running" : "idle";
-        item.root.classList.toggle("is-timing", !!active);
-        item.root.classList.toggle("is-paused", paused);
-        item.text.textContent = task.title;
-        item.text.onclick = () => this.actions.editTask(task);
-        item.check.setAttribute("aria-label", `${task.completed ? "\u6062\u590D" : "\u5B8C\u6210"} ${task.title}`);
-        item.check.checked = task.completed;
-        item.check.disabled = m3.busy || !!active;
-        item.check.onchange = () => this.actions.complete(task);
-        item.meta.textContent = [category?.name || "\u9009\u62E9\u5206\u7C7B", task.due].filter(Boolean).join(" \xB7 ");
-        item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
-        if (task.completed) {
-          const completion = (m3.completions || []).filter((e3) => refKey(e3.task) === refKey(task)).at(-1);
-          item.meta.textContent += completion ? ` \xB7 \u63D2\u4EF6\u5B8C\u6210\u4E8E ${dateParts(completion.completedAt).date} ${dateParts(completion.completedAt).time.slice(0, 5)}` : " \xB7 \u5B8C\u6210\u65F6\u95F4\u672A\u77E5";
-        }
-        const label = active ? paused ? "\u7EE7\u7EED\u8BA1\u65F6" : "\u6682\u505C\u8BA1\u65F6" : "\u5F00\u59CB\u8BA1\u65F6";
-        item.start.textContent = active && !paused ? "\u2161" : "\u25B7";
-        item.start.title = label;
-        item.start.setAttribute("aria-label", label);
-        item.start.onclick = () => {
-          if (active) {
-            if (paused) this.actions.resume(active.id);
-            else this.actions.pause(active.id);
-          } else this.actions.start(task);
-        };
-        item.start.disabled = task.completed || m3.busy || !active && (!!m3.active || !m3.connected || !m3.calendars.some((c3) => c3.id === categoryId));
-        if (this.taskList.children[i3] !== item.root) this.taskList.insertBefore(item.root, this.taskList.children[i3] || null);
-      });
-    }
-    clearDrag() {
-      this.dragged = void 0;
-      this.taskList.querySelectorAll(".is-dragging,.is-drop-before,.is-drop-after").forEach((n2) => n2.classList.remove("is-dragging", "is-drop-before", "is-drop-after"));
-    }
-    async saveOrder(next, expected, focusId) {
-      if (JSON.stringify(next) === JSON.stringify(expected)) return;
-      const ok = await this.actions.reorderTasks(next, expected);
-      this.sortNotice.textContent = ok ? "\u987A\u5E8F\u5DF2\u4FDD\u5B58" : "\u6392\u5E8F\u672A\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5";
-      if (focusId) this.taskNodes.get(focusId)?.handle.focus();
-    }
-    renderRows() {
-      const m3 = this.model;
-      const entries2 = m3.rows.filter((r3) => !!r3.recordId).sort((a3, b2) => a3.start - b2.start || a3.key.localeCompare(b2.key));
-      const keys = new Set(entries2.map((r3) => r3.key));
-      for (const [key2, item] of this.rowNodes) if (!keys.has(key2)) {
-        item.root.remove();
-        this.rowNodes.delete(key2);
-      }
-      this.rowList.querySelector(".ctt-empty")?.remove();
-      if (!entries2.length) el(this.rowList, "div", "ctt-empty", "\u5F53\u5929\u6682\u65E0\u5DF2\u8BB0\u5F55\u5DE5\u65F6");
-      entries2.forEach((row, i3) => {
-        let item = this.rowNodes.get(row.key);
-        if (!item) {
-          const root = button(this.rowList, "", () => {
-          }, "ctt-event"), time = el(root, "span", "ctt-event-time");
-          const start = el(time, "span", "ctt-event-start"), link = el(time, "span", "ctt-event-time-link"), end = el(time, "span", "ctt-event-end");
-          link.setAttribute("aria-hidden", "true");
-          const body = el(root, "span", "ctt-event-body"), title = el(body, "span", "ctt-event-title"), meta = el(body, "span", "ctt-event-meta");
-          item = { root, start, end, link, title, meta };
-          this.rowNodes.set(row.key, item);
-        }
-        const startDate = dayKey(row.start), endDate = dayKey(Math.max(row.start, row.end - 1));
-        item.start.textContent = row.allDay ? "\u5168\u5929" : m3.date > startDate ? "00:00" : dateParts(row.start).time.slice(0, 5);
-        item.end.textContent = row.allDay ? "" : m3.date < endDate ? "24:00" : dateParts(row.end).time.slice(0, 5);
-        item.end.hidden = item.link.hidden = !!row.allDay;
-        item.title.textContent = row.title;
-        item.meta.textContent = `${m3.sources.find((c3) => c3.id === row.calendarId)?.name || "\u65E5\u5386"}${row.recordId ? " \xB7 \u8BA1\u65F6" : ""}${row.deleting ? " \xB7 \u5F85\u5220\u9664" : row.pending ? " \xB7 \u5F85\u540C\u6B65" : ""}`;
-        item.root.style.setProperty("--ctt-category-color", row.color || m3.sources.find((c3) => c3.id === row.calendarId)?.color || "var(--interactive-accent)");
-        item.root.classList.toggle("is-pending", !!row.pending);
-        item.root.title = row.error || "\u7F16\u8F91\u65E5\u7A0B";
-        item.root.onclick = () => this.actions.editRow(row);
-        if (this.rowList.children[i3] !== item.root) this.rowList.insertBefore(item.root, this.rowList.children[i3] || null);
-      });
-    }
-    tick() {
-      const ms = elapsed(this.model?.active || null);
-      this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
-      this.timerBadge.textContent = this.model?.active ? this.model.active.runningSince == null ? " \xB7 \u5DF2\u6682\u505C" : " \xB7 \u8BA1\u65F6\u4E2D" : "";
-      this.timerBadge.title = this.model?.active ? this.model.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D" : "";
-      this.pageButtons.get("timer").setAttribute("aria-description", this.timerBadge.title);
-      this.hand.style.transform = `rotate(${ms / 6e4 * 360}deg)`;
-      const active = this.model?.active;
-      if (active && this.page === "tasks") {
-        for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D"} \xB7 ${secondsText(ms)}`;
-      }
-    }
-    destroy() {
-      this.calendar?.dispose();
-      this.observer.disconnect();
-      this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync);
-      this.root.ownerDocument.removeEventListener("keydown", this.escapeSync);
-      this.root.replaceChildren();
-    }
-  };
 
   // Clients/Obsidian/dialogs.ts
   init_time();
@@ -30247,7 +30835,7 @@ ${DIARY_END}
       });
     }
     task(task, save, remove) {
-      const expected = clone2(task);
+      const expected = clone(task);
       this.form("\u7F16\u8F91\u5F85\u529E", (form) => {
         const title = field(form, "\u6807\u9898", "text", expected.title);
         title.required = true;
@@ -30277,7 +30865,7 @@ ${DIARY_END}
         this.host.notice("\u8BF7\u5148\u5B8C\u6210\u8FD9\u9879\u65E5\u7A0B\u7684\u540C\u6B65\u3002");
         return;
       }
-      const original = clone2(row?.original), event = original?.event;
+      const original = clone(row?.original), event = original?.event;
       const series = event?.type === "recurring";
       if (series) {
         start = row.seriesStart ?? start;
@@ -30349,7 +30937,7 @@ ${DIARY_END}
         this.host.notice("\u6B64\u8BA1\u65F6\u8BB0\u5F55\u5DF2\u5220\u9664\u3002");
         return;
       }
-      const expected = clone2(record);
+      const expected = clone(record);
       const selected = Math.max(0, expected.segments.findIndex((p3) => p3.uid === selectedUid));
       const originals = expected.segments.map((p3) => this.bridge.find(expected.calendarId, p3.uid));
       if (originals.some((x4) => !x4)) {
@@ -30378,7 +30966,7 @@ ${DIARY_END}
             title: title.value,
             calendarId: category.value,
             segments: segments.map((p3) => ({ start: parseLocal(p3.start.value), end: parseLocal(p3.end.value) })),
-            snapshots: originals.map((o2) => clone2(o2.event))
+            snapshots: originals.map((o2) => clone(o2.event))
           }, expected);
           this.host.notice(result.status === "saved" ? "\u8BA1\u65F6\u8BB0\u5F55\u5DF2\u66F4\u65B0" : "\u4FEE\u6539\u5DF2\u4FDD\u5B58\u5230\u672C\u673A\uFF0C\u7B49\u5F85\u540C\u6B65");
         };
@@ -30400,7 +30988,7 @@ ${DIARY_END}
         void this.bridge.openCalendar();
         return;
       }
-      const original = clone2(row?.original), eventUid = original?.event.uid || `ctt-event-${uid()}`;
+      const original = clone(row?.original), eventUid = original?.event.uid || `ctt-event-${uid()}`;
       this.form(original ? "\u7F16\u8F91\u65E5\u7A0B" : "\u65B0\u589E\u65E5\u7A0B", (form) => {
         const title = field(form, "\u6807\u9898", "text", row?.title || "");
         title.required = true;
@@ -30448,125 +31036,8 @@ ${DIARY_END}
     };
   }
 
-  // Shared/sync.ts
-  var leaseKey = /* @__PURE__ */ Symbol.for("calendar-task-timer.remote-channels.v1");
-  var leases = globalThis[leaseKey] ||= /* @__PURE__ */ new Map();
-  var SyncWorker = class {
-    constructor(controller2, options2) {
-      this.controller = controller2;
-      this.options = options2;
-    }
-    controller;
-    options;
-    view = { activeKey: null, waiting: false, error: "" };
-    timer;
-    warning;
-    stopped = false;
-    running = false;
-    pauseUntil = 0;
-    now() {
-      return this.options.now?.() ?? Date.now();
-    }
-    eligible() {
-      return this.controller.jobs().filter(({ value: j4 }) => {
-        if (!j4.sync && j4.error) return false;
-        return !j4.sync?.issue || j4.sync.issue === "network";
-      });
-    }
-    wake() {
-      if (this.stopped || this.running) return;
-      if (this.timer) clearTimeout(this.timer);
-      if (!this.options.enabled()) return;
-      const jobs = this.eligible();
-      if (!jobs.length) return;
-      const next = Math.max(this.pauseUntil, Math.min(...jobs.map((j4) => j4.value.sync?.retryAt || 0)));
-      this.timer = setTimeout(() => {
-        this.timer = void 0;
-        void this.pump();
-      }, Math.max(this.options.delayMs ?? 80, next - this.now()));
-    }
-    async resume(issue) {
-      for (const j4 of this.controller.jobs().filter((j5) => j5.value.sync?.issue === issue)) await this.controller.requestRetry(j4.key);
-      this.wake();
-    }
-    async retry(key2) {
-      await this.controller.requestRetry(key2);
-      this.pauseUntil = 0;
-      this.wake();
-    }
-    async pump() {
-      if (this.stopped || this.running || !this.options.enabled()) return;
-      const job = this.eligible().find((j4) => (j4.value.sync?.retryAt || 0) <= this.now());
-      if (!job) {
-        this.wake();
-        return;
-      }
-      const channel = this.options.channel, previous = channel ? leases.get(channel) : void 0;
-      if (previous) {
-        this.running = true;
-        this.view.waiting = true;
-        this.view.error = "\u7B49\u5F85\u4E0A\u4E00\u63D2\u4EF6\u5B9E\u4F8B\u7684 FCR \u8BF7\u6C42\u7ED3\u675F\uFF0C\u672C\u5730\u8BA1\u65F6\u4ECD\u53EF\u7EE7\u7EED\u3002";
-        this.options.changed?.();
-        await previous.done;
-        this.running = false;
-        if (!this.stopped) {
-          this.view.waiting = false;
-          this.view.error = "";
-          this.options.changed?.();
-          this.wake();
-        }
-        return;
-      }
-      const token = /* @__PURE__ */ Symbol();
-      let release;
-      const done = new Promise((resolve) => {
-        release = resolve;
-      });
-      if (channel) leases.set(channel, { token, done });
-      this.running = true;
-      this.view.activeKey = job.key;
-      this.view.waiting = false;
-      this.view.error = "";
-      const start = this.now();
-      this.options.changed?.();
-      this.warning = setTimeout(() => {
-        if (this.stopped) return;
-        this.view.waiting = true;
-        this.options.changed?.();
-      }, this.options.slowMs ?? 15e3);
-      try {
-        await this.controller.sync(job.key);
-      } catch (e3) {
-        if (!this.stopped) {
-          this.view.error = e3.message;
-          this.pauseUntil = this.now() + 1e4;
-        }
-      } finally {
-        if (channel && leases.get(channel)?.token === token) leases.delete(channel);
-        release();
-        if (this.warning) clearTimeout(this.warning);
-        this.warning = void 0;
-        this.running = false;
-        this.view.activeKey = null;
-        this.view.waiting = false;
-        if (!this.stopped) {
-          this.view.lastDurationMs = Math.max(0, this.now() - start);
-          this.options.settled?.();
-          this.options.changed?.();
-          this.wake();
-        }
-      }
-    }
-    stop() {
-      this.stopped = true;
-      if (this.timer) clearTimeout(this.timer);
-      if (this.warning) clearTimeout(this.warning);
-      this.controller.stopRemote();
-    }
-  };
-
   // Clients/Obsidian/syncStatus.ts
-  var syncKey = (id) => /^(work|event|delete):/.test(id) ? id : `work:${id}`;
+  var syncKey = (id) => /^(work|event|delete|reminder):/.test(id) ? id : `work:${id}`;
   function pendingView(state, sync) {
     const items = [
       ...state.records.filter((r3) => r3.status !== "saved").map((r3) => ({ id: r3.id, key: `work:${r3.id}`, title: r3.edit?.title || r3.title, value: r3, canKeep: !r3.edit && r3.completeTask && !r3.taskSaved && r3.segments.every((p3) => p3.saved), canResolveMissing: false })),
@@ -30575,7 +31046,7 @@ ${DIARY_END}
     ];
     return items.map(({ value, ...item }) => {
       const working = sync?.activeKey === item.key;
-      const status = working ? sync?.waiting ? "\u7B49\u5F85 FCR \u54CD\u5E94\uFF0C\u672C\u5730\u64CD\u4F5C\u4ECD\u53EF\u7EE7\u7EED" : "\u6B63\u5728\u540C\u6B65" : value.sync?.issue === "auth" ? "\u7B49\u5F85\u65E5\u5386\u6388\u6743" : value.sync?.issue === "conflict" ? "\u9700\u8981\u6838\u5BF9" : value.sync?.issue === "network" ? "\u7B49\u5F85\u81EA\u52A8\u91CD\u8BD5" : value.error ? "\u4E0A\u6B21\u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u91CD\u8BD5" : "\u672C\u673A\u5DF2\u4FDD\u5B58\uFF0C\u7B49\u5F85\u540C\u6B65";
+      const status = working ? sync?.waiting ? "\u7B49\u5F85\u4E91\u7AEF\u54CD\u5E94\uFF0C\u672C\u5730\u64CD\u4F5C\u4ECD\u53EF\u7EE7\u7EED" : "\u6B63\u5728\u540C\u6B65" : value.sync?.issue === "auth" ? "\u7B49\u5F85\u65E5\u5386\u6388\u6743" : value.sync?.issue === "conflict" ? "\u9700\u8981\u6838\u5BF9" : value.sync?.issue === "network" ? "\u7B49\u5F85\u81EA\u52A8\u91CD\u8BD5" : value.error ? "\u4E0A\u6B21\u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u91CD\u8BD5" : "\u672C\u673A\u5DF2\u4FDD\u5B58\uFF0C\u7B49\u5F85\u540C\u6B65";
       return { ...item, working, status, error: value.error ? `\u4E0A\u6B21\u540C\u6B65\u9519\u8BEF\uFF1A${value.error}` : "" };
     });
   }
@@ -30676,13 +31147,13 @@ ${DIARY_END}
     if (offline) throw new Error("\u6A21\u62DF\u65AD\u7F51\uFF1A\u64CD\u4F5C\u5DF2\u4FDD\u5B58\u5728\u672C\u673A\uFF0C\u8054\u7F51\u540E\u53EF\u91CD\u8BD5\u3002");
   };
   var api = {
-    getCalendarSources: () => clone2(calendars),
+    getCalendarSources: () => clone(calendars),
     getProviderCapabilities: () => ({ canCreate: true, canEdit: true, canDelete: true }),
-    getAllEvents: () => calendars.map((c3) => ({ ...c3, events: entries.filter((e3) => e3.calendarId === c3.id).map((e3) => ({ id: e3.id, event: clone2(e3.event) })) })),
+    getAllEvents: () => calendars.map((c3) => ({ ...c3, events: entries.filter((e3) => e3.calendarId === c3.id).map((e3) => ({ id: e3.id, event: clone(e3.event) })) })),
     getEvents: () => entries.map((e3) => ({ id: e3.id, startMillis: +/* @__PURE__ */ new Date(`${e3.event.date}T${e3.event.startTime}${e3.event.timezone === "UTC" ? "Z" : ""}`), endMillis: +/* @__PURE__ */ new Date(`${e3.event.endDate || e3.event.date}T${e3.event.endTime}${e3.event.timezone === "UTC" ? "Z" : ""}`), isTask: false })),
     createEvent: async (calendarId, event) => {
       await effect();
-      entries.push({ id: uid(), calendarId, event: clone2(event) });
+      entries.push({ id: uid(), calendarId, event: clone(event) });
       write();
       return true;
     },
@@ -30690,7 +31161,7 @@ ${DIARY_END}
       await effect();
       const found = entries.find((e3) => e3.id === id);
       if (!found) return false;
-      found.event = clone2(event);
+      found.event = clone(event);
       write();
       return true;
     },
@@ -30780,7 +31251,7 @@ ${DIARY_END}
       return false;
     }
   }
-  var taskSeeds = new Map(tasks.map((t3) => [t3.id, clone2(t3)]));
+  var taskSeeds = new Map(tasks.map((t3) => [t3.id, clone(t3)]));
   timerApi = new TimerApi({
     controller,
     execute,
@@ -30798,7 +31269,7 @@ ${DIARY_END}
         render();
       }
       if (!found) throw new Error("\u4EFB\u52A1\u4E0D\u5B58\u5728");
-      return clone2(found);
+      return clone(found);
     },
     prepare: async (task) => {
       bridge.assertWritable(task.calendarId || defaultCalendarId);
@@ -30986,7 +31457,7 @@ ${DIARY_END}
       write();
     }, async () => {
       if (controller.state.active?.task.id === task.id) throw new Error("\u8BF7\u5148\u7ED3\u675F\u8FD9\u9879\u4EFB\u52A1\u7684\u8BA1\u65F6\uFF0C\u518D\u5220\u9664\u5F85\u529E\u3002");
-      taskSeeds.set(task.id, clone2(task));
+      taskSeeds.set(task.id, clone(task));
       tasks = tasks.filter((t3) => t3.id !== task.id);
       write();
     }),
@@ -31063,8 +31534,12 @@ ${DIARY_END}
     document.querySelector("#app").style.display = "none";
     window.__diaryPreview = diaryFixture();
   }
-  if (new URLSearchParams(location.search).has("components")) window.__preview.native = componentsFixture(timerApi, {
+  if (new URLSearchParams(location.search).has("components") && !new URLSearchParams(location.search).has("reminders")) window.__preview.native = componentsFixture(timerApi, {
     "research.md": taskRef(tasks.find((t3) => t3.id === "t1")),
     "reading.md": taskRef(tasks.find((t3) => t3.id === "t2"))
   });
+  if (new URLSearchParams(location.search).has("reminders")) {
+    ui.destroy();
+    window.__remindersPreview = reminderFixture(mountTimerView(document.querySelector("#app")));
+  }
 })();

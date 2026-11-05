@@ -12,7 +12,7 @@ function toolButton(parent: HTMLElement, label: string, action: () => void, path
   for(const d of paths){const path=parent.ownerDocument.createElementNS(svg.namespaceURI,"path");path.setAttribute("d",d);svg.append(path);}b.append(svg);return b;
 }
 export interface ViewModel {
-  connected: boolean; busy: boolean; error: string; calendars: Calendar[]; sources: Calendar[];
+  taskCategories?:Calendar[]; defaultTaskCategoryId?:string; connected: boolean; busy: boolean; error: string; calendars: Calendar[]; sources: Calendar[];
   defaultCalendarId: string; active: Session | null; tasks: Task[]; date: string; rows: TimelineRow[];
   pending: { id: string; title: string; error: string; canKeep: boolean; canResolveMissing?: boolean; working?: boolean; status?: string }[];
   sync?: SyncView;
@@ -128,7 +128,7 @@ export class TimerUI {
     this.sortNotice = el(tasks, "div", "ctt-sort-notice"); this.sortNotice.setAttribute("role", "status"); this.sortNotice.setAttribute("aria-live", "polite");
     this.tabs = el(tasks, "div", "ctt-tabs"); this.tabs.setAttribute("aria-label", "待办分类筛选");
     this.filterMenu=el(taskTools,"details","ctt-filter-menu");this.filterSummary=el(this.filterMenu,"summary","ctt-filter-summary","筛选");this.filterSummary.setAttribute("aria-label","筛选待办");const filters=el(this.filterMenu,"div","ctt-task-filters");
-    for(const [key,label,choices] of [["association","关联筛选",{"all":"全部关联","linked":"Components 已关联","unlinked":"未关联"}],["status","完成状态",{"open":"未完成","done":"已完成","all":"全部状态"}],["due","截止日期筛选",{"all":"全部截止日期","today":"今天截止","overdue":"已逾期","none":"无截止日期","date":"指定截止日期"}]] as const){const select=el(filters,"select");select.setAttribute("aria-label",label);for(const [value,text] of Object.entries(choices))el(select,"option","",text).value=value;select.value=this.filters[key];select.onchange=()=>{(this.filters as any)[key]=select.value;this.filterDate.hidden=this.filters.due!=="date";this.updateFilterSummary();this.renderTasks();this.tick();};}
+    for(const [key,label,choices] of [["source","待办来源",{"all":"全部来源","local":"本地待办","reminder":"iCloud 提醒事项"}],["association","关联筛选",{"all":"全部关联","linked":"Components 已关联","unlinked":"未关联"}],["status","完成状态",{"open":"未完成","done":"已完成","all":"全部状态"}],["due","截止日期筛选",{"all":"全部截止日期","today":"今天截止","overdue":"已逾期","none":"无截止日期","date":"指定截止日期"}]] as const){const select=el(filters,"select");select.setAttribute("aria-label",label);for(const [value,text] of Object.entries(choices))el(select,"option","",text).value=value;select.value=this.filters[key]||"all";select.onchange=()=>{(this.filters as any)[key]=select.value;this.filterDate.hidden=this.filters.due!=="date";this.updateFilterSummary();this.renderTasks();this.tick();};}
     this.filterDate=el(filters,"input");this.filterDate.type="date";this.filterDate.value=this.filters.date;this.filterDate.hidden=true;this.filterDate.setAttribute("aria-label","指定截止日期");this.filterDate.onchange=()=>{this.filters.date=this.filterDate.value;this.renderTasks();this.tick();};
     const taskScroll = el(tasks, "div", "ctt-task-scroll"); taskScroll.setAttribute("aria-label", "待办内容");
     const form = el(taskScroll, "form", "ctt-inbox"); this.taskTitle = el(form, "input", "ctt-new-title"); this.taskTitle.placeholder = "添加一件要做的事…"; this.taskTitle.setAttribute("aria-label", "新待办名称"); this.taskTitle.required = true;
@@ -164,9 +164,9 @@ export class TimerUI {
     this.started.textContent = m.active ? `开始于 ${dateParts(m.active.startedAt).date.slice(5)} ${dateParts(m.active.startedAt).time.slice(0, 5)}` : "";
     options(this.category, m.calendars, m.active?.calendarId || "");
     const draft = this.newCategory.value;
-    options(this.newCategory, m.calendars, (!old || !draft || (old.defaultCalendarId !== m.defaultCalendarId && !this.taskTitle.value)) ? (this.filter || m.defaultCalendarId) : draft);
+    options(this.newCategory, m.taskCategories||m.calendars, (!old || !draft || (old.defaultCalendarId !== m.defaultCalendarId && !this.taskTitle.value)) ? (this.filter || m.defaultTaskCategoryId || m.defaultCalendarId) : draft);
     if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m.date;
-    if (JSON.stringify(old?.calendars) !== JSON.stringify(m.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m.categoryPreferences)) this.renderTabs();
+    if (JSON.stringify(old?.taskCategories||old?.calendars) !== JSON.stringify(m.taskCategories||m.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m.categoryPreferences)) this.renderTabs();
     if(this.page==="tasks"){this.renderTasks();}else if(this.page==="timer"){this.renderRows();}else if(this.page==="calendar")this.calendar?.activate();
     this.syncMenu.hidden = !m.pending.length && !m.sync?.error;
     this.syncSummary.textContent = `${m.sync?.activeKey ? "↻" : m.pending.some(p => p.error) || m.sync?.error ? "!" : "↑"} ${m.pending.length}`;
@@ -190,27 +190,27 @@ export class TimerUI {
       node.keep.hidden = !p.canKeep; node.cleanup.hidden = !p.canResolveMissing;
       node.retry.disabled = node.keep.disabled = node.cleanup.disabled = !!p.working || m.busy || !m.connected;
     }
-    for (const b of this.controls.querySelectorAll("button")) b.disabled = m.busy;
+    for (const b of this.controls.querySelectorAll("button")){b.disabled = m.busy || (b.textContent==="结束并完成"&&!!m.active?.task.readonlyReason);if(b.textContent==="结束并完成")b.title=m.active?.task.readonlyReason||"";}
     this.category.disabled = m.busy; this.started.disabled = m.busy;
     this.tick();
   }
   private renderTabs() {
-    const sources = orderedCategories(this.model.calendars, this.model.categoryPreferences, true); if (this.filter && !sources.some(c => c.id === this.filter)) { this.filter = ""; this.resetDraftCategory(); }
+    const sources = orderedCategories(this.model.taskCategories||this.model.calendars, this.model.categoryPreferences, true); if (this.filter && !sources.some(c => c.id === this.filter)) { this.filter = ""; this.resetDraftCategory(); }
     this.tabs.replaceChildren();
     for (const c of [{ id: "", name: "全部" }, ...sources]) {
       const b = button(this.tabs, c.name, () => { this.filter = c.id; this.resetDraftCategory(); this.renderTabs(); this.renderTasks(); this.tick(); }, "ctt-tab");
       b.classList.toggle("is-selected", c.id === this.filter); b.setAttribute("aria-pressed", String(c.id === this.filter));
     }
   }
-  private updateFilterSummary() { const count=Number(this.filters.association!=="all")+Number(this.filters.status!=="open")+Number(this.filters.due!=="all");this.filterSummary.textContent=count?`筛选 · ${count}`:"筛选"; }
-  private resetDraftCategory() { options(this.newCategory, this.model.calendars, this.filter || this.model.defaultCalendarId); }
+  private updateFilterSummary() { const count=Number(this.filters.source!==undefined&&this.filters.source!=="all")+Number(this.filters.association!=="all")+Number(this.filters.status!=="open")+Number(this.filters.due!=="all");this.filterSummary.textContent=count?`筛选 · ${count}`:"筛选"; }
+  private resetDraftCategory() { options(this.newCategory, this.model.taskCategories||this.model.calendars, this.filter || this.model.defaultTaskCategoryId || this.model.defaultCalendarId); }
   private taskSession(task: Task) {
     const active = this.model.active;
     return active && active.task.kind === task.kind && active.task.id === task.id &&
-      (task.kind === "local" ? active.task.path === task.path : active.task.calendarId === task.calendarId) ? active : null;
+      (task.kind === "fcr" ? active.task.calendarId === task.calendarId : active.task.path === task.path) ? active : null;
   }
   private renderTasks() {
-    const m = this.model, manual = taskSort(m.taskSort) === "manual" && this.filters.status==="open", linked=new Set((m.linkedTasks || []).map(refKey)), tasks = sortedTasks(filterTasks(m.tasks,this.filters,linked).filter(t => !this.filter || (t.calendarId || m.defaultCalendarId) === this.filter), taskSort(m.taskSort));
+    const m = this.model, manual = taskSort(m.taskSort) === "manual" && this.filters.status==="open", linked=new Set((m.linkedTasks || []).map(refKey)), tasks = sortedTasks(filterTasks(m.tasks,this.filters,linked).filter(t => !this.filter || (t.kind==="reminder"?t.listId:t.calendarId||m.defaultCalendarId) === this.filter), taskSort(m.taskSort));
     const ids = tasks.map(t => t.id);
     const visibleIds = new Set(ids);
     for (const [id, item] of this.taskNodes) if (!visibleIds.has(id)) { item.root.remove(); this.taskNodes.delete(id); }
@@ -254,9 +254,9 @@ export class TimerUI {
       item.root.dataset.timerState = active ? paused ? "paused" : "running" : "idle";
       item.root.classList.toggle("is-timing", !!active); item.root.classList.toggle("is-paused", paused);
       item.text.textContent = task.title; item.text.onclick = () => this.actions.editTask(task);
-      item.check.setAttribute("aria-label", `${task.completed?"恢复":"完成"} ${task.title}`); item.check.checked = task.completed; item.check.disabled = m.busy || !!active;
+      item.check.setAttribute("aria-label", `${task.completed?"恢复":"完成"} ${task.title}`); item.check.checked = task.completed; item.check.disabled = m.busy || !!active || !!task.readonlyReason || !!task.pending;
       item.check.onchange = () => this.actions.complete(task);
-      item.meta.textContent = [category?.name || "选择分类", task.due].filter(Boolean).join(" · "); item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
+      item.meta.textContent = [task.kind==="reminder"?(m.taskCategories?.find(c=>c.id===task.listId)?.name||"iCloud"):`本地 · ${category?.name||"选择分类"}`, task.due,task.dueInstant!=null?dateParts(task.dueInstant,task.dueZone||"UTC").time.slice(0,5):"",task.readonlyReason,task.pending?"待同步":""].filter(Boolean).join(" · "); item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
       if(task.completed){const completion=(m.completions || []).filter(e=>refKey(e.task)===refKey(task)).at(-1);item.meta.textContent+=completion?` · 插件完成于 ${dateParts(completion.completedAt).date} ${dateParts(completion.completedAt).time.slice(0,5)}`:" · 完成时间未知";}
       const label = active ? paused ? "继续计时" : "暂停计时" : "开始计时";
       item.start.textContent = active && !paused ? "Ⅱ" : "▷"; item.start.title = label; item.start.setAttribute("aria-label", label);

@@ -2,7 +2,7 @@ import { sameTask, type ActionResult, type TaskRef, type TimerState } from "./ap
 import type { TaskSeed } from "./journal";
 export function componentTaskSnapshots(value: unknown): Record<string,TaskSeed> {
   if(!value||typeof value!=="object"||Array.isArray(value))return {};
-  return Object.fromEntries(Object.entries(value).flatMap(([note,v])=>{const s=v as TaskSeed;return note.endsWith(".md")&&s&&typeof s.title==="string"&&s.title.trim()&&typeof s.calendarId==="string"&&(!s.due||typeof s.due==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(s.due))?[[note,{title:s.title,due:s.due||"",calendarId:s.calendarId}]]:[];}));
+  return Object.fromEntries(Object.entries(value).flatMap(([note,v])=>{const s=v as TaskSeed;return note.endsWith(".md")&&s&&typeof s.title==="string"&&s.title.trim()&&typeof s.calendarId==="string"&&(!s.due||typeof s.due==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(s.due))?[[note,{title:s.title,due:s.due||"",calendarId:s.calendarId,listId:typeof s.listId==="string"?s.listId:undefined,description:typeof s.description==="string"?s.description:undefined,dueInstant:typeof s.dueInstant==="number"?s.dueInstant:undefined,dueZone:typeof s.dueZone==="string"?s.dueZone:undefined}]]:[];}));
 }
 
 /** Expected identity is captured when the native button is painted/clicked, before async work. */
@@ -43,7 +43,7 @@ export function componentTaskBindings(value: unknown): Record<string, TaskRef> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).flatMap(([note, input]) => {
     const ref = input as Partial<TaskRef> | null;
-    if (!note.endsWith(".md") || !ref || ref.kind !== "local" || typeof ref.path !== "string" || !ref.path || typeof ref.id !== "string" || !ref.id) return [];
-    return [[note, { kind: "local", path: ref.path, id: ref.id }]];
+    if (!note.endsWith(".md") || !ref || !["local","reminder"].includes(ref.kind || "") || typeof ref.path !== "string" || !ref.path || typeof ref.id !== "string" || !ref.id) return [];
+    return [[note, { kind: ref.kind as TaskRef["kind"], path: ref.path, id: ref.id }]];
   }));
 }

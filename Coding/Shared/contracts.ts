@@ -1,6 +1,6 @@
 export interface Task {
   id: string; title: string; due?: string; completed: boolean;
-  kind: "local" | "fcr"; path?: string; calendarId?: string; uid?: string;
+  kind: "local" | "fcr" | "reminder"; accountId?: string; listId?: string; description?: string; dueInstant?: number | null; dueZone?: string | null; completedAt?: number | null; revision?: string; parentId?: string; readonlyReason?: string; pending?: boolean; path?: string; calendarId?: string; uid?: string;
 }
 export interface Calendar { id: string; name: string; color?: string; type?: string }
 export interface CalendarEvent {

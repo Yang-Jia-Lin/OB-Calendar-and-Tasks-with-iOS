@@ -6,7 +6,7 @@ const browser=await chromium.launch({executablePath:process.env.CTT_CHROME||'C:/
 const page=await browser.newPage({viewport:{width:1440,height:1000},timezoneId:'Asia/Shanghai'}),checks=[],errors=[];
 page.on('pageerror',e=>errors.push(e.message));const check=(n,v)=>{assert.ok(v,n);checks.push(n);};
 const tab=n=>page.getByRole('tab',{name:n,exact:true});
-const setFilter=async(label,value)=>{if(!await page.getByLabel(label,{exact:true}).isVisible())await page.getByLabel("筛选待办",{exact:true}).click();await page.getByLabel(label,{exact:true}).selectOption(value);};
+const setFilter=async(label,value)=>{if(!await page.getByLabel(label,{exact:true}).isVisible())await page.getByLabel("筛选待办",{exact:true}).click();await page.getByLabel(label,{exact:true}).selectOption(value);await page.getByLabel("筛选待办",{exact:true}).click();};
 const row=id=>page.locator(`.ctt-task-row[data-task-id="${id}"]`);
 const settle=()=>page.waitForFunction(()=>!document.querySelector('.ctt-timer').getAnimations().some(a=>a.playState==='running'));
 await page.addInitScript(()=>{const create=window.setInterval.bind(window),clear=window.clearInterval.bind(window),active=new Set();window.setInterval=(...args)=>{const id=create(...args);active.add(id);return id;};window.clearInterval=id=>{active.delete(id);return clear(id);};window.__intervalCount=()=>active.size;});

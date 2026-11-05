@@ -1,3 +1,4 @@
+import type { ReminderSettings } from "../../Providers/Reminders/provider";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { blankJournal, validateJournal } from "../../Shared/timer";
@@ -8,7 +9,7 @@ import type { TaskRef } from "./api";
 import type { CalendarSource, CalendarPreferences } from "../../Providers/Calendar/config";
 import type { AppPage, SessionStore } from "../../Shared/application";
 type WriterSlot = { owner: symbol; tail: Promise<void> };
-export type TaskSeed = Pick<Task,"title"|"due"|"calendarId">;
+export type TaskSeed = Pick<Task,"title"|"due"|"calendarId"|"listId"|"description"|"dueInstant"|"dueZone">;
 const writerKey = Symbol.for("calendar-task-timer.journal-writers.v1");
 const writers: Map<string, WriterSlot> = (globalThis as any)[writerKey] ||= new Map();
 export class JournalStore implements SessionStore {
@@ -46,7 +47,7 @@ export class JournalStore implements SessionStore {
     await fs.rename(temp, this.file); this.lastGood = raw;
   }
 }
-export interface Settings extends CategoryPreferences { calendarSources?:CalendarSource[]; calendarPreferences?:CalendarPreferences; calendarMigration?:string; defaultCalendarId: string; tasksPath: string; importedLegacy: boolean; fontSize?: number; fontWeight?: number; taskSort?: TaskSort; componentTaskBindings?: Record<string, TaskRef>; componentTaskSnapshots?: Record<string, TaskSeed>; diaryFolder?: string; diaryLayoutPath?: string; appPage?: AppPage; focusPins?: TaskRef[]; focusLimit?: number }
+export interface Settings extends CategoryPreferences { reminders?:ReminderSettings; calendarSources?:CalendarSource[]; calendarPreferences?:CalendarPreferences; calendarMigration?:string; defaultCalendarId: string; tasksPath: string; importedLegacy: boolean; fontSize?: number; fontWeight?: number; taskSort?: TaskSort; componentTaskBindings?: Record<string, TaskRef>; componentTaskSnapshots?: Record<string, TaskSeed>; diaryFolder?: string; diaryLayoutPath?: string; appPage?: AppPage; focusPins?: TaskRef[]; focusLimit?: number }
 export function prepareLegacyImport(legacySettings: Record<string, unknown>, raw: unknown, current: Journal, legacyEnabled: boolean) {
   if (legacyEnabled) throw new Error("请先停止旧版计时，并在第三方插件中禁用“简洁待办计时”。");
   if (current.active || current.records.length || current.operations.length || current.deletions?.length) throw new Error("新版已有记录，不能覆盖导入。请保留当前日志。");

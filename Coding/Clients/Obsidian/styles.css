@@ -209,3 +209,6 @@
 /* Each tab has one content scroller; history belongs to the timer page. */
 .ctt-tasks-page .ctt-body { display:block; min-height:0; }
 .ctt-timer-page > .ctt-timeline { width:100%; }
+
+.ctt-migration-row { padding:12px 0; border-bottom:1px solid var(--ctt-border); }
+.ctt-migration-row label { display:flex; gap:8px; align-items:center; }

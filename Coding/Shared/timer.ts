@@ -126,7 +126,7 @@ export class TimerController {
     await this.commit({ ...this.state, active: s });
   }); }
   finish(completeTask = true, expectedId?: string) { return this.lock(async () => {
-    this.checkSession(expectedId);
+    this.checkSession(expectedId);if(completeTask&&this.state.active?.task.readonlyReason)throw new Error(this.state.active.task.readonlyReason);
     const now = this.now(), s = pauseSession(this.state.active, now);
     const segments = s.segments.filter(p => p.end - p.start >= 1000).map((p, i) => ({ ...p, uid: `simple-task-timer-${s.id}-${i}`, saved: false }));
     validateSegments(segments, now);

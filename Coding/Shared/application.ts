@@ -2,7 +2,7 @@ import { clone, type Calendar, type Journal, type Session, type Task, type Timel
 import { dayKey } from "./time";
 
 export type AppPage = "timer" | "tasks" | "calendar";
-export interface TaskRef { kind: "local"; path: string; id: string }
+export interface TaskRef { kind: "local" | "reminder"; path: string; id: string }
 export interface TaskCompletion { id: string; task: TaskRef; title: string; calendarId: string; completedAt: number }
 export interface SessionStore { load(): Promise<Journal>; save(state: Journal): Promise<void> }
 export interface TaskRepository {
@@ -23,20 +23,20 @@ export interface ApplicationActions {
   date(value: string): void;
   add(title: string, due: string, category: string): Promise<boolean>;
 }
-export interface TaskFilters { association: "all" | "linked" | "unlinked"; status: "open" | "done" | "all"; due: "all" | "today" | "overdue" | "none" | "date"; date: string }
-export const defaultFilters = (): TaskFilters => ({ association: "all", status: "open", due: "all", date: dayKey() });
+export interface TaskFilters { association: "all" | "linked" | "unlinked"; status: "open" | "done" | "all"; source?: "all" | "local" | "reminder"; due: "all" | "today" | "overdue" | "none" | "date"; date: string }
+export const defaultFilters = (): TaskFilters => ({ source:"all",association: "all", status: "open", due: "all", date: dayKey() });
 export const refKey = (task: Pick<Task, "kind" | "path" | "id">) => JSON.stringify([task.kind, task.path || "", task.id]);
 export const appPage = (value: unknown): AppPage => value === "timer" || value === "calendar" ? value : "tasks";
 export const focusLimit = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(10, Math.round(value))) : 5;
 export function focusRefs(value: unknown): TaskRef[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
-  return value.flatMap(r => { if (r?.kind !== "local" || typeof r.path !== "string" || !r.path || typeof r.id !== "string" || !r.id) return []; const key = refKey(r); if (seen.has(key)) return []; seen.add(key); return [{kind:"local" as const,path:r.path,id:r.id}]; });
+  return value.flatMap(r => { if (!["local","reminder"].includes(r?.kind) || typeof r.path !== "string" || !r.path || typeof r.id !== "string" || !r.id) return []; const key = refKey(r); if (seen.has(key)) return []; seen.add(key); return [{kind:r.kind as TaskRef["kind"],path:r.path,id:r.id}]; });
 }
 export function filterTasks(tasks: Task[], filters: TaskFilters, linked: Set<string>, today = dayKey()) {
-  return tasks.filter(t => (filters.status === "all" || t.completed === (filters.status === "done")) &&
+  return tasks.filter(t => (!filters.source||filters.source==="all"||t.kind===filters.source) && (filters.status === "all" || t.completed === (filters.status === "done")) &&
     (filters.association === "all" || linked.has(refKey(t)) === (filters.association === "linked")) &&
-    (filters.due === "all" || filters.due === "none" && !t.due || filters.due === "today" && t.due === today || filters.due === "overdue" && !!t.due && t.due < today || filters.due === "date" && t.due === filters.date));
+    (filters.due === "all" || filters.due === "none" && !t.due || filters.due === "today" && t.due === today || filters.due === "overdue" && (t.dueInstant!=null?t.dueInstant<Date.now():!!t.due&&t.due<today) || filters.due === "date" && t.due === filters.date));
 }
 export function focusTasks(tasks: Task[], pins: TaskRef[], limit = 5, today = dayKey()) {
   const available = new Map(tasks.filter(t => !t.completed).map(t => [refKey(t), t])), selected = new Map<string, Task>();

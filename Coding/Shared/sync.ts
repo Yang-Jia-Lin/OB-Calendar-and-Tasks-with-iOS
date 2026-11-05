@@ -10,7 +10,7 @@ export class SyncWorker {
   private stopped = false;
   private running = false;
   private pauseUntil = 0;
-  constructor(private controller: TimerController, private options: { enabled: () => boolean; changed?: () => void; settled?: () => void; now?: () => number; delayMs?: number; slowMs?: number; channel?: string }) {}
+  constructor(private controller: Pick<TimerController,"jobs"|"sync"|"requestRetry"|"stopRemote">, private options: { enabled: () => boolean; changed?: () => void; settled?: () => void; now?: () => number; delayMs?: number; slowMs?: number; channel?: string }) {}
   private now() { return this.options.now?.() ?? Date.now(); }
   private eligible() {
     return this.controller.jobs().filter(({ value: j }) => {
@@ -38,7 +38,7 @@ export class SyncWorker {
     if (!job) { this.wake(); return; }
     const channel = this.options.channel, previous = channel ? leases.get(channel) : undefined;
     if (previous) {
-      this.running = true; this.view.waiting = true; this.view.error = "等待上一插件实例的 FCR 请求结束，本地计时仍可继续。"; this.options.changed?.();
+      this.running = true; this.view.waiting = true; this.view.error = "等待上一插件实例的同步请求结束，本地计时仍可继续。"; this.options.changed?.();
       await previous.done; this.running = false;
       if (!this.stopped) { this.view.waiting = false; this.view.error = ""; this.options.changed?.(); this.wake(); } return;
     }

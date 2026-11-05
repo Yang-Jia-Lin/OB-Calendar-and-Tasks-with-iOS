@@ -14,7 +14,7 @@ export type ActionResult = { ok: true; sessionId: string; recordId?: string; pen
 class EntryError extends Error {
   constructor(readonly code: Extract<ActionResult, { ok: false }>["code"], message: string) { super(message); }
 }
-export const taskRef = (task: Task): TaskRef => ({ kind: "local", path: task.path || "", id: task.id });
+export const taskRef = (task: Task): TaskRef => ({ kind: task.kind === "reminder" ? "reminder" : "local", path: task.path || "", id: task.id });
 export const sameTask = (task: Task, ref: TaskRef) => task.kind === ref.kind && task.path === ref.path && task.id === ref.id;
 
 /** Local host API v1. No calendar credentials, mutable journal, or remote calls are exposed. */
@@ -60,12 +60,12 @@ export class TimerApi {
     this.serial = result; return result;
   }
   start(ref: TaskRef, context?: EntryContext) { return this.action(async () => {
-    if (!ref || ref.kind !== "local" || !ref.id || !ref.path) throw new EntryError("invalid-task", "请提供待办文件路径和稳定任务 ID。");
+    if (!ref || !["local","reminder"].includes(ref.kind) || !ref.id || !ref.path) throw new EntryError("invalid-task", "请提供待办文件路径和稳定任务 ID。");
     const current = await this.host.resolve(ref,context);
     if (current.completed) throw new EntryError("invalid-task", "此任务已完成，请选择未完成任务。");
     const active = this.host.controller.state.active;
     if (active) {
-      if (sameTask(active.task, ref)) return { ok: true, sessionId: active.id };
+      if (sameTask(active.task, taskRef(current))) return { ok: true, sessionId: active.id };
       throw new EntryError("active-session", `正在计时「${active.title}」，请先明确结束该会话再切换任务。`);
     }
     const task = await this.host.prepare(current);

@@ -1,0 +1,35 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { createHash, randomUUID } from "node:crypto";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createInterface } from "node:readline";
+import { get } from "node:https";
+import helperSource from "../../Providers/Reminders/helper.py";
+import requirements from "../../Probes/IcloudReminders/requirements.lock.txt";
+import type { ReminderData, ReminderRpc } from "../../Providers/Reminders/provider";
+const powershell=path.join(process.env.SystemRoot||"C:/Windows","System32","WindowsPowerShell","v1.0","powershell.exe");
+const SHA="af5246511c729eee4d5a95671135ad75fdd77b22",ARCHIVE_HASH="88b26bf63f875669874c8e0d4bf4f81defc654d779a862218ba72fc98181ccb8";
+function command(exe:string,args:string[],env:Record<string,string>={}){return new Promise<void>((resolve,reject)=>{const p=spawn(exe,args,{windowsHide:true,stdio:"ignore",env:{...process.env,...env}});p.once("error",()=>reject(new Error("无法准备提醒事项环境，请确认已安装 Python 3.13。")));p.once("exit",code=>code===0?resolve():reject(new Error("提醒事项环境准备失败，请检查网络及 Python 3.13 后重试。")));});}
+function download(url:string):Promise<Buffer>{return new Promise((resolve,reject)=>{const req=get(url,r=>{if(r.statusCode!==200){r.resume();reject(new Error("提醒事项 SDK 下载失败。"));return;}const chunks:Buffer[]=[];r.on("data",x=>chunks.push(x));r.on("end",()=>resolve(Buffer.concat(chunks)));r.on("error",reject);});req.setTimeout(60000,()=>req.destroy(new Error("SDK 下载超时。")));req.on("error",reject);});}
+export class ReminderRuntime implements ReminderRpc {
+ readonly root:string;private child?:ChildProcessWithoutNullStreams;private preparing?:Promise<void>;private starting?:Promise<void>;private closed=false;private requests=new Map<string,{resolve:(v:any)=>void;reject:(e:Error)=>void}>();
+ constructor(root=path.join(process.env.LOCALAPPDATA||os.homedir(),"CalendarTaskTimer","Reminders")){this.root=root;}
+ async prepare(){if(this.preparing)return this.preparing;const p=(async()=>{await fs.mkdir(this.root,{recursive:true});const privateDir=path.join(this.root,"private");await fs.mkdir(privateDir,{recursive:true});
+ await command(powershell,["-NoProfile","-NonInteractive","-Command",'$p=$env:CTT_RUNTIME_PRIVATE;$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;& icacls.exe $p /inheritance:r /grant:r "*${sid}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F";exit $LASTEXITCODE'],{CTT_RUNTIME_PRIVATE:privateDir});
+ const sdk=path.join(this.root,"sdk"),source=path.join(sdk,`pyicloud-${SHA}`);try{await fs.access(path.join(source,"pyicloud","__init__.py"));}catch{const archive=path.join(this.root,"sdk.zip"),buffer=await download(`https://codeload.github.com/timlaing/pyicloud/zip/${SHA}`);if(createHash("sha256").update(buffer).digest("hex")!==ARCHIVE_HASH)throw new Error("提醒事项 SDK 校验失败，停止安装。");await fs.writeFile(archive,buffer);await fs.mkdir(sdk,{recursive:true});await command(powershell,["-NoProfile","-NonInteractive","-Command","Expand-Archive -LiteralPath $env:CTT_RUNTIME_ARCHIVE -DestinationPath $env:CTT_RUNTIME_SDK -Force"],{CTT_RUNTIME_ARCHIVE:archive,CTT_RUNTIME_SDK:sdk});}
+ const python=path.join(this.root,"venv","Scripts","python.exe");try{await fs.access(python);}catch{let prepared=false;for(const [exe,prefix]of [["py",["-3.13"]],["python",[]],[path.join(process.env.LOCALAPPDATA||"","Programs","Python","Python313","python.exe"),[]]] as [string,string[]][]){try{await command(exe,[...prefix,"-c","import sys; assert sys.version_info[:2] == (3,13)"]);await command(exe,[...prefix,"-m","venv",path.join(this.root,"venv")]);prepared=true;break;}catch{}}if(!prepared)throw new Error("没有可用的 Python 3.13，请安装后重新连接。");}
+ const lockHash=createHash("sha256").update(requirements).digest("hex"),marker=path.join(this.root,"dependencies.json");let ready=false;try{ready=JSON.parse(await fs.readFile(marker,"utf8")).hash===lockHash;}catch{}
+ if(!ready){const lock=path.join(this.root,"requirements.txt");await fs.writeFile(lock,requirements);await command(python,["-m","pip","install","--disable-pip-version-check","-r",lock]);await fs.writeFile(marker,JSON.stringify({hash:lockHash,sdk:SHA}));}
+ await fs.writeFile(path.join(this.root,"helper.py"),helperSource,"utf8");})();this.preparing=p;try{await p;}finally{this.preparing=undefined;}}
+ private async start(){if(this.child&&!this.child.killed)return;if(this.starting)return this.starting;if(this.closed)throw new Error("提醒事项组件已关闭。");const p=(async()=>{await this.prepare();if(this.closed)throw new Error("提醒事项组件已关闭。");const child=spawn(path.join(this.root,"venv","Scripts","python.exe"),["-X","utf8","-u",path.join(this.root,"helper.py"),this.root],{windowsHide:true,stdio:["pipe","pipe","pipe"],env:{...process.env,PYTHONUTF8:"1"}});this.child=child;child.stderr.resume();const lines=createInterface({input:child.stdout});lines.on("line",line=>{try{const r=JSON.parse(line),pending=this.requests.get(r.id);if(!pending)return;this.requests.delete(r.id);if(r.error)pending.reject(Object.assign(new Error(r.error),{name:r.errorType||"Error"}));else pending.resolve(r.result);}catch{}});const ended=()=>{if(this.child===child)this.child=undefined;for(const r of this.requests.values())r.reject(new Error("提醒事项后台组件已停止，操作已保留，可重试。"));this.requests.clear();lines.close();};child.once("exit",ended);child.once("error",ended);})();this.starting=p;try{await p;}finally{this.starting=undefined;}}
+ async call(method:string,args:any={}){await this.start();return new Promise<any>((resolve,reject)=>{const id=randomUUID();this.requests.set(id,{resolve,reject});this.child!.stdin.write(JSON.stringify({id,method,args})+"\n",error=>{if(error){this.requests.delete(id);reject(new Error("提醒事项组件未连接。"));}});});}
+ stop(){this.closed=true;this.child?.stdin.end();/* Let the bounded remote request finish; no duplicate write on reload. */}
+}
+type Slot={owner:symbol;tail:Promise<unknown>};const slots:Map<string,Slot>=((globalThis as any)[Symbol.for("ctt.reminder.stores")]??=new Map());
+export class ReminderStore {private slot:Slot;private owner=Symbol();private stopped=false;
+ constructor(private file:string){const key=path.resolve(file).toLowerCase();this.slot=slots.get(key)||{owner:this.owner,tail:Promise.resolve()};this.slot.owner=this.owner;slots.set(key,this.slot);}
+ async load(){await this.slot.tail.catch(()=>{});try{return JSON.parse(await fs.readFile(this.file,"utf8"));}catch(e){if((e as any).code==="ENOENT")return undefined;throw new Error("提醒事项缓存读取失败，原文件已保留。");}}
+ save(data:ReminderData){const raw=JSON.stringify(data);const write=this.slot.tail.catch(()=>{}).then(async()=>{if(this.stopped||this.slot.owner!==this.owner)throw new Error("旧提醒事项实例已失效。");await fs.mkdir(path.dirname(this.file),{recursive:true});const temp=this.file+"."+randomUUID()+".tmp";try{await fs.writeFile(temp,raw,"utf8");if(this.stopped||this.slot.owner!==this.owner)throw new Error("旧提醒事项实例已失效。");await fs.rename(temp,this.file);}finally{await fs.rm(temp,{force:true});}});this.slot.tail=write;return write;}
+ stop(){this.stopped=true;}
+}

@@ -1,3 +1,4 @@
+import { reminderFixture } from "./reminderFixture";
 import { CalendarPanel } from "../Clients/Obsidian/calendarPanel";
 import { calendarPreferences } from "../Providers/Calendar/config";
 import { readResource, writeResource, expandResource } from "../Providers/Calendar/ical";
@@ -131,6 +132,8 @@ document.querySelector<HTMLButtonElement>("#reset")!.onclick = () => { localStor
 (window as any).__preview.openNoteTaskForm=(defaultCategory:string,existing=false)=>host.open("创建计时待办 · 端边云平台",(root,close)=>mountNoteTaskForm(root,"端边云平台",calendars,defaultCategory,existing,choice=>{(window as any).__preview.noteFormChoices.push(choice);close();}));
 window.addEventListener("beforeunload", () => worker?.stop());
 if (new URLSearchParams(location.search).has("diary")) { document.querySelector<HTMLElement>("#app")!.style.display = "none"; (window as any).__diaryPreview = diaryFixture(); }
-if (new URLSearchParams(location.search).has("components")) (window as any).__preview.native = componentsFixture(timerApi!, {
+if (new URLSearchParams(location.search).has("components")&&!new URLSearchParams(location.search).has("reminders")) (window as any).__preview.native = componentsFixture(timerApi!, {
   "research.md": taskRef(tasks.find(t => t.id === "t1")!), "reading.md": taskRef(tasks.find(t => t.id === "t2")!)
 });
+
+if(new URLSearchParams(location.search).has("reminders")){ui.destroy();(window as any).__remindersPreview=reminderFixture(mountTimerView(document.querySelector<HTMLElement>("#app")!));}
