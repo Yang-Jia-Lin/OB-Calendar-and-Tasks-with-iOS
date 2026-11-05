@@ -133,7 +133,7 @@ export class TimerController {
     const record: WorkRecord = { ...s, segments, endedAt: now, completeTask, taskSaved: !completeTask, status: "pending", error: "", sync: this.info(), localFirst: !!this.deps.background && s.task.kind === "local" };
     await this.commit({ ...this.state, active: null, records: [...this.state.records, record] });
     if (record.localFirst && completeTask) {
-      try { await this.deps.tasks.complete(record.task); record.taskSaved = true; await this.replace(record); }
+      try { await this.deps.tasks.complete(record.task,{operationId:record.id,completedAt:record.endedAt}); record.taskSaved = true; await this.replace(record); }
       catch (e) { const durable = clone(this.state.records.find(r => r.id === record.id)!); durable.error = (e as Error).message; durable.sync = { ...this.info(durable), issue: "conflict" }; await this.replace(durable); return durable; }
     }
     return record;
@@ -146,7 +146,7 @@ export class TimerController {
     if (r.status === "saved" && !r.edit) return r;
     try {
       this.live();
-      if (r.localFirst && r.completeTask && !r.taskSaved) { await this.deps.tasks.complete(r.task); r.taskSaved = true; await this.checkpointRecord(r); }
+      if (r.localFirst && r.completeTask && !r.taskSaved) { await this.deps.tasks.complete(r.task,{operationId:r.id,completedAt:r.endedAt}); r.taskSaved = true; await this.checkpointRecord(r); }
       this.deps.calendar.assertWritable(r.calendarId);
       if (r.edit) {
         for (const step of r.edit.steps) { this.live(); await this.deps.calendar.reconcileStep(step, () => this.checkpointRecord(r!)); }
@@ -161,7 +161,7 @@ export class TimerController {
           await this.checkpointRecord(r);
         }
       }
-      this.live(); if (r.completeTask && !r.taskSaved) { await this.deps.tasks.complete(r.task); r.taskSaved = true; }
+      this.live(); if (r.completeTask && !r.taskSaved) { await this.deps.tasks.complete(r.task,{operationId:r.id,completedAt:r.endedAt}); r.taskSaved = true; }
       await this.lock(async () => { this.guard(`work:${id}`, r!.sync?.revision || 0); r!.status = "saved"; r!.error = ""; await this.replace(r!); });
     } catch (e) {
       // A checkpoint may have failed: never persist newer confirmations over an older durable journal.

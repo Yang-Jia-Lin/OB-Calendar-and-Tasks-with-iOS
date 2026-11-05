@@ -1,3 +1,4 @@
+import { deadlineLabel, repeatLabel } from "../../Shared/recurrence";
 import { type Calendar, type Task, type Session, type TimelineRow } from "../../Shared/contracts";
 import { dayKey, dateParts, elapsed, secondsText, shiftDate } from "../../Shared/time";
 import { applyAppearance, type Appearance } from "./appearance";
@@ -254,9 +255,9 @@ export class TimerUI {
       item.root.dataset.timerState = active ? paused ? "paused" : "running" : "idle";
       item.root.classList.toggle("is-timing", !!active); item.root.classList.toggle("is-paused", paused);
       item.text.textContent = task.title; item.text.onclick = () => this.actions.editTask(task);
-      item.check.setAttribute("aria-label", `${task.completed?"恢复":"完成"} ${task.title}`); item.check.checked = task.completed; item.check.disabled = m.busy || !!active || !!task.readonlyReason || !!task.pending;
+      item.check.setAttribute("aria-label", `${task.completed?"恢复":task.repeat?"完成当前轮":"完成"} ${task.title}`); item.check.checked = task.completed; item.check.disabled = m.busy || !!active || !!task.readonlyReason || !!task.pending;
       item.check.onchange = () => this.actions.complete(task);
-      item.meta.textContent = [task.kind==="reminder"?(m.taskCategories?.find(c=>c.id===task.listId)?.name||"iCloud"):`本地 · ${category?.name||"选择分类"}`, task.due,task.dueInstant!=null?dateParts(task.dueInstant,task.dueZone||"UTC").time.slice(0,5):"",task.readonlyReason,task.pending?"待同步":""].filter(Boolean).join(" · "); item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
+      item.meta.textContent = [task.kind==="reminder"?(m.taskCategories?.find(c=>c.id===task.listId)?.name||"iCloud"):`本地 · ${category?.name||"选择分类"}`, deadlineLabel(task),repeatLabel(task.repeat),task.readonlyReason,task.pending?"待同步":""].filter(Boolean).join(" · "); item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
       if(task.completed){const completion=(m.completions || []).filter(e=>refKey(e.task)===refKey(task)).at(-1);item.meta.textContent+=completion?` · 插件完成于 ${dateParts(completion.completedAt).date} ${dateParts(completion.completedAt).time.slice(0,5)}`:" · 完成时间未知";}
       const label = active ? paused ? "继续计时" : "暂停计时" : "开始计时";
       item.start.textContent = active && !paused ? "Ⅱ" : "▷"; item.start.title = label; item.start.setAttribute("aria-label", label);

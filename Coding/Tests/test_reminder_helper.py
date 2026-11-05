@@ -38,7 +38,7 @@ class AdapterTests(unittest.TestCase):
         self.item.completed=True;self.item.record_change_tag="external"
         self.adapter.mutate(self.args({"completed":True}));self.service.update.assert_not_called()
     def test_recurring_task_cannot_be_completed(self):
-        self.item.recurrence_rule_ids=["rule"]
+        self.item.recurrence_rule_ids=["rule"];self.adapter.read_rules=lambda *args:None
         with self.assertRaisesRegex(helper.AdapterError,"复杂"):self.adapter.mutate(self.args({"completed":True}))
         self.service.update.assert_not_called()
     def test_child_cannot_be_edited(self):
@@ -90,5 +90,39 @@ class AdapterTests(unittest.TestCase):
         with patch.object(helper,"atomic",side_effect=OSError("disk full")):
             with self.assertRaises(OSError):self.adapter.create({"op":{"task":{**self.before,"listId":"list"}}})
         raw.modify.assert_not_called()
+
+class RecurrenceTests(unittest.TestCase):
+    setUp=AdapterTests.setUp
+    tearDown=AdapterTests.tearDown
+    def rule(self,**fields):
+        from pyicloud.common.cloudkit.models import CKRecord
+        native_fields={"Frequency":{"type":"INT64","value":1},"Interval":{"type":"INT64","value":1},"OccurrenceCount":{"type":"INT64","value":0},"FirstDayOfTheWeek":{"type":"INT64","value":1},"Reminder":{"type":"REFERENCE","value":{"recordName":self.item.id,"action":"VALIDATE"}}}
+        native_fields.update(fields)
+        self.item.recurrence_rule_ids=["rule"];self.item.due_date=datetime(2026,11,6,tzinfo=timezone.utc);self.item.all_day=True
+        record=CKRecord(recordName="RecurrenceRule/rule",recordType="RecurrenceRule",recordChangeTag="r1",fields=native_fields)
+        self.adapter.rules[record.recordName]=record;return record
+    def test_native_weekday_bytes_decode_to_iso_days(self):
+        values=[{"weekNumber":0,"dayOfTheWeek":2},{"weekNumber":0,"dayOfTheWeek":4},{"weekNumber":0,"dayOfTheWeek":6}]
+        self.rule(DaysOfTheWeek={"type":"BYTES","value":helper.base64.b64encode(json.dumps(values).encode()).decode()})
+        self.assertEqual(self.adapter.item(self.item)["repeat"]["weekdays"],[1,3,5]);self.assertFalse(self.adapter.item(self.item)["readonlyReason"])
+    def test_ended_and_count_limited_native_rules_stay_readonly(self):
+        for extra in ({"EndDate":{"type":"TIMESTAMP","value":1000}},{"OccurrenceCount":{"type":"INT64","value":10}}):
+            self.rule(**extra);self.assertIsNone(self.adapter.item(self.item)["repeat"]);self.assertTrue(self.adapter.item(self.item)["readonlyReason"])
+    def test_yearly_ordinal_and_unknown_rule_fields_are_protected(self):
+        for extra in ({"Frequency":{"type":"INT64","value":3}},{"DaysOfTheMonth":{"type":"INT64_LIST","value":[15]}}):
+            self.rule(**extra);self.assertIsNone(self.adapter.item(self.item)["repeat"])
+    def test_missing_rule_and_wrong_owner_are_not_guessed(self):
+        self.rule(Reminder={"type":"REFERENCE","value":{"recordName":"Reminder/other","action":"VALIDATE"}});self.assertIsNone(self.adapter.item(self.item)["repeat"])
+        self.adapter.rules={};self.assertTrue(self.adapter.item(self.item)["readonlyReason"])
+    def test_floating_due_uses_display_zone_even_when_sdk_filled_utc(self):
+        self.rule();self.item.time_zone="UTC";self.adapter.display_zone="Asia/Shanghai"
+        self.assertEqual(self.adapter.item(self.item)["repeat"]["zone"],"Asia/Shanghai")
+    def test_recurring_children_remain_protected(self):
+        self.rule();self.item.parent_reminder_id="parent";self.assertIn("子任务",self.adapter.item(self.item)["readonlyReason"])
+        with self.assertRaises(helper.AdapterError):self.adapter.assert_ordinary(self.service,self.item,True)
+    def test_external_rule_revision_refuses_cycle_before_any_write(self):
+        rule=self.rule();before=self.adapter.item(self.item);rule.recordChangeTag="external";self.adapter.read_rules=lambda *a:None
+        with self.assertRaisesRegex(helper.AdapterError,"冲突"):self.adapter.transaction(self.service,{"id":"operation","task":before,"before":before,"patch":{},"cycle":{}})
+        self.service.update.assert_not_called();self.service._writes._get_raw().modify.assert_not_called()
 
 if __name__=="__main__":unittest.main()

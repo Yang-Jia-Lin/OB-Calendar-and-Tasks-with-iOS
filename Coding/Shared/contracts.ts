@@ -1,4 +1,5 @@
 export interface Task {
+  repeat?: import("./recurrence").TaskRepeat | null;
   id: string; title: string; due?: string; completed: boolean;
   kind: "local" | "fcr" | "reminder"; accountId?: string; listId?: string; description?: string; dueInstant?: number | null; dueZone?: string | null; completedAt?: number | null; revision?: string; parentId?: string; readonlyReason?: string; pending?: boolean; path?: string; calendarId?: string; uid?: string;
 }
@@ -52,7 +53,8 @@ export interface CalendarPort {
   deleteEvent(target: DeleteTarget): Promise<void>;
   hasCalendarData?(calendarId: string): boolean;
 }
-export interface TaskPort { complete(task: Task): Promise<void> }
+export interface CompletionContext { operationId:string; completedAt:number }
+export interface TaskPort { complete(task: Task, context?:CompletionContext): Promise<void> }
 export interface TimelineRow {
   recurrenceId?:string; seriesStart?:number; seriesEnd?:number;
   key: string; title: string; calendarId: string; color?: string;

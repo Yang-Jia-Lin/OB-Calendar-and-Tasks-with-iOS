@@ -212,3 +212,5 @@
 
 .ctt-migration-row { padding:12px 0; border-bottom:1px solid var(--ctt-border); }
 .ctt-migration-row label { display:flex; gap:8px; align-items:center; }
+
+.ctt-repeat-editor{display:grid;gap:10px;margin:12px 0}.ctt-repeat-weekdays{display:flex;flex-wrap:wrap;gap:12px}.ctt-repeat-weekdays label{display:flex;align-items:center;gap:4px}.ctt-repeat-editor [hidden]{display:none!important}

@@ -136,1680 +136,6 @@
     return value?.status === 404 || value?.status === 410 || /\bHTTP\s+(?:404|410)\b/i.test(typeof error2 === "string" ? error2 : value?.message || "");
   }
 
-  // Shared/application.ts
-  init_time();
-  var defaultFilters = () => ({ source: "all", association: "all", status: "open", due: "all", date: dayKey() });
-  var refKey = (task) => JSON.stringify([task.kind, task.path || "", task.id]);
-  var appPage = (value) => value === "timer" || value === "calendar" ? value : "tasks";
-  var focusLimit = (value) => typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(10, Math.round(value))) : 5;
-  function focusRefs(value) {
-    if (!Array.isArray(value)) return [];
-    const seen = /* @__PURE__ */ new Set();
-    return value.flatMap((r3) => {
-      if (!["local", "reminder"].includes(r3?.kind) || typeof r3.path !== "string" || !r3.path || typeof r3.id !== "string" || !r3.id) return [];
-      const key2 = refKey(r3);
-      if (seen.has(key2)) return [];
-      seen.add(key2);
-      return [{ kind: r3.kind, path: r3.path, id: r3.id }];
-    });
-  }
-  function filterTasks(tasks2, filters, linked, today2 = dayKey()) {
-    return tasks2.filter((t3) => (!filters.source || filters.source === "all" || t3.kind === filters.source) && (filters.status === "all" || t3.completed === (filters.status === "done")) && (filters.association === "all" || linked.has(refKey(t3)) === (filters.association === "linked")) && (filters.due === "all" || filters.due === "none" && !t3.due || filters.due === "today" && t3.due === today2 || filters.due === "overdue" && (t3.dueInstant != null ? t3.dueInstant < Date.now() : !!t3.due && t3.due < today2) || filters.due === "date" && t3.due === filters.date));
-  }
-  var timerSnapshot = (active, available) => clone({ active, available });
-
-  // Providers/Reminders/provider.ts
-  var blankReminders = () => ({ version: 1, accountId: "", lists: [], items: [], deleted: [], operations: [], aliases: {}, rebuilds: {}, order: [], syncedAt: 0 });
-  var reminderRef = (t3) => ({ kind: "reminder", path: t3.path, id: t3.id });
-  var RemindersProvider = class {
-    constructor(rpc, options2) {
-      this.rpc = rpc;
-      this.options = options2;
-    }
-    rpc;
-    options;
-    data = blankReminders();
-    error = "";
-    syncing = false;
-    tail = Promise.resolve();
-    remote;
-    stopped = false;
-    load(value) {
-      const d3 = value;
-      if (d3?.version === 1 && Array.isArray(d3.items) && Array.isArray(d3.operations) && d3.aliases && d3.rebuilds && Array.isArray(d3.lists) && Array.isArray(d3.deleted) && Array.isArray(d3.order) && !d3.operations.some((o2) => !o2.id || !o2.task?.id || !["create", "update", "delete"].includes(o2.action) || !["pending", "saved"].includes(o2.status))) this.data = clone(d3);
-      else if (value != null) throw new Error("\u63D0\u9192\u4E8B\u9879\u7F13\u5B58\u6216\u961F\u5217\u635F\u574F\uFF0C\u539F\u6587\u4EF6\u5DF2\u4FDD\u7559\u3002");
-    }
-    get enabled() {
-      const s2 = this.options.settings();
-      return s2.enabled && !!s2.accountId && this.data.accountId === s2.accountId;
-    }
-    lock(fn2) {
-      const p3 = this.tail.catch(() => {
-      }).then(() => {
-        if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
-        return fn2();
-      });
-      this.tail = p3;
-      return p3;
-    }
-    async commit(next) {
-      if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
-      await this.options.persist(clone(next));
-      if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
-      this.data = next;
-      this.options.changed();
-    }
-    async connect(args) {
-      const result = await this.rpc.call("connect", args);
-      if (this.data.accountId && this.data.accountId !== result.accountId) throw new Error("\u8BF7\u4FDD\u7559\u5F53\u524D\u8D26\u6237\u6570\u636E\uFF1B\u672C\u7248\u4E0D\u652F\u6301\u76F4\u63A5\u5207\u6362\u5230\u53E6\u4E00\u4E2A\u8D26\u6237\u3002");
-      await this.lock(() => this.commit({ ...this.data, accountId: result.accountId }));
-      return result;
-    }
-    list() {
-      if (!this.enabled) return [];
-      const hidden = new Set(this.data.operations.filter((o2) => o2.migration && o2.status !== "saved").map((o2) => o2.task.id));
-      const map = new Map(this.data.items.filter((t3) => !this.data.deleted.includes(t3.id) && this.data.lists.some((l3) => l3.id === t3.listId)).map((t3) => [t3.id, clone(t3)]));
-      for (const o2 of this.data.operations.filter((o3) => o3.status === "pending")) {
-        if (o2.action === "delete") map.delete(o2.task.id);
-        else map.set(o2.task.id, { ...map.get(o2.task.id) || o2.task, ...o2.patch, pending: true });
-      }
-      const parents = new Set([...map.values()].map((t3) => t3.parentId).filter(Boolean));
-      return [...map.values()].filter((t3) => !hidden.has(t3.id)).map((t3) => ({ ...t3, calendarId: this.options.calendar(t3.listId), readonlyReason: t3.readonlyReason || (parents.has(t3.id) ? "\u5305\u542B\u5B50\u4EFB\u52A1\uFF0C\u8BF7\u5728\u63D0\u9192\u4E8B\u9879\u4E2D\u7F16\u8F91\uFF0F\u5B8C\u6210" : "") })).sort((a3, b2) => {
-        const rank = (id) => {
-          const n2 = this.data.order.indexOf(id);
-          return n2 < 0 ? Infinity : n2;
-        };
-        return rank(a3.id) - rank(b2.id);
-      });
-    }
-    resolve(ref) {
-      if (!this.enabled || ref.path !== `icloud:${this.data.accountId}`) throw new Error("\u63D0\u9192\u4E8B\u9879\u8D26\u6237\u672A\u8FDE\u63A5\u6216\u4EFB\u52A1\u5F15\u7528\u4E0D\u5C5E\u4E8E\u5F53\u524D\u8D26\u6237\u3002");
-      const alias = this.data.rebuilds[refKey(ref)] || ref;
-      const task = this.list().find((t3) => t3.id === alias.id);
-      if (!task) throw new Error(this.data.deleted.includes(alias.id) ? "\u63D0\u9192\u4E8B\u9879\u5DF2\u5220\u9664" : "\u63D0\u9192\u4E8B\u9879\u5C1A\u672A\u52A0\u8F7D\uFF0C\u8BF7\u540C\u6B65\u540E\u91CD\u8BD5\u3002");
-      return clone(task);
-    }
-    assertEditable(task) {
-      const current = this.resolve(reminderRef(task));
-      if (current.readonlyReason) throw new Error(current.readonlyReason);
-      return current;
-    }
-    async create(title, listId, patch = {}, migration, fixedId) {
-      if (!this.enabled || !this.data.lists.some((l3) => l3.id === listId)) throw new Error("\u8BF7\u9009\u62E9\u6709\u6548\u7684\u63D0\u9192\u4E8B\u9879\u5217\u8868\u3002");
-      if (!title.trim()) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
-      return this.lock(async () => {
-        if (migration) {
-          const known = this.data.aliases[refKey(migration)];
-          if (known) return known;
-          const pending = this.data.operations.find((o2) => o2.migration && refKey(o2.migration) === refKey(migration));
-          if (pending) return reminderRef(pending.task);
-        }
-        const id = fixedId || `Reminder/${uid().toUpperCase()}`;
-        if (this.data.operations.some((o2) => o2.task.id === id) || this.data.items.some((t3) => t3.id === id)) return { kind: "reminder", path: `icloud:${this.data.accountId}`, id };
-        const task = { id, title: title.trim(), completed: false, kind: "reminder", path: `icloud:${this.data.accountId}`, accountId: this.data.accountId, listId, ...patch };
-        const op = { id: uid(), action: "create", task, migration, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
-        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
-        return reminderRef(task);
-      });
-    }
-    async update(task, patch) {
-      return this.lock(async () => {
-        const current = this.assertEditable(task);
-        if (task.revision !== current.revision || task.title !== current.title || task.completed !== current.completed || task.description !== current.description || task.due !== current.due || task.dueInstant !== current.dueInstant) throw new Error("\u63D0\u9192\u4E8B\u9879\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-        if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u6B64\u63D0\u9192\u4E8B\u9879\u6709\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5B8C\u6210\u540C\u6B65\u3002");
-        const allowed = {};
-        for (const k3 of ["title", "description", "due", "dueInstant", "dueZone", "completed"]) if (Object.hasOwn(patch, k3)) allowed[k3] = ["dueInstant", "dueZone"].includes(k3) ? patch[k3] ?? null : patch[k3];
-        if (allowed.title !== void 0 && !allowed.title.trim()) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
-        const op = { id: uid(), action: "update", task: clone(current), before: clone(current), patch: allowed, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
-        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
-      });
-    }
-    async remove(task) {
-      return this.lock(async () => {
-        const current = this.assertEditable(task);
-        if (current.revision !== task.revision || current.title !== task.title) throw new Error("\u63D0\u9192\u4E8B\u9879\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-        if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u6B64\u63D0\u9192\u4E8B\u9879\u5C1A\u6709\u5F85\u540C\u6B65\u64CD\u4F5C\u3002");
-        const op = { id: uid(), action: "delete", task: current, before: current, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
-        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
-      });
-    }
-    async restore(ref, seed2) {
-      const known = this.data.rebuilds[refKey(ref)];
-      if (known) ref = known;
-      let current;
-      try {
-        current = this.resolve(ref);
-      } catch (e3) {
-        if (!this.enabled || !this.data.deleted.includes(ref.id)) throw e3;
-        const existing = this.data.operations.find((o2) => o2.status === "pending" && o2.action === "delete" && o2.task.id === ref.id);
-        if (existing) throw new Error("\u5220\u9664\u5C1A\u672A\u786E\u8BA4\uFF0C\u8BF7\u7B49\u540C\u6B65\u5B8C\u6210\u3002");
-        const old = this.data.items.find((t3) => t3.id === ref.id);
-        if (old?.readonlyReason) throw new Error(old.readonlyReason);
-        const listId = seed2.listId || old?.listId || this.options.settings().defaultListId;
-        const next = await this.create(seed2.title, listId, { due: seed2.due, dueInstant: seed2.dueInstant, dueZone: seed2.dueZone, description: seed2.description || old?.description });
-        await this.lock(() => this.commit({ ...this.data, rebuilds: { ...this.data.rebuilds, [refKey(ref)]: next } }));
-        return this.resolve(next);
-      }
-      if (current.readonlyReason && current.completed) throw new Error(current.readonlyReason);
-      if (current.completed) await this.update(current, { completed: false });
-      return this.resolve(reminderRef(current));
-    }
-    async refresh() {
-      if (this.remote) return this.remote;
-      if (!this.enabled) return;
-      this.syncing = true;
-      this.options.changed();
-      const p3 = (async () => {
-        try {
-          const result = await this.rpc.call("snapshot", { accountId: this.data.accountId, cursor: this.data.cursor });
-          await this.lock(async () => {
-            const map = new Map(this.data.items.map((t3) => [t3.id, t3]));
-            for (const t3 of result.items) map.set(t3.id, t3);
-            const deleted = new Set(result.full ? this.data.items.filter((t3) => !result.items.some((n2) => n2.id === t3.id)).map((t3) => t3.id) : this.data.deleted);
-            for (const id of result.deleted || []) deleted.add(id);
-            for (const t3 of result.items) deleted.delete(t3.id);
-            await this.commit({ ...this.data, items: [...map.values()], deleted: [...deleted], lists: result.lists, cursor: result.cursor, syncedAt: Date.now() });
-          });
-          this.error = "";
-        } catch (e3) {
-          this.error = e3.message;
-        } finally {
-          this.syncing = false;
-          this.options.changed();
-        }
-      })();
-      this.remote = p3;
-      void p3.finally(() => {
-        if (this.remote === p3) this.remote = void 0;
-      }).catch(() => {
-      });
-      return p3;
-    }
-    jobs() {
-      if (!this.enabled) return [];
-      return this.data.operations.filter((o2) => o2.status === "pending").map((o2) => ({ key: `reminder:${o2.id}`, value: o2 }));
-    }
-    async requestRetry(key2) {
-      const id = key2.slice(9);
-      await this.lock(async () => {
-        const op = this.data.operations.find((o2) => o2.id === id);
-        if (!op) return;
-        await this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? { ...o2, error: "", sync: { ...o2.sync, issue: void 0, retryAt: 0 } } : o2) });
-      });
-    }
-    async accept(task, id, deleted = false) {
-      await this.lock(() => this.commit({ ...this.data, items: task ? [...this.data.items.filter((t3) => t3.id !== id), task] : this.data.items, deleted: deleted ? [.../* @__PURE__ */ new Set([...this.data.deleted, id])] : this.data.deleted.filter((x4) => x4 !== id) }));
-    }
-    async sync(key2) {
-      const id = key2.slice(9), op = clone(this.data.operations.find((o2) => o2.id === id));
-      if (!op || op.status === "saved") return;
-      try {
-        if (!op.phase) {
-          const result = await this.rpc.call(op.action, { accountId: this.data.accountId, op });
-          await this.accept(result.task, op.task.id, op.action === "delete");
-          op.confirmed = result.task;
-          if (op.migration) {
-            op.phase = "remote-confirmed";
-            await this.lock(() => this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? op : o2) }));
-          }
-        }
-        if (op.migration) {
-          await this.options.migrated?.(op.migration, reminderRef(op.task));
-        }
-        await this.lock(() => this.commit({ ...this.data, aliases: op.migration ? { ...this.data.aliases, [refKey(op.migration)]: reminderRef(op.task) } : this.data.aliases, operations: this.data.operations.map((o2) => o2.id === id ? { ...op, status: "saved", error: "" } : o2) }));
-      } catch (e3) {
-        const error2 = e3.message, issue = /授权|登录|验证码|认证|账户|会话/.test(error2) ? "auth" : /冲突|变化|复杂|周期|子任务|删除|无法解码/.test(error2) ? "conflict" : "network";
-        await this.lock(() => this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? { ...o2, error: error2, sync: { ...o2.sync, issue, attempt: (o2.sync?.attempt || 0) + 1, retryAt: Date.now() + Math.min(3e5, 2e3 * 2 ** Math.min(7, o2.sync?.attempt || 0)) } } : o2) }));
-      }
-    }
-    async completeRemote(task) {
-      const current = this.assertEditable(task);
-      if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u63D0\u9192\u4E8B\u9879\u4ECD\u5728\u540C\u6B65\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u5B8C\u6210\u3002");
-      let revision = task.revision;
-      for (const op of this.data.operations) if (op.status === "saved" && op.task.id === task.id && op.confirmed?.revision && (op.before?.revision === revision || !revision && op.action === "create")) revision = op.confirmed.revision;
-      const result = await this.rpc.call("update", { accountId: this.data.accountId, op: { id: `complete-${task.id}-${task.revision}`, action: "update", task, before: { ...task, revision: revision || current.revision }, patch: { completed: true } } });
-      await this.accept(result.task, current.id);
-    }
-    async reorder(next, expected, all = this.list()) {
-      const rows = all.filter((t3) => expected.includes(t3.id));
-      if (rows.length !== expected.length || rows.some((t3, i3) => t3.id !== expected[i3] || t3.completed) || new Set(next).size !== next.length || next.length !== expected.length || next.some((x4) => !expected.includes(x4))) throw new Error("\u5F85\u529E\u987A\u5E8F\u5DF2\u53D8\u5316\u3002");
-      await this.lock(() => this.commit({ ...this.data, order: [...next, ...this.data.order.filter((x4) => !next.includes(x4))] }));
-    }
-    stop() {
-      this.stopped = true;
-    }
-  };
-
-  // Shared/timer.ts
-  init_time();
-  var blankJournal = () => ({ version: 2, active: null, records: [], operations: [] });
-  function validateJournal(input) {
-    const data = clone(input);
-    if (!data || ![1, 2].includes(data.version) || !Array.isArray(data.records)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u683C\u5F0F\u4E0D\u6B63\u786E\uFF0C\u5DF2\u4FDD\u7559\u539F\u6587\u4EF6\u3002");
-    data.operations ??= [];
-    if (!Array.isArray(data.operations) || data.operations.some((o2) => !o2.id || !o2.step?.uid || !["pending", "saved"].includes(o2.status))) throw new Error("\u65E5\u7A0B\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
-    if (data.deletions && (!Array.isArray(data.deletions) || data.deletions.some((o2) => !o2.id || !o2.uid || !o2.calendarId || !o2.before || o2.before.uid !== o2.uid || !Number.isFinite(o2.start) || !Number.isFinite(o2.end) || !["pending", "saved"].includes(o2.status)))) throw new Error("\u5220\u9664\u64CD\u4F5C\u65E5\u5FD7\u635F\u574F\u3002");
-    for (const s2 of [data.active, ...data.records].filter(Boolean)) {
-      if (s2.ownerDeviceId !== void 0 && (typeof s2.ownerDeviceId !== "string" || !s2.ownerDeviceId || s2.ownerDeviceId.length > 128)) throw new Error("\u4F1A\u8BDD\u5F52\u5C5E\u65E0\u6548\u3002");
-      if (!s2.id || !s2.task?.id || !s2.calendarId || !s2.zone || !Number.isFinite(s2.startedAt) || !Number.isFinite(s2.lastHeartbeat) || !Array.isArray(s2.segments) || s2.runningSince != null && !Number.isFinite(s2.runningSince)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
-      new Intl.DateTimeFormat("en", { timeZone: s2.zone });
-      let end = -Infinity;
-      for (const p3 of s2.segments) {
-        if (!Number.isFinite(p3.start) || !Number.isFinite(p3.end) || p3.end < p3.start || p3.start < end) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u533A\u95F4\u635F\u574F\u3002");
-        end = p3.end;
-      }
-      if (s2.runningSince != null && s2.runningSince < end) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u533A\u95F4\u91CD\u53E0\u3002");
-    }
-    for (const r3 of data.records) {
-      if (!Number.isFinite(r3.endedAt) || !["saved", "pending"].includes(r3.status) || r3.segments.some((p3) => !p3.uid)) throw new Error("\u5386\u53F2\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
-      if (r3.edit) {
-        validateSegments(r3.edit.segments, Infinity);
-        if (r3.edit.steps.length !== r3.edit.segments.length || r3.edit.steps.some((p3) => !p3.uid || !p3.before || !p3.after || !["prepared", "target-confirmed", "done"].includes(p3.stage))) throw new Error("\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
-      }
-    }
-    for (const job of [...data.records, ...data.operations, ...data.deletions || []]) {
-      if (job.sync && (!Number.isInteger(job.sync.revision) || job.sync.revision < 0 || !Number.isInteger(job.sync.attempt) || job.sync.attempt < 0 || !Number.isFinite(job.sync.retryAt))) throw new Error("\u540C\u6B65\u8FDB\u5EA6\u65E5\u5FD7\u635F\u574F\u3002");
-    }
-    data.version = 2;
-    return data;
-  }
-  function pauseSession(session, now) {
-    if (!session) throw new Error("\u6CA1\u6709\u6B63\u5728\u8BA1\u65F6\u7684\u5F85\u529E\u3002");
-    const s2 = clone(session);
-    if (s2.runningSince != null) {
-      if (now < s2.runningSince) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
-      if (now > s2.runningSince) s2.segments.push({ start: s2.runningSince, end: now });
-      s2.runningSince = null;
-    }
-    s2.lastHeartbeat = now;
-    return s2;
-  }
-  var TimerController = class {
-    constructor(deps) {
-      this.deps = deps;
-      this.state = validateJournal(deps.state || blankJournal());
-    }
-    deps;
-    state;
-    serial = Promise.resolve();
-    flights = /* @__PURE__ */ new Map();
-    stopped = false;
-    now() {
-      return this.deps.now?.() ?? Date.now();
-    }
-    lock(fn2) {
-      const p3 = this.serial.then(fn2);
-      this.serial = p3.catch(() => {
-      });
-      return p3;
-    }
-    async commit(next, notify = true) {
-      this.live();
-      await this.deps.persist(clone(next));
-      this.state = next;
-      if (notify) this.deps.onChange?.();
-    }
-    recover() {
-      return this.lock(async () => {
-        if (this.state.active?.runningSince == null) return false;
-        const s2 = this.state.active;
-        await this.commit({ ...this.state, active: pauseSession(s2, Math.max(s2.runningSince, Math.min(s2.lastHeartbeat, this.now()))) });
-        return true;
-      });
-    }
-    stopRemote() {
-      this.stopped = true;
-    }
-    live() {
-      if (this.stopped) throw new Error("\u540C\u6B65\u5668\u5DF2\u505C\u6B62\uFF1B\u64CD\u4F5C\u4FDD\u7559\u5230\u4E0B\u6B21\u542F\u52A8\u3002");
-    }
-    info(job) {
-      return { revision: job?.sync?.revision || 0, attempt: job?.sync?.attempt || 0, retryAt: job?.sync?.retryAt || 0, issue: job?.sync?.issue };
-    }
-    job(key2) {
-      const [type, id] = key2.split(":");
-      return type === "work" ? this.state.records.find((r3) => r3.id === id) : type === "event" ? this.state.operations.find((o2) => o2.id === id) : this.state.deletions?.find((o2) => o2.id === id);
-    }
-    jobs() {
-      return [...this.state.records.filter((r3) => r3.status === "pending").map((r3) => ({ key: `work:${r3.id}`, value: r3 })), ...this.state.operations.filter((o2) => o2.status === "pending").map((o2) => ({ key: `event:${o2.id}`, value: o2 })), ...(this.state.deletions || []).filter((o2) => o2.status === "pending").map((o2) => ({ key: `delete:${o2.id}`, value: o2 }))];
-    }
-    async updateJob(key2, change) {
-      const current = this.job(key2);
-      if (!current) throw new Error("\u540C\u6B65\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
-      const next = clone(current);
-      change(next);
-      const [type, id] = key2.split(":");
-      await this.commit({ ...this.state, ...type === "work" ? { records: this.state.records.map((r3) => r3.id === id ? next : r3) } : type === "event" ? { operations: this.state.operations.map((o2) => o2.id === id ? next : o2) } : { deletions: this.state.deletions.map((o2) => o2.id === id ? next : o2) } });
-    }
-    requestRetry(key2) {
-      return this.lock(async () => {
-        if (this.flights.has(key2)) return;
-        await this.updateJob(key2, (job) => {
-          job.error = "";
-          job.sync = { ...this.info(job), retryAt: 0, issue: void 0 };
-        });
-      });
-    }
-    runJob(key2, execute2, automatic = false) {
-      const prior = this.flights.get(key2);
-      if (prior) return prior;
-      const promise = (async () => {
-        const ready = await this.lock(async () => {
-          this.live();
-          const current2 = this.job(key2);
-          if (automatic && (!current2 || current2.status !== "pending" || !current2.sync && current2.error || current2.sync?.issue && current2.sync.issue !== "network" || (current2.sync?.retryAt || 0) > this.now())) return false;
-          if (current2?.status === "pending") await this.updateJob(key2, (job) => {
-            job.sync = { ...this.info(job), attempt: (job.sync?.attempt || 0) + 1 };
-          });
-          return true;
-        });
-        if (!ready) return clone(this.job(key2));
-        const result = await execute2();
-        await this.lock(async () => {
-          this.live();
-          if (this.job(key2)?.status !== "pending") return;
-          await this.updateJob(key2, (job) => {
-            const info = this.info(job), issue = classifySyncError(job.error);
-            job.sync = { ...info, issue, retryAt: issue === "network" ? this.now() + Math.round(Math.min(3e5, 2e3 * 2 ** Math.min(info.attempt - 1, 8)) * (0.85 + Math.random() * 0.3)) : 0 };
-          });
-        });
-        const current = this.job(key2);
-        return current ? clone(current) : result;
-      })();
-      this.flights.set(key2, promise);
-      void promise.finally(() => this.flights.delete(key2)).catch(() => {
-      });
-      return promise;
-    }
-    sync(key2) {
-      const [type, id] = key2.split(":");
-      return this.runJob(key2, async () => type === "work" ? this.flush(id) : type === "event" ? this.flushOperation(id) : this.flushDeletion(id), true);
-    }
-    guard(key2, revision) {
-      this.live();
-      const current = this.job(key2);
-      if (!current || current.status !== "pending" || (current.sync?.revision || 0) !== revision) throw new Error("\u64CD\u4F5C\u7248\u672C\u5DF2\u53D8\u5316\uFF0C\u5FFD\u7565\u65E7\u540C\u6B65\u7ED3\u679C\u3002");
-    }
-    start(task, calendarId) {
-      return this.lock(async () => {
-        if (this.state.active) throw new Error("\u8BF7\u5148\u7ED3\u675F\u5F53\u524D\u8BA1\u65F6\u3002");
-        if (!task.id || !task.title.trim()) throw new Error("\u8BF7\u9009\u62E9\u6709\u6548\u5F85\u529E\u3002");
-        this.deps.calendar.assertWritable(calendarId);
-        const now = this.now();
-        const active = {
-          id: uid(),
-          ownerDeviceId: this.deps.ownerDeviceId,
-          title: task.title,
-          task: clone(task),
-          calendarId,
-          zone: this.deps.zone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-          startedAt: now,
-          runningSince: now,
-          lastHeartbeat: now,
-          segments: []
-        };
-        await this.commit({ ...this.state, active });
-      });
-    }
-    checkSession(expectedId) {
-      if (expectedId !== void 0 && this.state.active?.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-    }
-    pause(expectedId) {
-      return this.lock(() => {
-        this.checkSession(expectedId);
-        return this.commit({ ...this.state, active: pauseSession(this.state.active, this.now()) });
-      });
-    }
-    resume(expectedId) {
-      return this.lock(async () => {
-        this.checkSession(expectedId);
-        const s2 = this.state.active, now = this.now();
-        if (!s2 || s2.runningSince != null) throw new Error("\u5F53\u524D\u72B6\u6001\u4E0D\u80FD\u7EE7\u7EED\u3002");
-        if (now < (s2.segments.at(-1)?.end ?? s2.startedAt)) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
-        await this.commit({ ...this.state, active: { ...s2, runningSince: now, lastHeartbeat: now } });
-      });
-    }
-    heartbeat() {
-      return this.lock(async () => {
-        if (this.state.active?.runningSince != null) await this.commit({
-          ...this.state,
-          active: { ...this.state.active, lastHeartbeat: this.now() }
-        }, false);
-      });
-    }
-    updateActive(patch, expectedId) {
-      return this.lock(async () => {
-        const s2 = clone(this.state.active);
-        if (!s2) throw new Error("\u6CA1\u6709\u5F53\u524D\u8BA1\u65F6\u3002");
-        if (expectedId && s2.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-        if (patch.calendarId) {
-          this.deps.calendar.assertWritable(patch.calendarId);
-          s2.calendarId = patch.calendarId;
-        }
-        if (patch.startedAt != null) {
-          const boundary = s2.segments[0]?.end ?? (s2.runningSince == null ? s2.lastHeartbeat : this.now());
-          if (!Number.isFinite(patch.startedAt) || patch.startedAt > this.now() || patch.startedAt > boundary - (s2.segments.length ? 1e3 : 0)) throw new Error("\u5F00\u59CB\u65F6\u95F4\u4E0D\u80FD\u665A\u4E8E\u9996\u6BB5\u7ED3\u675F\u6216\u5F53\u524D\u65F6\u95F4\u3002");
-          s2.startedAt = patch.startedAt;
-          if (s2.segments.length) s2.segments[0].start = patch.startedAt;
-          else if (s2.runningSince != null) s2.runningSince = patch.startedAt;
-          else if (patch.startedAt < boundary) s2.segments.push({ start: patch.startedAt, end: boundary });
-        }
-        await this.commit({ ...this.state, active: s2 });
-      });
-    }
-    finish(completeTask2 = true, expectedId) {
-      return this.lock(async () => {
-        this.checkSession(expectedId);
-        if (completeTask2 && this.state.active?.task.readonlyReason) throw new Error(this.state.active.task.readonlyReason);
-        const now = this.now(), s2 = pauseSession(this.state.active, now);
-        const segments = s2.segments.filter((p3) => p3.end - p3.start >= 1e3).map((p3, i3) => ({ ...p3, uid: `simple-task-timer-${s2.id}-${i3}`, saved: false }));
-        validateSegments(segments, now);
-        const record = { ...s2, segments, endedAt: now, completeTask: completeTask2, taskSaved: !completeTask2, status: "pending", error: "", sync: this.info(), localFirst: !!this.deps.background && s2.task.kind === "local" };
-        await this.commit({ ...this.state, active: null, records: [...this.state.records, record] });
-        if (record.localFirst && completeTask2) {
-          try {
-            await this.deps.tasks.complete(record.task);
-            record.taskSaved = true;
-            await this.replace(record);
-          } catch (e3) {
-            const durable = clone(this.state.records.find((r3) => r3.id === record.id));
-            durable.error = e3.message;
-            durable.sync = { ...this.info(durable), issue: "conflict" };
-            await this.replace(durable);
-            return durable;
-          }
-        }
-        return record;
-      }).then((r3) => this.deps.background ? r3 : this.retry(r3.id));
-    }
-    retry(id) {
-      return this.runJob(`work:${id}`, () => this.flush(id));
-    }
-    async replace(record) {
-      await this.commit({ ...this.state, records: this.state.records.map((r3) => r3.id === record.id ? clone(record) : r3) });
-    }
-    checkpointRecord(r3) {
-      return this.lock(async () => {
-        this.guard(`work:${r3.id}`, r3.sync?.revision || 0);
-        await this.replace(r3);
-      });
-    }
-    async flush(id) {
-      let r3 = await this.lock(() => Promise.resolve(clone(this.state.records.find((r4) => r4.id === id))));
-      if (!r3) throw new Error("\u8BB0\u5F55\u4E0D\u5B58\u5728\u3002");
-      if (r3.status === "saved" && !r3.edit) return r3;
-      try {
-        this.live();
-        if (r3.localFirst && r3.completeTask && !r3.taskSaved) {
-          await this.deps.tasks.complete(r3.task);
-          r3.taskSaved = true;
-          await this.checkpointRecord(r3);
-        }
-        this.deps.calendar.assertWritable(r3.calendarId);
-        if (r3.edit) {
-          for (const step of r3.edit.steps) {
-            this.live();
-            await this.deps.calendar.reconcileStep(step, () => this.checkpointRecord(r3));
-          }
-          r3.calendarId = r3.edit.calendarId;
-          r3.title = r3.edit.title;
-          r3.segments = r3.edit.segments.map((p3, i3) => ({ ...p3, saved: true, snapshot: r3.edit.steps[i3].after }));
-          r3.startedAt = r3.segments[0].start;
-          r3.endedAt = r3.segments.at(-1).end;
-          delete r3.edit;
-          await this.checkpointRecord(r3);
-        } else {
-          for (const p3 of r3.segments) {
-            if (p3.saved) continue;
-            this.live();
-            p3.snapshot = await this.deps.calendar.ensureEvent(r3.calendarId, eventForSegment(r3, p3));
-            p3.saved = true;
-            await this.checkpointRecord(r3);
-          }
-        }
-        this.live();
-        if (r3.completeTask && !r3.taskSaved) {
-          await this.deps.tasks.complete(r3.task);
-          r3.taskSaved = true;
-        }
-        await this.lock(async () => {
-          this.guard(`work:${id}`, r3.sync?.revision || 0);
-          r3.status = "saved";
-          r3.error = "";
-          await this.replace(r3);
-        });
-      } catch (e3) {
-        await this.lock(async () => {
-          this.guard(`work:${id}`, r3.sync?.revision || 0);
-          r3 = clone(this.state.records.find((x4) => x4.id === id));
-          r3.error = e3.message;
-          await this.replace(r3);
-        });
-      }
-      return r3;
-    }
-    editRecord(id, draft, expected) {
-      return this.lock(async () => {
-        const current = this.state.records.find((r4) => r4.id === id);
-        if (!current || JSON.stringify(current) !== JSON.stringify(expected)) throw new Error("\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-        if (current.status !== "saved" || current.edit) throw new Error("\u8BF7\u5148\u5904\u7406\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u518D\u4FEE\u6539\u8BB0\u5F55\u3002");
-        if (this.state.deletions?.some((o2) => o2.recordId === id && o2.status !== "saved")) throw new Error("\u6B64\u8BB0\u5F55\u6709\u5F85\u540C\u6B65\u7684\u5220\u9664\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5904\u7406\u3002");
-        const title = draft.title.trim();
-        if (!title) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
-        this.deps.calendar.assertWritable(draft.calendarId);
-        validateSegments(draft.segments, this.now());
-        if (draft.segments.length !== current.segments.length) throw new Error("\u672C\u7248\u4E0D\u589E\u52A0\u6216\u5220\u9664\u5386\u53F2\u5206\u6BB5\u3002");
-        const r3 = clone(current);
-        const steps = current.segments.map((p3, i3) => {
-          const remote = this.deps.calendar.readByUid(current.calendarId, p3.uid);
-          if (!remote) throw new Error("\u65E5\u5386\u4E2D\u7684\u539F\u8BB0\u5F55\u5DF2\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\uFF1B\u4E0D\u4F1A\u81EA\u52A8\u91CD\u5EFA\u3002");
-          const before = draft.snapshots?.[i3] ?? p3.snapshot ?? eventForSegment(current, p3);
-          if (draft.snapshots?.[i3] || p3.snapshot ? !sameEventContent(remote, before) : !Object.entries(before).every(([k3, v3]) => v3 === void 0 || JSON.stringify(remote[k3]) === JSON.stringify(v3))) throw new Error("\u65E5\u5386\u8BB0\u5F55\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
-          const after = { ...remote, ...eventForSegment({ title }, { ...draft.segments[i3], uid: p3.uid }) };
-          return { uid: p3.uid, fromCalendarId: current.calendarId, toCalendarId: draft.calendarId, before: clone(remote), after, stage: "prepared" };
-        });
-        r3.status = "pending";
-        r3.error = "";
-        r3.sync = { revision: (r3.sync?.revision || 0) + 1, attempt: 0, retryAt: 0 };
-        r3.edit = { calendarId: draft.calendarId, title, segments: draft.segments.map((p3, i3) => ({ start: p3.start, end: p3.end, uid: current.segments[i3].uid })), steps };
-        await this.replace(r3);
-        return r3;
-      }).then((r3) => this.deps.background ? r3 : this.retry(id));
-    }
-    keepCalendarOnly(id) {
-      return this.lock(async () => {
-        if (this.flights.has(`work:${id}`)) throw new Error("\u6B64\u8BB0\u5F55\u6B63\u5728\u540C\u6B65\uFF0C\u8BF7\u7B49\u672C\u6B21\u8BF7\u6C42\u7ED3\u675F\u3002");
-        const r3 = this.state.records.find((r4) => r4.id === id);
-        if (!r3 || r3.edit || r3.segments.some((p3) => !p3.saved)) throw new Error("\u8BF7\u5148\u6210\u529F\u4FDD\u5B58\u5168\u90E8\u65E5\u5386\u65F6\u95F4\u6BB5\u3002");
-        await this.replace({ ...r3, completeTask: false, taskSaved: true, status: "saved", error: "" });
-      });
-    }
-    saveEvent(step) {
-      return this.lock(async () => {
-        if (this.jobs().some((j4) => j4.key.startsWith("event:") && j4.value.step.uid === step.uid)) throw new Error("\u6B64\u65E5\u7A0B\u5DF2\u6709\u5F85\u540C\u6B65\u4FEE\u6539\uFF0C\u8BF7\u5148\u5904\u7406\u8BE5\u9879\u3002");
-        const id = uid();
-        const op = { id, title: step.after.title, step: clone(step), status: "pending", error: "", sync: this.info() };
-        await this.commit({ ...this.state, operations: [...this.state.operations, op] });
-        return op;
-      }).then((op) => this.deps.background ? op : this.retryEvent(op.id));
-    }
-    retryEvent(id) {
-      return this.runJob(`event:${id}`, () => this.flushOperation(id));
-    }
-    async flushOperation(id) {
-      let op = clone(this.state.operations.find((o2) => o2.id === id));
-      if (!op) throw new Error("\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
-      if (op.status === "saved") return op;
-      const revision = op.sync?.revision || 0;
-      const checkpoint = () => this.lock(async () => {
-        this.guard(`event:${id}`, revision);
-        await this.commit({ ...this.state, operations: this.state.operations.map((o2) => o2.id === id ? clone(op) : o2) });
-      });
-      try {
-        this.live();
-        await this.deps.calendar.reconcileStep(op.step, checkpoint);
-        op.status = "saved";
-        op.error = "";
-        await checkpoint();
-      } catch (e3) {
-        op = clone(this.state.operations.find((o2) => o2.id === id));
-        op.error = e3.message;
-        await checkpoint();
-      }
-      return op;
-    }
-    deleteEvent(target, range, record) {
-      return this.lock(async () => {
-        if (record) {
-          const current = this.state.records.find((r3) => r3.id === record.id);
-          if (!current || JSON.stringify(current) !== JSON.stringify(record)) throw new Error("\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
-          if (current.status !== "saved" || current.edit || !current.segments.some((p3) => p3.uid === target.uid) || current.calendarId !== target.calendarId) throw new Error("\u8BF7\u5148\u5904\u7406\u8BB0\u5F55\u7684\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u518D\u5220\u9664\u3002");
-        }
-        if (this.state.deletions?.some((o2) => o2.status !== "saved" && (o2.recordId && o2.recordId === record?.id || o2.uid === target.uid && o2.calendarId === target.calendarId))) throw new Error("\u6B64\u8BB0\u5F55\u5DF2\u5728\u7B49\u5F85\u5220\u9664\uFF0C\u8BF7\u5728\u5F85\u540C\u6B65\u4E2D\u91CD\u8BD5\u3002");
-        if (this.state.operations.some((o2) => o2.status !== "saved" && o2.step.uid === target.uid && [o2.step.fromCalendarId, o2.step.toCalendarId].includes(target.calendarId))) throw new Error("\u6B64\u65E5\u7A0B\u6B63\u5728\u4FEE\u6539\uFF0C\u8BF7\u5148\u5904\u7406\u5F85\u540C\u6B65\u64CD\u4F5C\u3002");
-        if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) throw new Error("\u5220\u9664\u8BB0\u5F55\u7684\u65F6\u95F4\u8303\u56F4\u65E0\u6548\u3002");
-        const remote = this.deps.calendar.readByUid(target.calendarId, target.uid);
-        if (!remote || !sameEvent(remote, target.before)) throw new Error("\u65E5\u7A0B\u5DF2\u4FEE\u6539\u6216\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
-        const op = { ...clone(target), ...range, id: uid(), title: target.before.title, recordId: record?.id, status: "pending", error: "", sync: this.info() };
-        await this.commit({ ...this.state, deletions: [...this.state.deletions || [], op] });
-        return op;
-      }).then((op) => this.deps.background ? op : this.retryDeletion(op.id));
-    }
-    retryDeletion(id) {
-      return this.runJob(`delete:${id}`, () => this.flushDeletion(id));
-    }
-    reconcileDeletions() {
-      return this.lock(async () => {
-        let count = 0;
-        for (const op of this.state.deletions?.filter((o2) => o2.status === "pending") || []) {
-          if (this.flights.has(`delete:${op.id}`)) continue;
-          if (!this.deps.calendar.hasCalendarData?.(op.calendarId)) continue;
-          if (this.deps.calendar.readByUid(op.calendarId, op.uid)) continue;
-          await this.confirmDeletion({ ...clone(op), resolution: "absent-in-fcr" });
-          count++;
-        }
-        return count;
-      });
-    }
-    confirmRemoteDeletion(id) {
-      return this.lock(async () => {
-        if (this.flights.has(`delete:${id}`)) throw new Error("\u6B64\u8BB0\u5F55\u6B63\u5728\u540C\u6B65\uFF0C\u8BF7\u7B49\u672C\u6B21\u8BF7\u6C42\u7ED3\u675F\u518D\u6838\u5BF9\u3002");
-        const op = this.state.deletions?.find((o2) => o2.id === id);
-        if (!op) throw new Error("\u5220\u9664\u8BF7\u6C42\u4E0D\u5B58\u5728\u3002");
-        if (op.status === "saved") return;
-        if (!isMissingResource(op.error)) throw new Error("\u6B64\u8BF7\u6C42\u5C1A\u672A\u62A5\u544A\u8D44\u6E90\u4E0D\u5B58\u5728\uFF0C\u8BF7\u5148\u5237\u65B0\u6216\u91CD\u8BD5\u3002");
-        const current = this.deps.calendar.readByUid(op.calendarId, op.uid);
-        if (current && !sameEventContent(current, op.before)) throw new Error("\u65E5\u7A0B\u5185\u5BB9\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5148\u5728\u5B8C\u6574\u65E5\u5386\u4E2D\u6838\u5BF9\u3002");
-        await this.confirmDeletion({ ...clone(op), resolution: "user-confirmed-remote-deletion" });
-      });
-    }
-    async confirmDeletion(op) {
-      op.status = "saved";
-      op.error = "";
-      const records = this.state.records.map((r3) => {
-        if (r3.id !== op.recordId) return r3;
-        const segments = r3.segments.filter((p3) => p3.uid !== op.uid);
-        return { ...r3, segments, startedAt: segments[0]?.start ?? r3.startedAt, endedAt: segments.at(-1)?.end ?? r3.endedAt };
-      });
-      await this.commit({ ...this.state, records, deletions: this.state.deletions.map((o2) => o2.id === op.id ? clone(op) : o2) });
-    }
-    async flushDeletion(id) {
-      let op = clone(this.state.deletions?.find((o2) => o2.id === id));
-      if (!op) throw new Error("\u5220\u9664\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
-      if (op.status === "saved") return op;
-      try {
-        this.live();
-        await this.deps.calendar.deleteEvent(op);
-        op.resolution = "deleted";
-        await this.lock(async () => {
-          this.guard(`delete:${id}`, op.sync?.revision || 0);
-          await this.confirmDeletion(op);
-        });
-        op = clone(this.state.deletions.find((o2) => o2.id === id));
-      } catch (e3) {
-        await this.lock(async () => {
-          this.guard(`delete:${id}`, op.sync?.revision || 0);
-          op = clone(this.state.deletions.find((o2) => o2.id === id));
-          op.error = e3.message;
-          await this.commit({ ...this.state, deletions: this.state.deletions.map((o2) => o2.id === id ? clone(op) : o2) });
-        });
-      }
-      return op;
-    }
-  };
-  function classifySyncError(message) {
-    if (/授权|请先连接|请启用兼容|scope|HTTP\s+(401|403)\b/i.test(message)) return "auth";
-    if (/外部|已变化|已删除|找不到|不存在|同 UID|分类日历|无法|不允许|只读|HTTP\s+(404|410)\b/i.test(message)) return "conflict";
-    if (/network|offline|fetch|timeout|timed? out|ECONN|ENET|网络|断网|超时|未确认|未能核对|尚未就绪|lost.*response|HTTP\s+(429|5\d\d)\b/i.test(message)) return "network";
-    return "conflict";
-  }
-
-  // Clients/Obsidian/api.ts
-  var EntryError = class extends Error {
-    constructor(code, message) {
-      super(message);
-      this.code = code;
-    }
-    code;
-  };
-  var taskRef = (task) => ({ kind: task.kind === "reminder" ? "reminder" : "local", path: task.path || "", id: task.id });
-  var sameTask = (task, ref) => task.kind === ref.kind && task.path === ref.path && task.id === ref.id;
-  var TimerApi = class {
-    constructor(host2) {
-      this.host = host2;
-    }
-    host;
-    version = 1;
-    listeners = /* @__PURE__ */ new Set();
-    timerListeners = /* @__PURE__ */ new Set();
-    serial = Promise.resolve();
-    disposed = false;
-    getState() {
-      return clone({ ...this.host.state(), available: !this.disposed });
-    }
-    subscribe(listener) {
-      if (this.disposed) {
-        listener(this.getState());
-        return () => {
-        };
-      }
-      this.listeners.add(listener);
-      try {
-        listener(this.getState());
-      } catch {
-        this.listeners.delete(listener);
-      }
-      return () => {
-        this.listeners.delete(listener);
-      };
-    }
-    getTimerState() {
-      return this.host.timerState ? clone({ ...this.host.timerState(), available: !this.disposed }) : timerSnapshot(this.host.controller.state.active, !this.disposed);
-    }
-    subscribeTimer(listener) {
-      if (this.disposed) {
-        listener(this.getTimerState());
-        return () => {
-        };
-      }
-      this.timerListeners.add(listener);
-      try {
-        listener(this.getTimerState());
-      } catch {
-        this.timerListeners.delete(listener);
-      }
-      return () => {
-        this.timerListeners.delete(listener);
-      };
-    }
-    notify() {
-      for (const listener of this.listeners) {
-        try {
-          listener(this.getState());
-        } catch {
-        }
-      }
-      for (const listener of this.timerListeners) {
-        try {
-          listener(this.getTimerState());
-        } catch {
-        }
-      }
-    }
-    dispose() {
-      this.disposed = true;
-      this.notify();
-      this.listeners.clear();
-      this.timerListeners.clear();
-    }
-    action(fn2) {
-      const result = this.serial.then(async () => {
-        if (this.disposed) return { ok: false, code: "unavailable", message: "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u3002" };
-        try {
-          return await this.host.execute(fn2);
-        } catch (e3) {
-          return { ok: false, code: e3 instanceof EntryError ? e3.code : "action-error", message: e3.message || String(e3), sessionId: this.host.controller.state.active?.id };
-        }
-      });
-      this.serial = result;
-      return result;
-    }
-    start(ref, context) {
-      return this.action(async () => {
-        if (!ref || !["local", "reminder"].includes(ref.kind) || !ref.id || !ref.path) throw new EntryError("invalid-task", "\u8BF7\u63D0\u4F9B\u5F85\u529E\u6587\u4EF6\u8DEF\u5F84\u548C\u7A33\u5B9A\u4EFB\u52A1 ID\u3002");
-        const current = await this.host.resolve(ref, context);
-        if (current.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
-        const active = this.host.controller.state.active;
-        if (active) {
-          if (sameTask(active.task, taskRef(current))) return { ok: true, sessionId: active.id };
-          throw new EntryError("active-session", `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u660E\u786E\u7ED3\u675F\u8BE5\u4F1A\u8BDD\u518D\u5207\u6362\u4EFB\u52A1\u3002`);
-        }
-        const task = await this.host.prepare(current);
-        if (task.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
-        await this.host.controller.start(task, task.calendarId);
-        return { ok: true, sessionId: this.host.controller.state.active.id };
-      });
-    }
-    session(id) {
-      if (!id || this.host.controller.state.active?.id !== id) throw new EntryError("stale-session", "\u6B64\u4F1A\u8BDD\u5DF2\u7ED3\u675F\u6216\u5207\u6362\uFF0C\u8BF7\u4F7F\u7528\u5F53\u524D\u72B6\u6001\u91CD\u8BD5\u3002");
-    }
-    pause(sessionId) {
-      return this.action(async () => {
-        this.session(sessionId);
-        await this.host.controller.pause(sessionId);
-        return { ok: true, sessionId };
-      });
-    }
-    resume(sessionId) {
-      return this.action(async () => {
-        this.session(sessionId);
-        if (this.host.controller.state.active.runningSince == null) await this.host.controller.resume(sessionId);
-        return { ok: true, sessionId };
-      });
-    }
-    finish(sessionId, completeTask2 = false) {
-      return this.action(async () => {
-        this.session(sessionId);
-        const record = await this.host.controller.finish(completeTask2 === true, sessionId);
-        let warning = record.error;
-        try {
-          await this.host.refresh();
-        } catch (e3) {
-          warning ||= e3.message;
-        }
-        return { ok: true, sessionId, recordId: record.id, pending: record.status === "pending", warning };
-      });
-    }
-  };
-
-  // Clients/Obsidian/ui.ts
-  init_time();
-
-  // Clients/Obsidian/appearance.ts
-  var DEFAULT_APPEARANCE = { fontSize: 15, fontWeight: 500 };
-  function appearance(value) {
-    return {
-      fontSize: Number.isFinite(value?.fontSize) ? Math.max(13, Math.min(20, value.fontSize)) : DEFAULT_APPEARANCE.fontSize,
-      fontWeight: [400, 500, 600].includes(value?.fontWeight ?? 0) ? value.fontWeight : DEFAULT_APPEARANCE.fontWeight
-    };
-  }
-  function applyAppearance(root, value) {
-    const normalized = appearance(value);
-    root.style.setProperty("--ctt-font-size", `${normalized.fontSize}px`);
-    root.style.setProperty("--ctt-font-weight", String(normalized.fontWeight));
-  }
-  function mountTimerView(content2) {
-    content2.classList.add("ctt-view-host");
-    content2.style.padding = "0";
-    content2.style.overflow = "hidden";
-    const mount = content2.ownerDocument.createElement("div");
-    content2.replaceChildren(mount);
-    return mount;
-  }
-
-  // Clients/Obsidian/dom.ts
-  function el(parent, tag, cls = "", text) {
-    const node = parent.ownerDocument.createElement(tag);
-    node.className = cls;
-    if (text != null) node.textContent = text;
-    parent.append(node);
-    return node;
-  }
-  function button(parent, text, action, cls = "", label) {
-    const b2 = el(parent, "button", cls, text);
-    b2.type = "button";
-    if (label) {
-      b2.title = label;
-      b2.setAttribute("aria-label", label);
-    }
-    b2.onclick = action;
-    return b2;
-  }
-  function field(parent, label, type, value) {
-    const l3 = el(parent, "label", "ctt-field");
-    el(l3, "span", "", label);
-    const input = el(l3, "input");
-    input.type = type;
-    input.value = value;
-    input.setAttribute("aria-label", label);
-    if (type === "datetime-local") input.step = "1";
-    return input;
-  }
-  function options(select, sources, value, placeholder = "\u9009\u62E9\u5206\u7C7B") {
-    const signature = JSON.stringify(sources.map((c3) => [c3.id, c3.name]));
-    if (select.dataset.options !== signature) {
-      select.replaceChildren();
-      const empty = el(select, "option", "", placeholder);
-      empty.value = "";
-      for (const c3 of sources) {
-        const o2 = el(select, "option", "", c3.name);
-        o2.value = c3.id;
-      }
-      select.dataset.options = signature;
-    }
-    if (value && !sources.some((c3) => c3.id === value)) {
-      if (!Array.from(select.options).some((o2) => o2.value === value)) {
-        const o2 = el(select, "option", "", "\u5206\u7C7B\u5DF2\u4E0D\u53EF\u7528");
-        o2.value = value;
-      }
-    }
-    select.value = value;
-  }
-
-  // Clients/Obsidian/categories.ts
-  function categoryPreferences(value) {
-    const ids = (v3) => Array.isArray(v3) ? [...new Set(v3.filter((id) => typeof id === "string" && !!id))] : [];
-    return { categoryOrder: ids(value?.categoryOrder), hiddenCategoryIds: ids(value?.hiddenCategoryIds) };
-  }
-  function orderedCategories(calendars2, value, visibleOnly = false) {
-    const prefs = categoryPreferences(value), positions = new Map(prefs.categoryOrder.map((id, i3) => [id, i3]));
-    return calendars2.filter((c3) => !visibleOnly || !prefs.hiddenCategoryIds.includes(c3.id)).map((c3, i3) => ({ c: c3, i: i3 })).sort((a3, b2) => (positions.get(a3.c.id) ?? Infinity) - (positions.get(b2.c.id) ?? Infinity) || a3.i - b2.i).map((x4) => x4.c);
-  }
-  function renderCategorySettings(root, calendars2, initial2, save) {
-    let prefs = categoryPreferences(initial2), busy2 = false, error2 = "";
-    root.classList.add("ctt-category-settings");
-    const update = async (next, focusId) => {
-      if (busy2) return;
-      const before = prefs;
-      busy2 = true;
-      error2 = "";
-      prefs = next;
-      draw();
-      try {
-        await save(next);
-      } catch (e3) {
-        prefs = before;
-        error2 = e3.message;
-      } finally {
-        busy2 = false;
-        draw();
-        if (focusId) root.querySelector(`[data-category-index="${orderedCategories(calendars2, prefs).findIndex((c3) => c3.id === focusId)}"] input`)?.focus();
-      }
-    };
-    const draw = () => {
-      root.replaceChildren();
-      el(root, "p", "ctt-muted", "\u6392\u5E8F\u548C\u9690\u85CF\u4EC5\u5F71\u54CD\u5F85\u529E\u7B5B\u9009\u680F\u3002\u201C\u5168\u90E8\u201D\u4ECD\u5305\u542B\u6240\u6709\u5F85\u529E\u3002");
-      const list = el(root, "div", "ctt-category-setting-list");
-      const categories2 = orderedCategories(calendars2, prefs);
-      if (!categories2.length) el(list, "p", "ctt-muted", "\u8FDE\u63A5\u65E5\u5386\u540E\u53EF\u8BBE\u7F6E\u5206\u7C7B\u3002");
-      categories2.forEach((c3, index2) => {
-        const row = el(list, "div", "ctt-category-setting");
-        row.dataset.categoryIndex = String(index2);
-        const label = el(row, "label", "ctt-category-visibility"), checkbox = el(label, "input");
-        checkbox.type = "checkbox";
-        checkbox.checked = !prefs.hiddenCategoryIds.includes(c3.id);
-        checkbox.disabled = busy2;
-        checkbox.setAttribute("aria-label", `\u663E\u793A\u5206\u7C7B ${c3.name}`);
-        const dot = el(label, "span", "ctt-category-dot");
-        dot.style.background = c3.color || "var(--interactive-accent)";
-        dot.setAttribute("aria-hidden", "true");
-        el(label, "span", "", c3.name);
-        checkbox.onchange = () => {
-          void update({ ...prefs, hiddenCategoryIds: checkbox.checked ? prefs.hiddenCategoryIds.filter((id) => id !== c3.id) : [...prefs.hiddenCategoryIds, c3.id] }, c3.id);
-        };
-        const move = (offset3) => {
-          const order = categories2.map((c4) => c4.id), other = index2 + offset3;
-          [order[index2], order[other]] = [order[other], order[index2]];
-          void update({ ...prefs, categoryOrder: [...order, ...prefs.categoryOrder.filter((id) => !order.includes(id))] }, c3.id);
-        };
-        const up = button(row, "\u2191", () => move(-1), "ctt-category-move", `\u4E0A\u79FB ${c3.name}`);
-        up.disabled = busy2 || index2 === 0;
-        const down = button(row, "\u2193", () => move(1), "ctt-category-move", `\u4E0B\u79FB ${c3.name}`);
-        down.disabled = busy2 || index2 === categories2.length - 1;
-      });
-      const message = el(root, "div", "ctt-dialog-error", error2);
-      message.setAttribute("role", "alert");
-      const reset = button(root, "\u6062\u590D\u9ED8\u8BA4\u6392\u5E8F\u4E0E\u663E\u793A", () => {
-        void update({ categoryOrder: [], hiddenCategoryIds: [] });
-      }, "ctt-quiet");
-      reset.disabled = busy2;
-    };
-    draw();
-  }
-
-  // Clients/Obsidian/taskOrder.ts
-  var TASK_SORT_LABELS = { manual: "\u624B\u52A8\u6392\u5E8F", due: "\u6309\u65E5\u671F", title: "\u6309\u6807\u9898" };
-  function taskSort(value) {
-    return value === "due" || value === "title" ? value : "manual";
-  }
-  function sortedTasks(tasks2, mode = "manual") {
-    return tasks2.map((task, index2) => ({ task, index: index2 })).sort((a3, b2) => {
-      const cmp = mode === "due" ? (a3.task.due || "9999").localeCompare(b2.task.due || "9999") : mode === "title" ? a3.task.title.localeCompare(b2.task.title, "zh-CN", { numeric: true }) : 0;
-      return cmp || a3.index - b2.index;
-    }).map((x4) => x4.task);
-  }
-  function reorderTaskSlots(tasks2, nextIds, expectedIds) {
-    const selected = new Set(expectedIds);
-    if (!expectedIds.length || selected.size !== expectedIds.length || new Set(nextIds).size !== nextIds.length || nextIds.length !== expectedIds.length || nextIds.some((id) => !selected.has(id))) throw new Error("\u6392\u5E8F\u5217\u8868\u65E0\u6548\u3002");
-    const current = tasks2.filter((t3) => selected.has(t3.id));
-    if (current.length !== expectedIds.length || current.some((t3, i4) => t3.completed || t3.id !== expectedIds[i4])) throw new Error("\u5F85\u529E\u987A\u5E8F\u6216\u5B8C\u6210\u72B6\u6001\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
-    const byId = new Map(current.map((t3) => [t3.id, t3]));
-    let i3 = 0;
-    return tasks2.map((t3) => selected.has(t3.id) ? byId.get(nextIds[i3++]) : t3);
-  }
-
-  // Clients/Obsidian/ui.ts
-  function toolButton(parent, label, action, paths) {
-    const b2 = button(parent, "", action, "ctt-icon", label), svg = parent.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
-    for (const [name, value] of Object.entries({ viewBox: "0 0 24 24", width: "18", height: "18", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false" })) svg.setAttribute(name, value);
-    for (const d3 of paths) {
-      const path = parent.ownerDocument.createElementNS(svg.namespaceURI, "path");
-      path.setAttribute("d", d3);
-      svg.append(path);
-    }
-    b2.append(svg);
-    return b2;
-  }
-  var TimerUI = class {
-    constructor(root, actions2) {
-      this.root = root;
-      this.actions = actions2;
-      root.classList.add("ctt-shell");
-      root.replaceChildren();
-      this.header = el(root, "header", "ctt-header");
-      const tools = el(this.header, "nav", "ctt-tools");
-      tools.setAttribute("aria-label", "\u63D2\u4EF6\u5DE5\u5177");
-      this.connect = button(tools, "\u8FDE\u63A5\u65E5\u5386", actions2.connect, "ctt-primary");
-      this.syncMenu = el(tools, "details", "ctt-sync-menu");
-      this.syncMenu.hidden = true;
-      this.syncSummary = el(this.syncMenu, "summary", "ctt-sync-summary");
-      this.syncSummary.setAttribute("aria-label", "\u540C\u6B65\u72B6\u6001");
-      const syncPanel = el(this.syncMenu, "div", "ctt-sync-panel");
-      el(syncPanel, "strong", "", "\u540C\u6B65\u961F\u5217");
-      this.syncError = el(syncPanel, "div", "ctt-dialog-error");
-      this.syncError.setAttribute("role", "alert");
-      this.pending = el(syncPanel, "div", "ctt-pending");
-      root.ownerDocument.addEventListener("pointerdown", this.closeSync);
-      root.ownerDocument.addEventListener("keydown", this.escapeSync);
-      toolButton(tools, "\u5237\u65B0", actions2.refresh, ["M20 7v5h-5", "M19.5 12a7.5 7.5 0 1 1-2-5.1L20 9"]);
-      toolButton(tools, "\u8BBE\u7F6E", actions2.settings, ["M4 7h5m4 0h7M4 17h9m4 0h3", "M13 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]);
-      tools.append(this.syncMenu);
-      this.scroll = el(root, "div", "ctt-scroll");
-      this.error = el(this.scroll, "div", "ctt-error");
-      this.error.setAttribute("role", "alert");
-      this.error.hidden = true;
-      const navigation = el(this.header, "nav", "ctt-page-tabs");
-      this.header.prepend(navigation);
-      navigation.setAttribute("role", "tablist");
-      navigation.setAttribute("aria-label", "\u529F\u80FD\u9875\u9762");
-      const viewId = `ctt-${crypto.randomUUID()}`;
-      for (const [id, label] of [["timer", "\u8BA1\u65F6"], ["tasks", "\u5F85\u529E"], ["calendar", "\u65E5\u5386"]]) {
-        const b2 = button(navigation, label, () => this.selectPage(id), "ctt-page-tab");
-        b2.id = `${viewId}-tab-${id}`;
-        b2.setAttribute("role", "tab");
-        b2.setAttribute("aria-controls", `${viewId}-page-${id}`);
-        b2.onkeydown = (e3) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e3.key)) return;
-          e3.preventDefault();
-          const ids = ["timer", "tasks", "calendar"], i3 = ids.indexOf(id), next = e3.key === "Home" ? 0 : e3.key === "End" ? 2 : (i3 + (e3.key === "ArrowLeft" ? 2 : 1)) % 3;
-          this.selectPage(ids[next]);
-          this.pageButtons.get(ids[next]).focus();
-        };
-        this.pageButtons.set(id, b2);
-      }
-      this.timerBadge = el(this.pageButtons.get("timer"), "span", "ctt-page-timer-badge");
-      this.timerBadge.setAttribute("aria-hidden", "true");
-      for (const id of ["timer", "tasks", "calendar"]) {
-        const panel = el(this.scroll, "section", `ctt-page ctt-${id}-page`);
-        panel.id = `${viewId}-page-${id}`;
-        panel.setAttribute("role", "tabpanel");
-        panel.setAttribute("aria-labelledby", `${viewId}-tab-${id}`);
-        this.pages.set(id, panel);
-      }
-      this.timer = el(this.pages.get("timer"), "section", "ctt-timer");
-      this.timer.setAttribute("aria-label", "\u5F53\u524D\u8BA1\u65F6");
-      this.status = el(this.timer, "div", "ctt-status");
-      this.title = el(this.timer, "h2", "ctt-current-title");
-      const dial = el(this.timer, "div", "ctt-clock");
-      el(dial, "div", "ctt-clock-track");
-      this.hand = el(dial, "div", "ctt-clock-hand");
-      this.readout = el(dial, "div", "ctt-readout", "00:00");
-      this.readout.setAttribute("aria-label", "\u7D2F\u8BA1\u4E13\u6CE8\u65F6\u95F4");
-      el(this.timer, "div", "ctt-idle-label", "\u5F00\u59CB\u4E00\u4E2A\u4EFB\u52A1\u5427");
-      const details = el(this.timer, "div", "ctt-session-details");
-      this.started = button(details, "", actions2.editStart, "ctt-quiet", "\u4FEE\u6539\u5F00\u59CB\u65F6\u95F4");
-      this.category = el(details, "select", "ctt-category");
-      this.category.setAttribute("aria-label", "\u672C\u6B21\u8BA1\u65F6\u5206\u7C7B");
-      this.category.onchange = () => actions2.category(this.category.value);
-      this.controls = el(this.timer, "div", "ctt-timer-controls");
-      this.pause = button(this.controls, "\u6682\u505C", () => this.model.active?.runningSince == null ? actions2.resume(this.model.active?.id || "") : actions2.pause(this.model.active?.id || ""));
-      button(this.controls, "\u7ED3\u675F\u5E76\u5B8C\u6210", () => actions2.finish(true, this.model.active?.id || ""), "ctt-primary");
-      button(this.controls, "\u53EA\u8BB0\u65F6\u95F4", () => actions2.finish(false, this.model.active?.id || ""), "ctt-quiet");
-      const body = el(this.pages.get("tasks"), "div", "ctt-body");
-      const timeline = el(this.pages.get("timer"), "section", "ctt-panel ctt-timeline");
-      const top = el(timeline, "div", "ctt-panel-heading");
-      el(top, "h3", "", "\u6267\u884C\u8BB0\u5F55");
-      const timelineTools = el(top, "div", "ctt-timeline-tools");
-      const nav = el(timelineTools, "div", "ctt-date-nav");
-      button(nav, "\u2039", () => actions2.date(shiftDate(this.model.date, -1)), "ctt-icon", "\u524D\u4E00\u5929");
-      this.dateInput = el(nav, "input");
-      this.dateInput.type = "date";
-      this.dateInput.setAttribute("aria-label", "\u65F6\u95F4\u8F74\u65E5\u671F");
-      this.dateInput.onchange = () => {
-        if (this.dateInput.value) actions2.date(this.dateInput.value);
-      };
-      button(nav, "\u4ECA\u5929", () => actions2.date(dayKey()), "ctt-quiet");
-      button(nav, "\u203A", () => actions2.date(shiftDate(this.model.date, 1)), "ctt-icon", "\u540E\u4E00\u5929");
-      this.rowList = el(timeline, "div", "ctt-timeline-list");
-      this.rowList.setAttribute("aria-label", "\u5F53\u5929\u5DF2\u8BB0\u5F55\u5DE5\u65F6");
-      const tasks2 = el(body, "section", "ctt-panel ctt-tasks");
-      const taskHead = el(tasks2, "div", "ctt-panel-heading");
-      el(taskHead, "h3", "", "\u5F85\u529E");
-      const taskTools = el(taskHead, "div", "ctt-task-tools");
-      this.taskSort = el(taskTools, "select", "ctt-task-sort");
-      this.taskSort.setAttribute("aria-label", "\u5F85\u529E\u6392\u5E8F");
-      for (const [value, text] of Object.entries(TASK_SORT_LABELS)) el(this.taskSort, "option", "", text).value = value;
-      this.taskSort.onchange = () => {
-        void actions2.sortTasks(taskSort(this.taskSort.value));
-      };
-      button(taskTools, "\u21C5", actions2.categorySettings, "ctt-icon", "\u5206\u7C7B\u6392\u5E8F\u4E0E\u663E\u793A");
-      this.sortNotice = el(tasks2, "div", "ctt-sort-notice");
-      this.sortNotice.setAttribute("role", "status");
-      this.sortNotice.setAttribute("aria-live", "polite");
-      this.tabs = el(tasks2, "div", "ctt-tabs");
-      this.tabs.setAttribute("aria-label", "\u5F85\u529E\u5206\u7C7B\u7B5B\u9009");
-      this.filterMenu = el(taskTools, "details", "ctt-filter-menu");
-      this.filterSummary = el(this.filterMenu, "summary", "ctt-filter-summary", "\u7B5B\u9009");
-      this.filterSummary.setAttribute("aria-label", "\u7B5B\u9009\u5F85\u529E");
-      const filters = el(this.filterMenu, "div", "ctt-task-filters");
-      for (const [key2, label, choices] of [["source", "\u5F85\u529E\u6765\u6E90", { "all": "\u5168\u90E8\u6765\u6E90", "local": "\u672C\u5730\u5F85\u529E", "reminder": "iCloud \u63D0\u9192\u4E8B\u9879" }], ["association", "\u5173\u8054\u7B5B\u9009", { "all": "\u5168\u90E8\u5173\u8054", "linked": "Components \u5DF2\u5173\u8054", "unlinked": "\u672A\u5173\u8054" }], ["status", "\u5B8C\u6210\u72B6\u6001", { "open": "\u672A\u5B8C\u6210", "done": "\u5DF2\u5B8C\u6210", "all": "\u5168\u90E8\u72B6\u6001" }], ["due", "\u622A\u6B62\u65E5\u671F\u7B5B\u9009", { "all": "\u5168\u90E8\u622A\u6B62\u65E5\u671F", "today": "\u4ECA\u5929\u622A\u6B62", "overdue": "\u5DF2\u903E\u671F", "none": "\u65E0\u622A\u6B62\u65E5\u671F", "date": "\u6307\u5B9A\u622A\u6B62\u65E5\u671F" }]]) {
-        const select = el(filters, "select");
-        select.setAttribute("aria-label", label);
-        for (const [value, text] of Object.entries(choices)) el(select, "option", "", text).value = value;
-        select.value = this.filters[key2] || "all";
-        select.onchange = () => {
-          this.filters[key2] = select.value;
-          this.filterDate.hidden = this.filters.due !== "date";
-          this.updateFilterSummary();
-          this.renderTasks();
-          this.tick();
-        };
-      }
-      this.filterDate = el(filters, "input");
-      this.filterDate.type = "date";
-      this.filterDate.value = this.filters.date;
-      this.filterDate.hidden = true;
-      this.filterDate.setAttribute("aria-label", "\u6307\u5B9A\u622A\u6B62\u65E5\u671F");
-      this.filterDate.onchange = () => {
-        this.filters.date = this.filterDate.value;
-        this.renderTasks();
-        this.tick();
-      };
-      const taskScroll = el(tasks2, "div", "ctt-task-scroll");
-      taskScroll.setAttribute("aria-label", "\u5F85\u529E\u5185\u5BB9");
-      const form = el(taskScroll, "form", "ctt-inbox");
-      this.taskTitle = el(form, "input", "ctt-new-title");
-      this.taskTitle.placeholder = "\u6DFB\u52A0\u4E00\u4EF6\u8981\u505A\u7684\u4E8B\u2026";
-      this.taskTitle.setAttribute("aria-label", "\u65B0\u5F85\u529E\u540D\u79F0");
-      this.taskTitle.required = true;
-      const addTools = el(form, "div", "ctt-inbox-tools");
-      this.newCategory = el(addTools, "select");
-      this.newCategory.setAttribute("aria-label", "\u65B0\u5F85\u529E\u5206\u7C7B");
-      this.newCategory.required = true;
-      const dateLabel = el(addTools, "div", "ctt-optional-date");
-      const dateToggle = button(dateLabel, "+ \u65E5\u671F", () => {
-        this.due.hidden = !this.due.hidden;
-        if (!this.due.hidden) {
-          this.due.focus();
-          try {
-            this.due.showPicker();
-          } catch {
-          }
-        }
-      }, "ctt-quiet", "\u8BBE\u7F6E\u5F85\u529E\u65E5\u671F");
-      this.due = el(dateLabel, "input");
-      this.due.type = "date";
-      this.due.hidden = true;
-      this.due.setAttribute("aria-label", "\u5F85\u529E\u65E5\u671F\uFF0C\u53EF\u7559\u7A7A");
-      this.due.onchange = () => {
-        dateToggle.hidden = !!this.due.value;
-        if (!this.due.value) this.due.hidden = true;
-      };
-      const add3 = el(addTools, "button", "ctt-primary", "\u6DFB\u52A0");
-      add3.type = "submit";
-      form.onsubmit = async (e3) => {
-        e3.preventDefault();
-        if (await actions2.add(this.taskTitle.value, this.due.value, this.newCategory.value)) {
-          this.taskTitle.value = "";
-          this.due.value = "";
-          this.due.hidden = true;
-          dateToggle.hidden = false;
-          this.resetDraftCategory();
-          this.taskTitle.focus();
-        }
-      };
-      this.taskList = el(taskScroll, "div", "ctt-task-list");
-      this.taskList.setAttribute("aria-label", "\u672A\u5B8C\u6210\u5F85\u529E");
-      this.observer = new ResizeObserver((entries2) => {
-        const { width, height } = entries2[0].contentRect;
-        root.classList.toggle("ctt-stacked", width < 840 || width / Math.max(1, height) < 1.15);
-        root.style.setProperty("--ctt-focus-height", `${Math.max(380, Math.min(660, height * 0.62, height - 330))}px`);
-      });
-      this.observer.observe(root);
-    }
-    root;
-    actions;
-    model;
-    filter = "";
-    page = "tasks";
-    filters = defaultFilters();
-    pages = /* @__PURE__ */ new Map();
-    pageButtons = /* @__PURE__ */ new Map();
-    pageScroll = { timer: 0, tasks: 0, calendar: 0 };
-    calendar;
-    timerBadge;
-    filterDate;
-    filterMenu;
-    filterSummary;
-    observer;
-    header;
-    scroll;
-    connect;
-    error;
-    timer;
-    title;
-    status;
-    readout;
-    hand;
-    category;
-    started;
-    controls;
-    pause;
-    taskTitle;
-    due;
-    newCategory;
-    tabs;
-    taskList;
-    rowList;
-    dateInput;
-    pending;
-    syncMenu;
-    syncSummary;
-    syncError;
-    pendingNodes = /* @__PURE__ */ new Map();
-    closeSync = (e3) => {
-      if (this.syncMenu.open && !this.syncMenu.contains(e3.target)) this.syncMenu.open = false;
-      if (this.filterMenu?.open && !this.filterMenu.contains(e3.target)) this.filterMenu.open = false;
-    };
-    escapeSync = (e3) => {
-      if (e3.key === "Escape" && this.filterMenu?.open) {
-        this.filterMenu.open = false;
-        this.filterSummary.focus();
-        e3.preventDefault();
-        return;
-      }
-      if (e3.key === "Escape" && this.syncMenu.open) {
-        this.syncMenu.open = false;
-        this.syncSummary.focus();
-        e3.preventDefault();
-      }
-    };
-    taskSort;
-    sortNotice;
-    dragged;
-    taskNodes = /* @__PURE__ */ new Map();
-    rowNodes = /* @__PURE__ */ new Map();
-    selectPage(page2, remember = true) {
-      this.pageScroll[this.page] = this.scroll.scrollTop;
-      this.page = page2;
-      this.root.dataset.page = page2;
-      for (const [id, panel] of this.pages) {
-        panel.hidden = id !== page2;
-        const b2 = this.pageButtons.get(id);
-        b2.setAttribute("aria-selected", String(id === page2));
-        b2.tabIndex = id === page2 ? 0 : -1;
-      }
-      if (this.model) {
-        if (page2 === "tasks") {
-          this.renderTasks();
-        } else if (page2 === "timer") {
-          this.renderRows();
-        } else if (page2 === "calendar") {
-          if (!this.calendar) this.calendar = this.actions.mountCalendar?.(this.pages.get("calendar"));
-          this.calendar?.activate();
-        }
-        this.tick();
-      }
-      this.scroll.scrollTop = this.pageScroll[page2];
-      if (remember) this.actions.page?.(page2);
-    }
-    update(m3) {
-      const old = this.model;
-      this.model = m3;
-      if (!old) {
-        this.renderRows();
-        this.selectPage(appPage(m3.appPage), false);
-      }
-      applyAppearance(this.root, m3.appearance);
-      this.root.classList.toggle("ctt-active", !!m3.active);
-      this.root.classList.toggle("ctt-paused", !!m3.active && m3.active.runningSince == null);
-      this.root.setAttribute("aria-busy", String(m3.busy));
-      this.connect.hidden = m3.connected;
-      this.taskSort.value = taskSort(m3.taskSort);
-      this.taskSort.disabled = m3.busy;
-      this.error.textContent = m3.error;
-      this.error.hidden = !m3.error;
-      this.title.textContent = m3.active?.title || "";
-      this.status.textContent = m3.active ? m3.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u4E13\u6CE8\u4E2D" : "";
-      this.pause.textContent = m3.active?.runningSince == null ? "\u7EE7\u7EED" : "\u6682\u505C";
-      this.started.textContent = m3.active ? `\u5F00\u59CB\u4E8E ${dateParts(m3.active.startedAt).date.slice(5)} ${dateParts(m3.active.startedAt).time.slice(0, 5)}` : "";
-      options(this.category, m3.calendars, m3.active?.calendarId || "");
-      const draft = this.newCategory.value;
-      options(this.newCategory, m3.taskCategories || m3.calendars, !old || !draft || old.defaultCalendarId !== m3.defaultCalendarId && !this.taskTitle.value ? this.filter || m3.defaultTaskCategoryId || m3.defaultCalendarId : draft);
-      if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m3.date;
-      if (JSON.stringify(old?.taskCategories || old?.calendars) !== JSON.stringify(m3.taskCategories || m3.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m3.categoryPreferences)) this.renderTabs();
-      if (this.page === "tasks") {
-        this.renderTasks();
-      } else if (this.page === "timer") {
-        this.renderRows();
-      } else if (this.page === "calendar") this.calendar?.activate();
-      this.syncMenu.hidden = !m3.pending.length && !m3.sync?.error;
-      this.syncSummary.textContent = `${m3.sync?.activeKey ? "\u21BB" : m3.pending.some((p3) => p3.error) || m3.sync?.error ? "!" : "\u2191"} ${m3.pending.length}`;
-      this.syncSummary.setAttribute("aria-label", `\u540C\u6B65\u72B6\u6001\uFF08${m3.pending.length} \u6761\u5F85\u540C\u6B65\uFF09`);
-      this.syncSummary.title = this.syncSummary.getAttribute("aria-label");
-      this.syncError.textContent = m3.sync?.error ? `\u540C\u6B65\u6682\u505C\uFF1A${m3.sync.error}` : "";
-      this.syncError.hidden = !m3.sync?.error;
-      const pendingIds = new Set(m3.pending.map((p3) => p3.id));
-      for (const [id, node] of this.pendingNodes) if (!pendingIds.has(id)) {
-        node.root.remove();
-        this.pendingNodes.delete(id);
-      }
-      for (const p3 of m3.pending) {
-        let node = this.pendingNodes.get(p3.id);
-        if (!node) {
-          const row = el(this.pending, "div", "ctt-pending-row"), text = el(row, "div");
-          const title = el(text, "strong"), status = el(text, "div", "ctt-muted"), error2 = el(text, "div", "ctt-muted");
-          const buttons = el(row, "div", "ctt-sync-actions");
-          const retry = button(buttons, "\u91CD\u8BD5", () => this.actions.retry(p3.id));
-          const keep = button(buttons, "\u4EC5\u4FDD\u7559\u65E5\u7A0B", () => this.actions.keep(p3.id));
-          const cleanup = button(buttons, "\u6E05\u7406\u672C\u5730\u6B8B\u7559", () => this.actions.resolveDeletion(p3.id.slice(7)));
-          node = { root: row, title, status, error: error2, retry, keep, cleanup };
-          this.pendingNodes.set(p3.id, node);
-        }
-        node.title.textContent = p3.title;
-        node.status.textContent = p3.status || "\u672C\u673A\u5DF2\u4FDD\u5B58\uFF0C\u7B49\u5F85\u540C\u6B65";
-        node.error.textContent = p3.error;
-        node.keep.hidden = !p3.canKeep;
-        node.cleanup.hidden = !p3.canResolveMissing;
-        node.retry.disabled = node.keep.disabled = node.cleanup.disabled = !!p3.working || m3.busy || !m3.connected;
-      }
-      for (const b2 of this.controls.querySelectorAll("button")) {
-        b2.disabled = m3.busy || b2.textContent === "\u7ED3\u675F\u5E76\u5B8C\u6210" && !!m3.active?.task.readonlyReason;
-        if (b2.textContent === "\u7ED3\u675F\u5E76\u5B8C\u6210") b2.title = m3.active?.task.readonlyReason || "";
-      }
-      this.category.disabled = m3.busy;
-      this.started.disabled = m3.busy;
-      this.tick();
-    }
-    renderTabs() {
-      const sources = orderedCategories(this.model.taskCategories || this.model.calendars, this.model.categoryPreferences, true);
-      if (this.filter && !sources.some((c3) => c3.id === this.filter)) {
-        this.filter = "";
-        this.resetDraftCategory();
-      }
-      this.tabs.replaceChildren();
-      for (const c3 of [{ id: "", name: "\u5168\u90E8" }, ...sources]) {
-        const b2 = button(this.tabs, c3.name, () => {
-          this.filter = c3.id;
-          this.resetDraftCategory();
-          this.renderTabs();
-          this.renderTasks();
-          this.tick();
-        }, "ctt-tab");
-        b2.classList.toggle("is-selected", c3.id === this.filter);
-        b2.setAttribute("aria-pressed", String(c3.id === this.filter));
-      }
-    }
-    updateFilterSummary() {
-      const count = Number(this.filters.source !== void 0 && this.filters.source !== "all") + Number(this.filters.association !== "all") + Number(this.filters.status !== "open") + Number(this.filters.due !== "all");
-      this.filterSummary.textContent = count ? `\u7B5B\u9009 \xB7 ${count}` : "\u7B5B\u9009";
-    }
-    resetDraftCategory() {
-      options(this.newCategory, this.model.taskCategories || this.model.calendars, this.filter || this.model.defaultTaskCategoryId || this.model.defaultCalendarId);
-    }
-    taskSession(task) {
-      const active = this.model.active;
-      return active && active.task.kind === task.kind && active.task.id === task.id && (task.kind === "fcr" ? active.task.calendarId === task.calendarId : active.task.path === task.path) ? active : null;
-    }
-    renderTasks() {
-      const m3 = this.model, manual = taskSort(m3.taskSort) === "manual" && this.filters.status === "open", linked = new Set((m3.linkedTasks || []).map(refKey)), tasks2 = sortedTasks(filterTasks(m3.tasks, this.filters, linked).filter((t3) => !this.filter || (t3.kind === "reminder" ? t3.listId : t3.calendarId || m3.defaultCalendarId) === this.filter), taskSort(m3.taskSort));
-      const ids = tasks2.map((t3) => t3.id);
-      const visibleIds = new Set(ids);
-      for (const [id, item] of this.taskNodes) if (!visibleIds.has(id)) {
-        item.root.remove();
-        this.taskNodes.delete(id);
-      }
-      this.taskList.querySelector(".ctt-empty")?.remove();
-      if (!tasks2.length) el(this.taskList, "div", "ctt-empty", "\u6682\u65E0\u5F85\u529E");
-      tasks2.forEach((task, i3) => {
-        let item = this.taskNodes.get(task.id);
-        if (!item) {
-          const root = el(this.taskList, "div", "ctt-task-row"), handle = button(root, "\u283F", () => {
-          }, "ctt-drag-handle"), check = el(root, "input");
-          check.type = "checkbox";
-          const body = el(root, "div", "ctt-task-text"), text = button(body, "", () => {
-          }, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta"), timing = el(body, "div", "ctt-task-timing");
-          const start = button(root, "\u25B7", () => {
-          }, "ctt-start", "\u5F00\u59CB\u8BA1\u65F6");
-          item = { root, handle, check, text, meta, timing, start };
-          this.taskNodes.set(task.id, item);
-        }
-        item.root.dataset.taskId = task.id;
-        item.handle.hidden = !manual;
-        item.handle.disabled = m3.busy;
-        item.handle.draggable = manual && !m3.busy;
-        item.handle.setAttribute("aria-label", `\u6392\u5E8F ${task.title}`);
-        item.handle.title = "\u62D6\u52A8\u6392\u5E8F\uFF1BAlt + \u2191 / \u2193 \u8C03\u6574\u987A\u5E8F";
-        item.handle.onkeydown = (e3) => {
-          if (!manual || m3.busy || !e3.altKey || !["ArrowUp", "ArrowDown"].includes(e3.key)) return;
-          e3.preventDefault();
-          const to = i3 + (e3.key === "ArrowUp" ? -1 : 1);
-          if (to < 0 || to >= ids.length) return;
-          const next = [...ids];
-          [next[i3], next[to]] = [next[to], next[i3]];
-          void this.saveOrder(next, ids, task.id);
-        };
-        item.handle.ondragstart = (e3) => {
-          if (!manual || m3.busy || !e3.dataTransfer) {
-            e3.preventDefault();
-            return;
-          }
-          this.dragged = { id: task.id, ids: [...ids] };
-          e3.dataTransfer.effectAllowed = "move";
-          e3.dataTransfer.setData("text/plain", task.id);
-          item.root.classList.add("is-dragging");
-        };
-        item.handle.ondragend = () => this.clearDrag();
-        item.root.ondragover = (e3) => {
-          if (!this.dragged || !manual || m3.busy) return;
-          e3.preventDefault();
-          this.taskList.querySelectorAll(".is-drop-before,.is-drop-after").forEach((n2) => n2.classList.remove("is-drop-before", "is-drop-after"));
-          item.root.classList.add(e3.clientY > item.root.getBoundingClientRect().top + item.root.clientHeight / 2 ? "is-drop-after" : "is-drop-before");
-        };
-        item.root.ondrop = (e3) => {
-          if (!this.dragged || !manual || m3.busy) return;
-          e3.preventDefault();
-          const source = this.dragged, next = source.ids.filter((id) => id !== source.id), after = e3.clientY > item.root.getBoundingClientRect().top + item.root.clientHeight / 2;
-          this.clearDrag();
-          if (source.id === task.id || !next.includes(task.id)) return;
-          next.splice(next.indexOf(task.id) + Number(after), 0, source.id);
-          void this.saveOrder(next, source.ids);
-        };
-        const categoryId = task.calendarId || m3.defaultCalendarId, category = m3.sources.find((c3) => c3.id === categoryId);
-        const active = this.taskSession(task), paused = !!active && active.runningSince == null;
-        item.sessionId = active?.id;
-        item.timing.hidden = !active;
-        item.root.dataset.timerState = active ? paused ? "paused" : "running" : "idle";
-        item.root.classList.toggle("is-timing", !!active);
-        item.root.classList.toggle("is-paused", paused);
-        item.text.textContent = task.title;
-        item.text.onclick = () => this.actions.editTask(task);
-        item.check.setAttribute("aria-label", `${task.completed ? "\u6062\u590D" : "\u5B8C\u6210"} ${task.title}`);
-        item.check.checked = task.completed;
-        item.check.disabled = m3.busy || !!active || !!task.readonlyReason || !!task.pending;
-        item.check.onchange = () => this.actions.complete(task);
-        item.meta.textContent = [task.kind === "reminder" ? m3.taskCategories?.find((c3) => c3.id === task.listId)?.name || "iCloud" : `\u672C\u5730 \xB7 ${category?.name || "\u9009\u62E9\u5206\u7C7B"}`, task.due, task.dueInstant != null ? dateParts(task.dueInstant, task.dueZone || "UTC").time.slice(0, 5) : "", task.readonlyReason, task.pending ? "\u5F85\u540C\u6B65" : ""].filter(Boolean).join(" \xB7 ");
-        item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
-        if (task.completed) {
-          const completion = (m3.completions || []).filter((e3) => refKey(e3.task) === refKey(task)).at(-1);
-          item.meta.textContent += completion ? ` \xB7 \u63D2\u4EF6\u5B8C\u6210\u4E8E ${dateParts(completion.completedAt).date} ${dateParts(completion.completedAt).time.slice(0, 5)}` : " \xB7 \u5B8C\u6210\u65F6\u95F4\u672A\u77E5";
-        }
-        const label = active ? paused ? "\u7EE7\u7EED\u8BA1\u65F6" : "\u6682\u505C\u8BA1\u65F6" : "\u5F00\u59CB\u8BA1\u65F6";
-        item.start.textContent = active && !paused ? "\u2161" : "\u25B7";
-        item.start.title = label;
-        item.start.setAttribute("aria-label", label);
-        item.start.onclick = () => {
-          if (active) {
-            if (paused) this.actions.resume(active.id);
-            else this.actions.pause(active.id);
-          } else this.actions.start(task);
-        };
-        item.start.disabled = task.completed || m3.busy || !active && (!!m3.active || !m3.connected || !m3.calendars.some((c3) => c3.id === categoryId));
-        if (this.taskList.children[i3] !== item.root) this.taskList.insertBefore(item.root, this.taskList.children[i3] || null);
-      });
-    }
-    clearDrag() {
-      this.dragged = void 0;
-      this.taskList.querySelectorAll(".is-dragging,.is-drop-before,.is-drop-after").forEach((n2) => n2.classList.remove("is-dragging", "is-drop-before", "is-drop-after"));
-    }
-    async saveOrder(next, expected, focusId) {
-      if (JSON.stringify(next) === JSON.stringify(expected)) return;
-      const ok = await this.actions.reorderTasks(next, expected);
-      this.sortNotice.textContent = ok ? "\u987A\u5E8F\u5DF2\u4FDD\u5B58" : "\u6392\u5E8F\u672A\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5";
-      if (focusId) this.taskNodes.get(focusId)?.handle.focus();
-    }
-    renderRows() {
-      const m3 = this.model;
-      const entries2 = m3.rows.filter((r3) => !!r3.recordId).sort((a3, b2) => a3.start - b2.start || a3.key.localeCompare(b2.key));
-      const keys = new Set(entries2.map((r3) => r3.key));
-      for (const [key2, item] of this.rowNodes) if (!keys.has(key2)) {
-        item.root.remove();
-        this.rowNodes.delete(key2);
-      }
-      this.rowList.querySelector(".ctt-empty")?.remove();
-      if (!entries2.length) el(this.rowList, "div", "ctt-empty", "\u5F53\u5929\u6682\u65E0\u5DF2\u8BB0\u5F55\u5DE5\u65F6");
-      entries2.forEach((row, i3) => {
-        let item = this.rowNodes.get(row.key);
-        if (!item) {
-          const root = button(this.rowList, "", () => {
-          }, "ctt-event"), time = el(root, "span", "ctt-event-time");
-          const start = el(time, "span", "ctt-event-start"), link = el(time, "span", "ctt-event-time-link"), end = el(time, "span", "ctt-event-end");
-          link.setAttribute("aria-hidden", "true");
-          const body = el(root, "span", "ctt-event-body"), title = el(body, "span", "ctt-event-title"), meta = el(body, "span", "ctt-event-meta");
-          item = { root, start, end, link, title, meta };
-          this.rowNodes.set(row.key, item);
-        }
-        const startDate = dayKey(row.start), endDate = dayKey(Math.max(row.start, row.end - 1));
-        item.start.textContent = row.allDay ? "\u5168\u5929" : m3.date > startDate ? "00:00" : dateParts(row.start).time.slice(0, 5);
-        item.end.textContent = row.allDay ? "" : m3.date < endDate ? "24:00" : dateParts(row.end).time.slice(0, 5);
-        item.end.hidden = item.link.hidden = !!row.allDay;
-        item.title.textContent = row.title;
-        item.meta.textContent = `${m3.sources.find((c3) => c3.id === row.calendarId)?.name || "\u65E5\u5386"}${row.recordId ? " \xB7 \u8BA1\u65F6" : ""}${row.deleting ? " \xB7 \u5F85\u5220\u9664" : row.pending ? " \xB7 \u5F85\u540C\u6B65" : ""}`;
-        item.root.style.setProperty("--ctt-category-color", row.color || m3.sources.find((c3) => c3.id === row.calendarId)?.color || "var(--interactive-accent)");
-        item.root.classList.toggle("is-pending", !!row.pending);
-        item.root.title = row.error || "\u7F16\u8F91\u65E5\u7A0B";
-        item.root.onclick = () => this.actions.editRow(row);
-        if (this.rowList.children[i3] !== item.root) this.rowList.insertBefore(item.root, this.rowList.children[i3] || null);
-      });
-    }
-    tick() {
-      const ms = elapsed(this.model?.active || null);
-      this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
-      this.timerBadge.textContent = this.model?.active ? this.model.active.runningSince == null ? " \xB7 \u5DF2\u6682\u505C" : " \xB7 \u8BA1\u65F6\u4E2D" : "";
-      this.timerBadge.title = this.model?.active ? this.model.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D" : "";
-      this.pageButtons.get("timer").setAttribute("aria-description", this.timerBadge.title);
-      this.hand.style.transform = `rotate(${ms / 6e4 * 360}deg)`;
-      const active = this.model?.active;
-      if (active && this.page === "tasks") {
-        for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D"} \xB7 ${secondsText(ms)}`;
-      }
-    }
-    destroy() {
-      this.calendar?.dispose();
-      this.observer.disconnect();
-      this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync);
-      this.root.ownerDocument.removeEventListener("keydown", this.escapeSync);
-      this.root.replaceChildren();
-    }
-  };
-
-  // Shared/sync.ts
-  var leaseKey = /* @__PURE__ */ Symbol.for("calendar-task-timer.remote-channels.v1");
-  var leases = globalThis[leaseKey] ||= /* @__PURE__ */ new Map();
-  var SyncWorker = class {
-    constructor(controller2, options2) {
-      this.controller = controller2;
-      this.options = options2;
-    }
-    controller;
-    options;
-    view = { activeKey: null, waiting: false, error: "" };
-    timer;
-    warning;
-    stopped = false;
-    running = false;
-    pauseUntil = 0;
-    now() {
-      return this.options.now?.() ?? Date.now();
-    }
-    eligible() {
-      return this.controller.jobs().filter(({ value: j4 }) => {
-        if (!j4.sync && j4.error) return false;
-        return !j4.sync?.issue || j4.sync.issue === "network";
-      });
-    }
-    wake() {
-      if (this.stopped || this.running) return;
-      if (this.timer) clearTimeout(this.timer);
-      if (!this.options.enabled()) return;
-      const jobs = this.eligible();
-      if (!jobs.length) return;
-      const next = Math.max(this.pauseUntil, Math.min(...jobs.map((j4) => j4.value.sync?.retryAt || 0)));
-      this.timer = setTimeout(() => {
-        this.timer = void 0;
-        void this.pump();
-      }, Math.max(this.options.delayMs ?? 80, next - this.now()));
-    }
-    async resume(issue) {
-      for (const j4 of this.controller.jobs().filter((j5) => j5.value.sync?.issue === issue)) await this.controller.requestRetry(j4.key);
-      this.wake();
-    }
-    async retry(key2) {
-      await this.controller.requestRetry(key2);
-      this.pauseUntil = 0;
-      this.wake();
-    }
-    async pump() {
-      if (this.stopped || this.running || !this.options.enabled()) return;
-      const job = this.eligible().find((j4) => (j4.value.sync?.retryAt || 0) <= this.now());
-      if (!job) {
-        this.wake();
-        return;
-      }
-      const channel = this.options.channel, previous = channel ? leases.get(channel) : void 0;
-      if (previous) {
-        this.running = true;
-        this.view.waiting = true;
-        this.view.error = "\u7B49\u5F85\u4E0A\u4E00\u63D2\u4EF6\u5B9E\u4F8B\u7684\u540C\u6B65\u8BF7\u6C42\u7ED3\u675F\uFF0C\u672C\u5730\u8BA1\u65F6\u4ECD\u53EF\u7EE7\u7EED\u3002";
-        this.options.changed?.();
-        await previous.done;
-        this.running = false;
-        if (!this.stopped) {
-          this.view.waiting = false;
-          this.view.error = "";
-          this.options.changed?.();
-          this.wake();
-        }
-        return;
-      }
-      const token = /* @__PURE__ */ Symbol();
-      let release;
-      const done = new Promise((resolve) => {
-        release = resolve;
-      });
-      if (channel) leases.set(channel, { token, done });
-      this.running = true;
-      this.view.activeKey = job.key;
-      this.view.waiting = false;
-      this.view.error = "";
-      const start = this.now();
-      this.options.changed?.();
-      this.warning = setTimeout(() => {
-        if (this.stopped) return;
-        this.view.waiting = true;
-        this.options.changed?.();
-      }, this.options.slowMs ?? 15e3);
-      try {
-        await this.controller.sync(job.key);
-      } catch (e3) {
-        if (!this.stopped) {
-          this.view.error = e3.message;
-          this.pauseUntil = this.now() + 1e4;
-        }
-      } finally {
-        if (channel && leases.get(channel)?.token === token) leases.delete(channel);
-        release();
-        if (this.warning) clearTimeout(this.warning);
-        this.warning = void 0;
-        this.running = false;
-        this.view.activeKey = null;
-        this.view.waiting = false;
-        if (!this.stopped) {
-          this.view.lastDurationMs = Math.max(0, this.now() - start);
-          this.options.settled?.();
-          this.options.changed?.();
-          this.wake();
-        }
-      }
-    }
-    stop() {
-      this.stopped = true;
-      if (this.timer) clearTimeout(this.timer);
-      if (this.warning) clearTimeout(this.warning);
-      this.controller.stopRemote();
-    }
-  };
-
   // node_modules/temporal-polyfill/chunks/root.js
   var NativeTemporal = globalThis.Temporal;
 
@@ -5567,6 +3893,1771 @@
   var Temporal3 = NativeTemporal || Temporal2;
   var toTemporalInstant2 = NativeTemporal ? Date.prototype.toTemporalInstant : toTemporalInstant;
 
+  // Shared/recurrence.ts
+  function validateRepeat(r3, task) {
+    if (!r3) return;
+    if (!task.due) throw Error("\u91CD\u590D\u4EFB\u52A1\u9700\u8981\u622A\u6B62\u65E5\u671F\u4F5C\u4E3A\u672C\u8F6E\u65E5\u671F\u3002");
+    Temporal3.PlainDate.from(task.due);
+    Temporal3.Now.zonedDateTimeISO(r3.zone);
+    if (!["daily", "weekly", "monthly"].includes(r3.frequency) || !Number.isInteger(r3.interval) || r3.interval < 1 || r3.interval > 365) throw Error("\u91CD\u590D\u95F4\u9694\u9700\u4E3A1\uFF5E365\u3002");
+    if (r3.frequency === "weekly" && (!r3.weekdays?.length || new Set(r3.weekdays).size !== r3.weekdays.length || r3.weekdays.some((n2) => !Number.isInteger(n2) || n2 < 1 || n2 > 7))) throw Error("\u8BF7\u9009\u62E9\u91CD\u590D\u7684\u661F\u671F\u3002");
+    if (r3.frequency !== "weekly" && r3.weekdays?.length) throw Error("\u6B64\u91CD\u590D\u89C4\u5219\u4E0D\u652F\u6301\u661F\u671F\u6761\u4EF6\u3002");
+    if (task.dueInstant != null && r3.zone !== task.dueZone) throw Error("\u91CD\u590D\u4E0E\u622A\u6B62\u65F6\u95F4\u5FC5\u987B\u4F7F\u7528\u540C\u4E00\u65F6\u533A\u3002");
+  }
+  var occurrenceKey = (t3) => JSON.stringify([t3.due || "", t3.dueInstant ?? null, t3.repeat ? { ...t3.repeat, revision: void 0 } : null]);
+  function nextOccurrence(task, completedAt) {
+    const r3 = task.repeat;
+    if (!r3) throw Error("\u6CA1\u6709\u91CD\u590D\u89C4\u5219\u3002");
+    validateRepeat(r3, task);
+    const anchor = Temporal3.PlainDate.from(task.due), now = Temporal3.Instant.fromEpochMilliseconds(completedAt).toZonedDateTimeISO(r3.zone), today2 = now.toPlainDate();
+    const clock = task.dueInstant == null ? void 0 : Temporal3.Instant.fromEpochMilliseconds(task.dueInstant).toZonedDateTimeISO(r3.zone).toPlainTime();
+    const start = Temporal3.PlainDate.compare(today2, anchor) > 0 ? today2 : anchor;
+    for (let i3 = 0; i3 < 366 * 40; i3++) {
+      const date2 = start.add({ days: i3 });
+      if (Temporal3.PlainDate.compare(date2, anchor) <= 0) continue;
+      const days = anchor.until(date2, { largestUnit: "days" }).days, months = (date2.year - anchor.year) * 12 + date2.month - anchor.month;
+      const weekAnchor = anchor.subtract({ days: anchor.dayOfWeek - 1 });
+      const valid = r3.frequency === "daily" ? days % r3.interval === 0 : r3.frequency === "monthly" ? months % r3.interval === 0 && date2.day === anchor.day : Math.floor(weekAnchor.until(date2, { largestUnit: "days" }).days / 7) % r3.interval === 0 && r3.weekdays.includes(date2.dayOfWeek);
+      if (!valid) continue;
+      if (!clock) {
+        if (Temporal3.PlainDate.compare(date2, today2) > 0) return { due: date2.toString(), dueInstant: null, dueZone: null };
+        continue;
+      }
+      const zoned = date2.toZonedDateTime({ timeZone: r3.zone, plainTime: clock });
+      if (!zoned.toPlainTime().equals(clock)) continue;
+      const instant2 = zoned.epochMilliseconds;
+      if (instant2 > completedAt) return { due: date2.toString(), dueInstant: instant2, dueZone: r3.zone };
+    }
+    throw Error("\u65E0\u6CD5\u8BA1\u7B97\u4E0B\u4E00\u4E2A\u5468\u671F\uFF0C\u8BF7\u68C0\u67E5\u89C4\u5219\u3002");
+  }
+  function repeatLabel(r3) {
+    if (!r3) return "";
+    const n2 = r3.interval === 1 ? "" : String(r3.interval);
+    return r3.frequency === "daily" ? `\u6BCF${n2}\u5929` : r3.frequency === "monthly" ? `\u6BCF${n2}\u6708` : `\u6BCF${n2}\u5468 ${r3.weekdays?.map((d3) => ["", "\u4E00", "\u4E8C", "\u4E09", "\u56DB", "\u4E94", "\u516D", "\u65E5"][d3]).join("\u3001")}`;
+  }
+  function deadlineLabel(task, now = Date.now(), localZone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
+    if (!task.due) return "";
+    const zone = task.dueInstant == null ? localZone : task.dueZone || "UTC", today2 = Temporal3.Instant.fromEpochMilliseconds(now).toZonedDateTimeISO(zone).toPlainDate().toString();
+    const relative = task.due === today2 ? "\u4ECA\u5929" : Temporal3.PlainDate.from(today2).add({ days: 1 }).toString() === task.due ? "\u660E\u5929" : task.due;
+    const late = !task.completed && (task.dueInstant != null ? task.dueInstant < now : task.due < today2);
+    const time = task.dueInstant != null ? Temporal3.Instant.fromEpochMilliseconds(task.dueInstant).toZonedDateTimeISO(zone).toPlainTime().toString().slice(0, 5) : "";
+    return `${late ? "\u903E\u671F \xB7 " : ""}${relative}${time ? ` ${time} (${zone})` : ""}`;
+  }
+
+  // Shared/application.ts
+  init_time();
+  var defaultFilters = () => ({ source: "all", association: "all", status: "open", due: "all", date: dayKey() });
+  var refKey = (task) => JSON.stringify([task.kind, task.path || "", task.id]);
+  var appPage = (value) => value === "timer" || value === "calendar" ? value : "tasks";
+  var focusLimit = (value) => typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(10, Math.round(value))) : 5;
+  function focusRefs(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = /* @__PURE__ */ new Set();
+    return value.flatMap((r3) => {
+      if (!["local", "reminder"].includes(r3?.kind) || typeof r3.path !== "string" || !r3.path || typeof r3.id !== "string" || !r3.id) return [];
+      const key2 = refKey(r3);
+      if (seen.has(key2)) return [];
+      seen.add(key2);
+      return [{ kind: r3.kind, path: r3.path, id: r3.id }];
+    });
+  }
+  function filterTasks(tasks2, filters, linked, today2 = dayKey()) {
+    return tasks2.filter((t3) => (!filters.source || filters.source === "all" || t3.kind === filters.source) && (filters.status === "all" || t3.completed === (filters.status === "done")) && (filters.association === "all" || linked.has(refKey(t3)) === (filters.association === "linked")) && (filters.due === "all" || filters.due === "none" && !t3.due || filters.due === "today" && t3.due === today2 || filters.due === "overdue" && (t3.dueInstant != null ? t3.dueInstant < Date.now() : !!t3.due && t3.due < today2) || filters.due === "date" && t3.due === filters.date));
+  }
+  var timerSnapshot = (active, available) => clone({ active, available });
+
+  // Providers/Reminders/provider.ts
+  var blankReminders = () => ({ version: 1, accountId: "", lists: [], items: [], deleted: [], operations: [], aliases: {}, rebuilds: {}, order: [], syncedAt: 0 });
+  var reminderRef = (t3) => ({ kind: "reminder", path: t3.path, id: t3.id });
+  var RemindersProvider = class {
+    constructor(rpc, options2) {
+      this.rpc = rpc;
+      this.options = options2;
+    }
+    rpc;
+    options;
+    data = blankReminders();
+    error = "";
+    syncing = false;
+    tail = Promise.resolve();
+    remote;
+    stopped = false;
+    load(value) {
+      const d3 = value;
+      if (d3?.version === 1 && Array.isArray(d3.items) && Array.isArray(d3.operations) && d3.aliases && d3.rebuilds && Array.isArray(d3.lists) && Array.isArray(d3.deleted) && Array.isArray(d3.order) && !d3.operations.some((o2) => !o2.id || !o2.task?.id || !["create", "update", "delete"].includes(o2.action) || !["pending", "saved"].includes(o2.status))) this.data = clone(d3);
+      else if (value != null) throw new Error("\u63D0\u9192\u4E8B\u9879\u7F13\u5B58\u6216\u961F\u5217\u635F\u574F\uFF0C\u539F\u6587\u4EF6\u5DF2\u4FDD\u7559\u3002");
+    }
+    get enabled() {
+      const s2 = this.options.settings();
+      return s2.enabled && !!s2.accountId && this.data.accountId === s2.accountId;
+    }
+    lock(fn2) {
+      const p3 = this.tail.catch(() => {
+      }).then(() => {
+        if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
+        return fn2();
+      });
+      this.tail = p3;
+      return p3;
+    }
+    async commit(next) {
+      if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
+      await this.options.persist(clone(next));
+      if (this.stopped) throw new Error("\u63D0\u9192\u4E8B\u9879\u670D\u52A1\u5DF2\u505C\u6B62\u3002");
+      this.data = next;
+      this.options.changed();
+    }
+    async connect(args) {
+      const result = await this.rpc.call("connect", args);
+      if (this.data.accountId && this.data.accountId !== result.accountId) throw new Error("\u8BF7\u4FDD\u7559\u5F53\u524D\u8D26\u6237\u6570\u636E\uFF1B\u672C\u7248\u4E0D\u652F\u6301\u76F4\u63A5\u5207\u6362\u5230\u53E6\u4E00\u4E2A\u8D26\u6237\u3002");
+      await this.lock(() => this.commit({ ...this.data, accountId: result.accountId }));
+      return result;
+    }
+    list() {
+      if (!this.enabled) return [];
+      const hidden = new Set(this.data.operations.filter((o2) => o2.migration && o2.status !== "saved").map((o2) => o2.task.id));
+      const map = new Map(this.data.items.filter((t3) => !this.data.deleted.includes(t3.id) && this.data.lists.some((l3) => l3.id === t3.listId)).map((t3) => [t3.id, clone(t3)]));
+      for (const o2 of this.data.operations.filter((o3) => o3.status === "pending")) {
+        if (o2.action === "delete") map.delete(o2.task.id);
+        else map.set(o2.task.id, { ...map.get(o2.task.id) || o2.task, ...o2.patch, pending: true });
+      }
+      const parents = new Set([...map.values()].map((t3) => t3.parentId).filter(Boolean));
+      return [...map.values()].filter((t3) => !hidden.has(t3.id)).map((t3) => ({ ...t3, calendarId: this.options.calendar(t3.listId), readonlyReason: t3.readonlyReason || (parents.has(t3.id) ? "\u5305\u542B\u5B50\u4EFB\u52A1\uFF0C\u8BF7\u5728\u63D0\u9192\u4E8B\u9879\u4E2D\u7F16\u8F91\uFF0F\u5B8C\u6210" : "") })).sort((a3, b2) => {
+        const rank = (id) => {
+          const n2 = this.data.order.indexOf(id);
+          return n2 < 0 ? Infinity : n2;
+        };
+        return rank(a3.id) - rank(b2.id);
+      });
+    }
+    resolve(ref) {
+      if (!this.enabled || ref.path !== `icloud:${this.data.accountId}`) throw new Error("\u63D0\u9192\u4E8B\u9879\u8D26\u6237\u672A\u8FDE\u63A5\u6216\u4EFB\u52A1\u5F15\u7528\u4E0D\u5C5E\u4E8E\u5F53\u524D\u8D26\u6237\u3002");
+      const alias = this.data.rebuilds[refKey(ref)] || ref;
+      const task = this.list().find((t3) => t3.id === alias.id);
+      if (!task) throw new Error(this.data.deleted.includes(alias.id) ? "\u63D0\u9192\u4E8B\u9879\u5DF2\u5220\u9664" : "\u63D0\u9192\u4E8B\u9879\u5C1A\u672A\u52A0\u8F7D\uFF0C\u8BF7\u540C\u6B65\u540E\u91CD\u8BD5\u3002");
+      return clone(task);
+    }
+    assertEditable(task) {
+      const current = this.resolve(reminderRef(task));
+      if (current.readonlyReason) throw new Error(current.readonlyReason);
+      return current;
+    }
+    async create(title, listId, patch = {}, migration, fixedId) {
+      if (!this.enabled || !this.data.lists.some((l3) => l3.id === listId)) throw new Error("\u8BF7\u9009\u62E9\u6709\u6548\u7684\u63D0\u9192\u4E8B\u9879\u5217\u8868\u3002");
+      if (!title.trim()) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
+      if (patch.repeat) throw new Error("\u8BF7\u521B\u5EFA\u5F85\u529E\u540E\uFF0C\u5728\u7F16\u8F91\u4E2D\u8BBE\u7F6E\u91CD\u590D\u89C4\u5219\u3002");
+      return this.lock(async () => {
+        if (migration) {
+          const known = this.data.aliases[refKey(migration)];
+          if (known) return known;
+          const pending = this.data.operations.find((o2) => o2.migration && refKey(o2.migration) === refKey(migration));
+          if (pending) return reminderRef(pending.task);
+        }
+        const id = fixedId || `Reminder/${uid().toUpperCase()}`;
+        if (this.data.operations.some((o2) => o2.task.id === id) || this.data.items.some((t3) => t3.id === id)) return { kind: "reminder", path: `icloud:${this.data.accountId}`, id };
+        const task = { id, title: title.trim(), completed: false, kind: "reminder", path: `icloud:${this.data.accountId}`, accountId: this.data.accountId, listId, ...patch };
+        const op = { id: uid(), action: "create", task, migration, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
+        return reminderRef(task);
+      });
+    }
+    async update(task, patch) {
+      return this.lock(async () => {
+        const current = this.assertEditable(task);
+        if (current.repeat && patch.completed === true) {
+          await this.queueCycle(task, current);
+          return;
+        }
+        if (current.repeat && Object.hasOwn(patch, "completed")) throw new Error("\u5DF2\u7ED3\u675F\u7684\u5468\u671F\u5386\u53F2\u4E0D\u80FD\u6062\u590D\u6574\u4E2A\u7CFB\u5217\u3002");
+        if (occurrenceKey(current) !== occurrenceKey(task)) throw new Error("\u672C\u8F6E\u5468\u671F\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (task.revision !== current.revision || task.title !== current.title || task.completed !== current.completed || task.description !== current.description || task.due !== current.due || task.dueInstant !== current.dueInstant) throw new Error("\u63D0\u9192\u4E8B\u9879\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u6B64\u63D0\u9192\u4E8B\u9879\u6709\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5B8C\u6210\u540C\u6B65\u3002");
+        const allowed = {};
+        for (const k3 of ["title", "description", "due", "dueInstant", "dueZone", "completed", "repeat"]) if (Object.hasOwn(patch, k3)) allowed[k3] = ["dueInstant", "dueZone", "repeat"].includes(k3) ? patch[k3] ?? null : patch[k3];
+        if (Object.hasOwn(allowed, "completed")) allowed.completedAt = allowed.completed ? Date.now() : null;
+        if (allowed.repeat && current.completed) throw new Error("\u8BF7\u5148\u6062\u590D\u5F85\u529E\uFF0C\u518D\u8BBE\u7F6E\u91CD\u590D\u3002");
+        validateRepeat(Object.hasOwn(allowed, "repeat") ? allowed.repeat : current.repeat, { ...current, ...allowed });
+        if (allowed.title !== void 0 && !allowed.title.trim()) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
+        const op = { id: uid(), action: "update", task: clone(current), before: clone(current), patch: allowed, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
+      });
+    }
+    async remove(task) {
+      return this.lock(async () => {
+        const current = this.assertEditable(task);
+        if (current.revision !== task.revision || current.title !== task.title) throw new Error("\u63D0\u9192\u4E8B\u9879\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u6B64\u63D0\u9192\u4E8B\u9879\u5C1A\u6709\u5F85\u540C\u6B65\u64CD\u4F5C\u3002");
+        const op = { id: uid(), action: "delete", task: current, before: current, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+        await this.commit({ ...this.data, operations: [...this.data.operations, op] });
+      });
+    }
+    async restore(ref, seed2) {
+      const known = this.data.rebuilds[refKey(ref)];
+      if (known) ref = known;
+      let current;
+      try {
+        current = this.resolve(ref);
+      } catch (e3) {
+        if (!this.enabled || !this.data.deleted.includes(ref.id)) throw e3;
+        const existing = this.data.operations.find((o2) => o2.status === "pending" && o2.action === "delete" && o2.task.id === ref.id);
+        if (existing) throw new Error("\u5220\u9664\u5C1A\u672A\u786E\u8BA4\uFF0C\u8BF7\u7B49\u540C\u6B65\u5B8C\u6210\u3002");
+        const old = this.data.items.find((t3) => t3.id === ref.id);
+        if (old?.repeat) throw new Error("\u5468\u671F\u4EFB\u52A1\u5DF2\u5220\u9664\uFF0C\u8BF7\u660E\u786E\u65B0\u5EFA\u91CD\u590D\u89C4\u5219\u3002");
+        if (old?.readonlyReason) throw new Error(old.readonlyReason);
+        const listId = seed2.listId || old?.listId || this.options.settings().defaultListId;
+        const next = await this.create(seed2.title, listId, { due: seed2.due, dueInstant: seed2.dueInstant, dueZone: seed2.dueZone, description: seed2.description || old?.description });
+        await this.lock(() => this.commit({ ...this.data, rebuilds: { ...this.data.rebuilds, [refKey(ref)]: next } }));
+        return this.resolve(next);
+      }
+      if (current.repeat && current.completed) throw new Error("\u6B64\u5468\u671F\u5DF2\u7ED3\u675F\uFF0C\u8BF7\u5728\u63D0\u9192\u4E8B\u9879\u4E2D\u6062\u590D\u89C4\u5219\u3002");
+      if (current.readonlyReason && current.completed) throw new Error(current.readonlyReason);
+      if (current.completed) await this.update(current, { completed: false });
+      return this.resolve(reminderRef(current));
+    }
+    async refresh() {
+      if (this.remote) return this.remote;
+      if (!this.enabled) return;
+      this.syncing = true;
+      this.options.changed();
+      const p3 = (async () => {
+        try {
+          const result = await this.rpc.call("snapshot", { accountId: this.data.accountId, cursor: this.data.cursor, zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+          await this.lock(async () => {
+            const map = new Map(this.data.items.map((t3) => [t3.id, t3]));
+            for (const t3 of result.items) map.set(t3.id, t3);
+            const deleted = new Set(result.full ? this.data.items.filter((t3) => !result.items.some((n2) => n2.id === t3.id)).map((t3) => t3.id) : this.data.deleted);
+            for (const id of result.deleted || []) deleted.add(id);
+            for (const t3 of result.items) deleted.delete(t3.id);
+            await this.commit({ ...this.data, items: [...map.values()], deleted: [...deleted], lists: result.lists, cursor: result.cursor, syncedAt: Date.now() });
+          });
+          this.error = "";
+        } catch (e3) {
+          this.error = e3.message;
+        } finally {
+          this.syncing = false;
+          this.options.changed();
+        }
+      })();
+      this.remote = p3;
+      void p3.finally(() => {
+        if (this.remote === p3) this.remote = void 0;
+      }).catch(() => {
+      });
+      return p3;
+    }
+    jobs() {
+      if (!this.enabled) return [];
+      return this.data.operations.filter((o2) => o2.status === "pending").map((o2) => ({ key: `reminder:${o2.id}`, value: o2 }));
+    }
+    async requestRetry(key2) {
+      const id = key2.slice(9);
+      await this.lock(async () => {
+        const op = this.data.operations.find((o2) => o2.id === id);
+        if (!op) return;
+        await this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? { ...o2, error: "", sync: { ...o2.sync, issue: void 0, retryAt: 0 } } : o2) });
+      });
+    }
+    async accept(task, id, deleted = false) {
+      await this.lock(() => this.commit({ ...this.data, items: task ? [...this.data.items.filter((t3) => t3.id !== id), task] : this.data.items, deleted: deleted ? [.../* @__PURE__ */ new Set([...this.data.deleted, id])] : this.data.deleted.filter((x4) => x4 !== id) }));
+    }
+    async sync(key2) {
+      const id = key2.slice(9), op = clone(this.data.operations.find((o2) => o2.id === id));
+      if (!op || op.status === "saved") return;
+      try {
+        if (!op.phase) {
+          const result = await this.rpc.call(op.action, { accountId: this.data.accountId, op });
+          await this.accept(result.task, op.task.id, op.action === "delete");
+          if (result.history) await this.accept(result.history, result.history.id);
+          op.confirmed = result.task;
+          if (op.migration) {
+            op.phase = "remote-confirmed";
+            await this.lock(() => this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? op : o2) }));
+          }
+        }
+        if (op.migration) {
+          await this.options.migrated?.(op.migration, reminderRef(op.task));
+        }
+        await this.lock(() => this.commit({ ...this.data, aliases: op.migration ? { ...this.data.aliases, [refKey(op.migration)]: reminderRef(op.task) } : this.data.aliases, operations: this.data.operations.map((o2) => o2.id === id ? { ...op, status: "saved", error: "" } : o2) }));
+      } catch (e3) {
+        const error2 = e3.message, issue = /授权|登录|验证码|认证|账户|会话/.test(error2) ? "auth" : /冲突|变化|复杂|周期|子任务|删除|无法解码/.test(error2) ? "conflict" : "network";
+        await this.lock(() => this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? { ...o2, error: error2, sync: { ...o2.sync, issue, attempt: (o2.sync?.attempt || 0) + 1, retryAt: Date.now() + Math.min(3e5, 2e3 * 2 ** Math.min(7, o2.sync?.attempt || 0)) } } : o2) }));
+      }
+    }
+    async queueCycle(task, current, completedAt = Date.now(), requestId) {
+      if (occurrenceKey(task) !== occurrenceKey(current) || JSON.stringify(task.repeat) !== JSON.stringify(current.repeat) || task.revision !== current.revision) throw new Error("\u672C\u8F6E\u5468\u671F\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
+      if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u6B64\u63D0\u9192\u4E8B\u9879\u6709\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5B8C\u6210\u540C\u6B65\u3002");
+      const op = { id: uid(), action: "update", task: clone(current), before: clone(current), patch: { completed: true }, cycle: { key: occurrenceKey(current), requestId, historyId: `Reminder/${uid().toUpperCase()}`, completedAt, next: nextOccurrence(current, completedAt) }, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+      await this.commit({ ...this.data, operations: [...this.data.operations, op] });
+      return op.id;
+    }
+    async completeRemote(task, context) {
+      if (task.repeat) {
+        const requestId = context ? `work:${context.operationId}` : `snapshot:${task.revision}:${occurrenceKey(task)}`;
+        const matches = (o2) => o2.task.id === task.id && (o2.cycle?.requestId === requestId || !!o2.cycle && !o2.cycle.requestId && o2.cycle.key === occurrenceKey(task) && o2.before?.revision === task.revision);
+        let operation = this.data.operations.find(matches);
+        if (!operation) {
+          await this.lock(async () => {
+            operation = this.data.operations.find(matches);
+            if (operation) return;
+            const current2 = this.assertEditable(task);
+            let revision2 = task.revision;
+            for (const o2 of this.data.operations) if (o2.status === "saved" && o2.task.id === task.id && o2.before?.revision === revision2 && o2.confirmed?.revision) revision2 = o2.confirmed.revision;
+            const id = await this.queueCycle({ ...task, revision: revision2 }, current2, context?.completedAt, requestId);
+            operation = this.data.operations.find((o2) => o2.id === id);
+          });
+        }
+        if (operation.status !== "saved") await this.sync(`reminder:${operation.id}`);
+        const saved = this.data.operations.find((o2) => o2.id === operation.id);
+        if (saved.status !== "saved") throw new Error(saved.error || "\u5468\u671F\u5B8C\u6210\u7B49\u5F85\u540C\u6B65\u3002");
+        return;
+      }
+      const current = this.assertEditable(task);
+      if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u63D0\u9192\u4E8B\u9879\u4ECD\u5728\u540C\u6B65\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u5B8C\u6210\u3002");
+      let revision = task.revision;
+      for (const op of this.data.operations) if (op.status === "saved" && op.task.id === task.id && op.confirmed?.revision && (op.before?.revision === revision || !revision && op.action === "create")) revision = op.confirmed.revision;
+      const result = await this.rpc.call("update", { accountId: this.data.accountId, op: { id: `complete-${task.id}-${task.revision}`, action: "update", task, before: { ...task, revision: revision || current.revision }, patch: { completed: true, ...context ? { completedAt: context.completedAt } : {} } } });
+      await this.accept(result.task, current.id);
+    }
+    async reorder(next, expected, all = this.list()) {
+      const rows = all.filter((t3) => expected.includes(t3.id));
+      if (rows.length !== expected.length || rows.some((t3, i3) => t3.id !== expected[i3] || t3.completed) || new Set(next).size !== next.length || next.length !== expected.length || next.some((x4) => !expected.includes(x4))) throw new Error("\u5F85\u529E\u987A\u5E8F\u5DF2\u53D8\u5316\u3002");
+      await this.lock(() => this.commit({ ...this.data, order: [...next, ...this.data.order.filter((x4) => !next.includes(x4))] }));
+    }
+    stop() {
+      this.stopped = true;
+    }
+  };
+
+  // Shared/timer.ts
+  init_time();
+  var blankJournal = () => ({ version: 2, active: null, records: [], operations: [] });
+  function validateJournal(input) {
+    const data = clone(input);
+    if (!data || ![1, 2].includes(data.version) || !Array.isArray(data.records)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u683C\u5F0F\u4E0D\u6B63\u786E\uFF0C\u5DF2\u4FDD\u7559\u539F\u6587\u4EF6\u3002");
+    data.operations ??= [];
+    if (!Array.isArray(data.operations) || data.operations.some((o2) => !o2.id || !o2.step?.uid || !["pending", "saved"].includes(o2.status))) throw new Error("\u65E5\u7A0B\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
+    if (data.deletions && (!Array.isArray(data.deletions) || data.deletions.some((o2) => !o2.id || !o2.uid || !o2.calendarId || !o2.before || o2.before.uid !== o2.uid || !Number.isFinite(o2.start) || !Number.isFinite(o2.end) || !["pending", "saved"].includes(o2.status)))) throw new Error("\u5220\u9664\u64CD\u4F5C\u65E5\u5FD7\u635F\u574F\u3002");
+    for (const s2 of [data.active, ...data.records].filter(Boolean)) {
+      if (s2.ownerDeviceId !== void 0 && (typeof s2.ownerDeviceId !== "string" || !s2.ownerDeviceId || s2.ownerDeviceId.length > 128)) throw new Error("\u4F1A\u8BDD\u5F52\u5C5E\u65E0\u6548\u3002");
+      if (!s2.id || !s2.task?.id || !s2.calendarId || !s2.zone || !Number.isFinite(s2.startedAt) || !Number.isFinite(s2.lastHeartbeat) || !Array.isArray(s2.segments) || s2.runningSince != null && !Number.isFinite(s2.runningSince)) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
+      new Intl.DateTimeFormat("en", { timeZone: s2.zone });
+      let end = -Infinity;
+      for (const p3 of s2.segments) {
+        if (!Number.isFinite(p3.start) || !Number.isFinite(p3.end) || p3.end < p3.start || p3.start < end) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u533A\u95F4\u635F\u574F\u3002");
+        end = p3.end;
+      }
+      if (s2.runningSince != null && s2.runningSince < end) throw new Error("\u8BA1\u65F6\u65E5\u5FD7\u533A\u95F4\u91CD\u53E0\u3002");
+    }
+    for (const r3 of data.records) {
+      if (!Number.isFinite(r3.endedAt) || !["saved", "pending"].includes(r3.status) || r3.segments.some((p3) => !p3.uid)) throw new Error("\u5386\u53F2\u65E5\u5FD7\u4E0D\u5B8C\u6574\u3002");
+      if (r3.edit) {
+        validateSegments(r3.edit.segments, Infinity);
+        if (r3.edit.steps.length !== r3.edit.segments.length || r3.edit.steps.some((p3) => !p3.uid || !p3.before || !p3.after || !["prepared", "target-confirmed", "done"].includes(p3.stage))) throw new Error("\u4FEE\u6539\u65E5\u5FD7\u635F\u574F\u3002");
+      }
+    }
+    for (const job of [...data.records, ...data.operations, ...data.deletions || []]) {
+      if (job.sync && (!Number.isInteger(job.sync.revision) || job.sync.revision < 0 || !Number.isInteger(job.sync.attempt) || job.sync.attempt < 0 || !Number.isFinite(job.sync.retryAt))) throw new Error("\u540C\u6B65\u8FDB\u5EA6\u65E5\u5FD7\u635F\u574F\u3002");
+    }
+    data.version = 2;
+    return data;
+  }
+  function pauseSession(session, now) {
+    if (!session) throw new Error("\u6CA1\u6709\u6B63\u5728\u8BA1\u65F6\u7684\u5F85\u529E\u3002");
+    const s2 = clone(session);
+    if (s2.runningSince != null) {
+      if (now < s2.runningSince) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
+      if (now > s2.runningSince) s2.segments.push({ start: s2.runningSince, end: now });
+      s2.runningSince = null;
+    }
+    s2.lastHeartbeat = now;
+    return s2;
+  }
+  var TimerController = class {
+    constructor(deps) {
+      this.deps = deps;
+      this.state = validateJournal(deps.state || blankJournal());
+    }
+    deps;
+    state;
+    serial = Promise.resolve();
+    flights = /* @__PURE__ */ new Map();
+    stopped = false;
+    now() {
+      return this.deps.now?.() ?? Date.now();
+    }
+    lock(fn2) {
+      const p3 = this.serial.then(fn2);
+      this.serial = p3.catch(() => {
+      });
+      return p3;
+    }
+    async commit(next, notify = true) {
+      this.live();
+      await this.deps.persist(clone(next));
+      this.state = next;
+      if (notify) this.deps.onChange?.();
+    }
+    recover() {
+      return this.lock(async () => {
+        if (this.state.active?.runningSince == null) return false;
+        const s2 = this.state.active;
+        await this.commit({ ...this.state, active: pauseSession(s2, Math.max(s2.runningSince, Math.min(s2.lastHeartbeat, this.now()))) });
+        return true;
+      });
+    }
+    stopRemote() {
+      this.stopped = true;
+    }
+    live() {
+      if (this.stopped) throw new Error("\u540C\u6B65\u5668\u5DF2\u505C\u6B62\uFF1B\u64CD\u4F5C\u4FDD\u7559\u5230\u4E0B\u6B21\u542F\u52A8\u3002");
+    }
+    info(job) {
+      return { revision: job?.sync?.revision || 0, attempt: job?.sync?.attempt || 0, retryAt: job?.sync?.retryAt || 0, issue: job?.sync?.issue };
+    }
+    job(key2) {
+      const [type, id] = key2.split(":");
+      return type === "work" ? this.state.records.find((r3) => r3.id === id) : type === "event" ? this.state.operations.find((o2) => o2.id === id) : this.state.deletions?.find((o2) => o2.id === id);
+    }
+    jobs() {
+      return [...this.state.records.filter((r3) => r3.status === "pending").map((r3) => ({ key: `work:${r3.id}`, value: r3 })), ...this.state.operations.filter((o2) => o2.status === "pending").map((o2) => ({ key: `event:${o2.id}`, value: o2 })), ...(this.state.deletions || []).filter((o2) => o2.status === "pending").map((o2) => ({ key: `delete:${o2.id}`, value: o2 }))];
+    }
+    async updateJob(key2, change) {
+      const current = this.job(key2);
+      if (!current) throw new Error("\u540C\u6B65\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
+      const next = clone(current);
+      change(next);
+      const [type, id] = key2.split(":");
+      await this.commit({ ...this.state, ...type === "work" ? { records: this.state.records.map((r3) => r3.id === id ? next : r3) } : type === "event" ? { operations: this.state.operations.map((o2) => o2.id === id ? next : o2) } : { deletions: this.state.deletions.map((o2) => o2.id === id ? next : o2) } });
+    }
+    requestRetry(key2) {
+      return this.lock(async () => {
+        if (this.flights.has(key2)) return;
+        await this.updateJob(key2, (job) => {
+          job.error = "";
+          job.sync = { ...this.info(job), retryAt: 0, issue: void 0 };
+        });
+      });
+    }
+    runJob(key2, execute2, automatic = false) {
+      const prior = this.flights.get(key2);
+      if (prior) return prior;
+      const promise = (async () => {
+        const ready = await this.lock(async () => {
+          this.live();
+          const current2 = this.job(key2);
+          if (automatic && (!current2 || current2.status !== "pending" || !current2.sync && current2.error || current2.sync?.issue && current2.sync.issue !== "network" || (current2.sync?.retryAt || 0) > this.now())) return false;
+          if (current2?.status === "pending") await this.updateJob(key2, (job) => {
+            job.sync = { ...this.info(job), attempt: (job.sync?.attempt || 0) + 1 };
+          });
+          return true;
+        });
+        if (!ready) return clone(this.job(key2));
+        const result = await execute2();
+        await this.lock(async () => {
+          this.live();
+          if (this.job(key2)?.status !== "pending") return;
+          await this.updateJob(key2, (job) => {
+            const info = this.info(job), issue = classifySyncError(job.error);
+            job.sync = { ...info, issue, retryAt: issue === "network" ? this.now() + Math.round(Math.min(3e5, 2e3 * 2 ** Math.min(info.attempt - 1, 8)) * (0.85 + Math.random() * 0.3)) : 0 };
+          });
+        });
+        const current = this.job(key2);
+        return current ? clone(current) : result;
+      })();
+      this.flights.set(key2, promise);
+      void promise.finally(() => this.flights.delete(key2)).catch(() => {
+      });
+      return promise;
+    }
+    sync(key2) {
+      const [type, id] = key2.split(":");
+      return this.runJob(key2, async () => type === "work" ? this.flush(id) : type === "event" ? this.flushOperation(id) : this.flushDeletion(id), true);
+    }
+    guard(key2, revision) {
+      this.live();
+      const current = this.job(key2);
+      if (!current || current.status !== "pending" || (current.sync?.revision || 0) !== revision) throw new Error("\u64CD\u4F5C\u7248\u672C\u5DF2\u53D8\u5316\uFF0C\u5FFD\u7565\u65E7\u540C\u6B65\u7ED3\u679C\u3002");
+    }
+    start(task, calendarId) {
+      return this.lock(async () => {
+        if (this.state.active) throw new Error("\u8BF7\u5148\u7ED3\u675F\u5F53\u524D\u8BA1\u65F6\u3002");
+        if (!task.id || !task.title.trim()) throw new Error("\u8BF7\u9009\u62E9\u6709\u6548\u5F85\u529E\u3002");
+        this.deps.calendar.assertWritable(calendarId);
+        const now = this.now();
+        const active = {
+          id: uid(),
+          ownerDeviceId: this.deps.ownerDeviceId,
+          title: task.title,
+          task: clone(task),
+          calendarId,
+          zone: this.deps.zone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+          startedAt: now,
+          runningSince: now,
+          lastHeartbeat: now,
+          segments: []
+        };
+        await this.commit({ ...this.state, active });
+      });
+    }
+    checkSession(expectedId) {
+      if (expectedId !== void 0 && this.state.active?.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+    }
+    pause(expectedId) {
+      return this.lock(() => {
+        this.checkSession(expectedId);
+        return this.commit({ ...this.state, active: pauseSession(this.state.active, this.now()) });
+      });
+    }
+    resume(expectedId) {
+      return this.lock(async () => {
+        this.checkSession(expectedId);
+        const s2 = this.state.active, now = this.now();
+        if (!s2 || s2.runningSince != null) throw new Error("\u5F53\u524D\u72B6\u6001\u4E0D\u80FD\u7EE7\u7EED\u3002");
+        if (now < (s2.segments.at(-1)?.end ?? s2.startedAt)) throw new Error("\u7CFB\u7EDF\u65F6\u95F4\u5012\u9000\uFF0C\u8BF7\u68C0\u67E5\u65F6\u95F4\u3002");
+        await this.commit({ ...this.state, active: { ...s2, runningSince: now, lastHeartbeat: now } });
+      });
+    }
+    heartbeat() {
+      return this.lock(async () => {
+        if (this.state.active?.runningSince != null) await this.commit({
+          ...this.state,
+          active: { ...this.state.active, lastHeartbeat: this.now() }
+        }, false);
+      });
+    }
+    updateActive(patch, expectedId) {
+      return this.lock(async () => {
+        const s2 = clone(this.state.active);
+        if (!s2) throw new Error("\u6CA1\u6709\u5F53\u524D\u8BA1\u65F6\u3002");
+        if (expectedId && s2.id !== expectedId) throw new Error("\u5F53\u524D\u8BA1\u65F6\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (patch.calendarId) {
+          this.deps.calendar.assertWritable(patch.calendarId);
+          s2.calendarId = patch.calendarId;
+        }
+        if (patch.startedAt != null) {
+          const boundary = s2.segments[0]?.end ?? (s2.runningSince == null ? s2.lastHeartbeat : this.now());
+          if (!Number.isFinite(patch.startedAt) || patch.startedAt > this.now() || patch.startedAt > boundary - (s2.segments.length ? 1e3 : 0)) throw new Error("\u5F00\u59CB\u65F6\u95F4\u4E0D\u80FD\u665A\u4E8E\u9996\u6BB5\u7ED3\u675F\u6216\u5F53\u524D\u65F6\u95F4\u3002");
+          s2.startedAt = patch.startedAt;
+          if (s2.segments.length) s2.segments[0].start = patch.startedAt;
+          else if (s2.runningSince != null) s2.runningSince = patch.startedAt;
+          else if (patch.startedAt < boundary) s2.segments.push({ start: patch.startedAt, end: boundary });
+        }
+        await this.commit({ ...this.state, active: s2 });
+      });
+    }
+    finish(completeTask2 = true, expectedId) {
+      return this.lock(async () => {
+        this.checkSession(expectedId);
+        if (completeTask2 && this.state.active?.task.readonlyReason) throw new Error(this.state.active.task.readonlyReason);
+        const now = this.now(), s2 = pauseSession(this.state.active, now);
+        const segments = s2.segments.filter((p3) => p3.end - p3.start >= 1e3).map((p3, i3) => ({ ...p3, uid: `simple-task-timer-${s2.id}-${i3}`, saved: false }));
+        validateSegments(segments, now);
+        const record = { ...s2, segments, endedAt: now, completeTask: completeTask2, taskSaved: !completeTask2, status: "pending", error: "", sync: this.info(), localFirst: !!this.deps.background && s2.task.kind === "local" };
+        await this.commit({ ...this.state, active: null, records: [...this.state.records, record] });
+        if (record.localFirst && completeTask2) {
+          try {
+            await this.deps.tasks.complete(record.task, { operationId: record.id, completedAt: record.endedAt });
+            record.taskSaved = true;
+            await this.replace(record);
+          } catch (e3) {
+            const durable = clone(this.state.records.find((r3) => r3.id === record.id));
+            durable.error = e3.message;
+            durable.sync = { ...this.info(durable), issue: "conflict" };
+            await this.replace(durable);
+            return durable;
+          }
+        }
+        return record;
+      }).then((r3) => this.deps.background ? r3 : this.retry(r3.id));
+    }
+    retry(id) {
+      return this.runJob(`work:${id}`, () => this.flush(id));
+    }
+    async replace(record) {
+      await this.commit({ ...this.state, records: this.state.records.map((r3) => r3.id === record.id ? clone(record) : r3) });
+    }
+    checkpointRecord(r3) {
+      return this.lock(async () => {
+        this.guard(`work:${r3.id}`, r3.sync?.revision || 0);
+        await this.replace(r3);
+      });
+    }
+    async flush(id) {
+      let r3 = await this.lock(() => Promise.resolve(clone(this.state.records.find((r4) => r4.id === id))));
+      if (!r3) throw new Error("\u8BB0\u5F55\u4E0D\u5B58\u5728\u3002");
+      if (r3.status === "saved" && !r3.edit) return r3;
+      try {
+        this.live();
+        if (r3.localFirst && r3.completeTask && !r3.taskSaved) {
+          await this.deps.tasks.complete(r3.task, { operationId: r3.id, completedAt: r3.endedAt });
+          r3.taskSaved = true;
+          await this.checkpointRecord(r3);
+        }
+        this.deps.calendar.assertWritable(r3.calendarId);
+        if (r3.edit) {
+          for (const step of r3.edit.steps) {
+            this.live();
+            await this.deps.calendar.reconcileStep(step, () => this.checkpointRecord(r3));
+          }
+          r3.calendarId = r3.edit.calendarId;
+          r3.title = r3.edit.title;
+          r3.segments = r3.edit.segments.map((p3, i3) => ({ ...p3, saved: true, snapshot: r3.edit.steps[i3].after }));
+          r3.startedAt = r3.segments[0].start;
+          r3.endedAt = r3.segments.at(-1).end;
+          delete r3.edit;
+          await this.checkpointRecord(r3);
+        } else {
+          for (const p3 of r3.segments) {
+            if (p3.saved) continue;
+            this.live();
+            p3.snapshot = await this.deps.calendar.ensureEvent(r3.calendarId, eventForSegment(r3, p3));
+            p3.saved = true;
+            await this.checkpointRecord(r3);
+          }
+        }
+        this.live();
+        if (r3.completeTask && !r3.taskSaved) {
+          await this.deps.tasks.complete(r3.task, { operationId: r3.id, completedAt: r3.endedAt });
+          r3.taskSaved = true;
+        }
+        await this.lock(async () => {
+          this.guard(`work:${id}`, r3.sync?.revision || 0);
+          r3.status = "saved";
+          r3.error = "";
+          await this.replace(r3);
+        });
+      } catch (e3) {
+        await this.lock(async () => {
+          this.guard(`work:${id}`, r3.sync?.revision || 0);
+          r3 = clone(this.state.records.find((x4) => x4.id === id));
+          r3.error = e3.message;
+          await this.replace(r3);
+        });
+      }
+      return r3;
+    }
+    editRecord(id, draft, expected) {
+      return this.lock(async () => {
+        const current = this.state.records.find((r4) => r4.id === id);
+        if (!current || JSON.stringify(current) !== JSON.stringify(expected)) throw new Error("\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        if (current.status !== "saved" || current.edit) throw new Error("\u8BF7\u5148\u5904\u7406\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u518D\u4FEE\u6539\u8BB0\u5F55\u3002");
+        if (this.state.deletions?.some((o2) => o2.recordId === id && o2.status !== "saved")) throw new Error("\u6B64\u8BB0\u5F55\u6709\u5F85\u540C\u6B65\u7684\u5220\u9664\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5904\u7406\u3002");
+        const title = draft.title.trim();
+        if (!title) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
+        this.deps.calendar.assertWritable(draft.calendarId);
+        validateSegments(draft.segments, this.now());
+        if (draft.segments.length !== current.segments.length) throw new Error("\u672C\u7248\u4E0D\u589E\u52A0\u6216\u5220\u9664\u5386\u53F2\u5206\u6BB5\u3002");
+        const r3 = clone(current);
+        const steps = current.segments.map((p3, i3) => {
+          const remote = this.deps.calendar.readByUid(current.calendarId, p3.uid);
+          if (!remote) throw new Error("\u65E5\u5386\u4E2D\u7684\u539F\u8BB0\u5F55\u5DF2\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\uFF1B\u4E0D\u4F1A\u81EA\u52A8\u91CD\u5EFA\u3002");
+          const before = draft.snapshots?.[i3] ?? p3.snapshot ?? eventForSegment(current, p3);
+          if (draft.snapshots?.[i3] || p3.snapshot ? !sameEventContent(remote, before) : !Object.entries(before).every(([k3, v3]) => v3 === void 0 || JSON.stringify(remote[k3]) === JSON.stringify(v3))) throw new Error("\u65E5\u5386\u8BB0\u5F55\u5DF2\u88AB\u5916\u90E8\u4FEE\u6539\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
+          const after = { ...remote, ...eventForSegment({ title }, { ...draft.segments[i3], uid: p3.uid }) };
+          return { uid: p3.uid, fromCalendarId: current.calendarId, toCalendarId: draft.calendarId, before: clone(remote), after, stage: "prepared" };
+        });
+        r3.status = "pending";
+        r3.error = "";
+        r3.sync = { revision: (r3.sync?.revision || 0) + 1, attempt: 0, retryAt: 0 };
+        r3.edit = { calendarId: draft.calendarId, title, segments: draft.segments.map((p3, i3) => ({ start: p3.start, end: p3.end, uid: current.segments[i3].uid })), steps };
+        await this.replace(r3);
+        return r3;
+      }).then((r3) => this.deps.background ? r3 : this.retry(id));
+    }
+    keepCalendarOnly(id) {
+      return this.lock(async () => {
+        if (this.flights.has(`work:${id}`)) throw new Error("\u6B64\u8BB0\u5F55\u6B63\u5728\u540C\u6B65\uFF0C\u8BF7\u7B49\u672C\u6B21\u8BF7\u6C42\u7ED3\u675F\u3002");
+        const r3 = this.state.records.find((r4) => r4.id === id);
+        if (!r3 || r3.edit || r3.segments.some((p3) => !p3.saved)) throw new Error("\u8BF7\u5148\u6210\u529F\u4FDD\u5B58\u5168\u90E8\u65E5\u5386\u65F6\u95F4\u6BB5\u3002");
+        await this.replace({ ...r3, completeTask: false, taskSaved: true, status: "saved", error: "" });
+      });
+    }
+    saveEvent(step) {
+      return this.lock(async () => {
+        if (this.jobs().some((j4) => j4.key.startsWith("event:") && j4.value.step.uid === step.uid)) throw new Error("\u6B64\u65E5\u7A0B\u5DF2\u6709\u5F85\u540C\u6B65\u4FEE\u6539\uFF0C\u8BF7\u5148\u5904\u7406\u8BE5\u9879\u3002");
+        const id = uid();
+        const op = { id, title: step.after.title, step: clone(step), status: "pending", error: "", sync: this.info() };
+        await this.commit({ ...this.state, operations: [...this.state.operations, op] });
+        return op;
+      }).then((op) => this.deps.background ? op : this.retryEvent(op.id));
+    }
+    retryEvent(id) {
+      return this.runJob(`event:${id}`, () => this.flushOperation(id));
+    }
+    async flushOperation(id) {
+      let op = clone(this.state.operations.find((o2) => o2.id === id));
+      if (!op) throw new Error("\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
+      if (op.status === "saved") return op;
+      const revision = op.sync?.revision || 0;
+      const checkpoint = () => this.lock(async () => {
+        this.guard(`event:${id}`, revision);
+        await this.commit({ ...this.state, operations: this.state.operations.map((o2) => o2.id === id ? clone(op) : o2) });
+      });
+      try {
+        this.live();
+        await this.deps.calendar.reconcileStep(op.step, checkpoint);
+        op.status = "saved";
+        op.error = "";
+        await checkpoint();
+      } catch (e3) {
+        op = clone(this.state.operations.find((o2) => o2.id === id));
+        op.error = e3.message;
+        await checkpoint();
+      }
+      return op;
+    }
+    deleteEvent(target, range, record) {
+      return this.lock(async () => {
+        if (record) {
+          const current = this.state.records.find((r3) => r3.id === record.id);
+          if (!current || JSON.stringify(current) !== JSON.stringify(record)) throw new Error("\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+          if (current.status !== "saved" || current.edit || !current.segments.some((p3) => p3.uid === target.uid) || current.calendarId !== target.calendarId) throw new Error("\u8BF7\u5148\u5904\u7406\u8BB0\u5F55\u7684\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u518D\u5220\u9664\u3002");
+        }
+        if (this.state.deletions?.some((o2) => o2.status !== "saved" && (o2.recordId && o2.recordId === record?.id || o2.uid === target.uid && o2.calendarId === target.calendarId))) throw new Error("\u6B64\u8BB0\u5F55\u5DF2\u5728\u7B49\u5F85\u5220\u9664\uFF0C\u8BF7\u5728\u5F85\u540C\u6B65\u4E2D\u91CD\u8BD5\u3002");
+        if (this.state.operations.some((o2) => o2.status !== "saved" && o2.step.uid === target.uid && [o2.step.fromCalendarId, o2.step.toCalendarId].includes(target.calendarId))) throw new Error("\u6B64\u65E5\u7A0B\u6B63\u5728\u4FEE\u6539\uFF0C\u8BF7\u5148\u5904\u7406\u5F85\u540C\u6B65\u64CD\u4F5C\u3002");
+        if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) throw new Error("\u5220\u9664\u8BB0\u5F55\u7684\u65F6\u95F4\u8303\u56F4\u65E0\u6548\u3002");
+        const remote = this.deps.calendar.readByUid(target.calendarId, target.uid);
+        if (!remote || !sameEvent(remote, target.before)) throw new Error("\u65E5\u7A0B\u5DF2\u4FEE\u6539\u6216\u5220\u9664\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u6253\u5F00\u3002");
+        const op = { ...clone(target), ...range, id: uid(), title: target.before.title, recordId: record?.id, status: "pending", error: "", sync: this.info() };
+        await this.commit({ ...this.state, deletions: [...this.state.deletions || [], op] });
+        return op;
+      }).then((op) => this.deps.background ? op : this.retryDeletion(op.id));
+    }
+    retryDeletion(id) {
+      return this.runJob(`delete:${id}`, () => this.flushDeletion(id));
+    }
+    reconcileDeletions() {
+      return this.lock(async () => {
+        let count = 0;
+        for (const op of this.state.deletions?.filter((o2) => o2.status === "pending") || []) {
+          if (this.flights.has(`delete:${op.id}`)) continue;
+          if (!this.deps.calendar.hasCalendarData?.(op.calendarId)) continue;
+          if (this.deps.calendar.readByUid(op.calendarId, op.uid)) continue;
+          await this.confirmDeletion({ ...clone(op), resolution: "absent-in-fcr" });
+          count++;
+        }
+        return count;
+      });
+    }
+    confirmRemoteDeletion(id) {
+      return this.lock(async () => {
+        if (this.flights.has(`delete:${id}`)) throw new Error("\u6B64\u8BB0\u5F55\u6B63\u5728\u540C\u6B65\uFF0C\u8BF7\u7B49\u672C\u6B21\u8BF7\u6C42\u7ED3\u675F\u518D\u6838\u5BF9\u3002");
+        const op = this.state.deletions?.find((o2) => o2.id === id);
+        if (!op) throw new Error("\u5220\u9664\u8BF7\u6C42\u4E0D\u5B58\u5728\u3002");
+        if (op.status === "saved") return;
+        if (!isMissingResource(op.error)) throw new Error("\u6B64\u8BF7\u6C42\u5C1A\u672A\u62A5\u544A\u8D44\u6E90\u4E0D\u5B58\u5728\uFF0C\u8BF7\u5148\u5237\u65B0\u6216\u91CD\u8BD5\u3002");
+        const current = this.deps.calendar.readByUid(op.calendarId, op.uid);
+        if (current && !sameEventContent(current, op.before)) throw new Error("\u65E5\u7A0B\u5185\u5BB9\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5148\u5728\u5B8C\u6574\u65E5\u5386\u4E2D\u6838\u5BF9\u3002");
+        await this.confirmDeletion({ ...clone(op), resolution: "user-confirmed-remote-deletion" });
+      });
+    }
+    async confirmDeletion(op) {
+      op.status = "saved";
+      op.error = "";
+      const records = this.state.records.map((r3) => {
+        if (r3.id !== op.recordId) return r3;
+        const segments = r3.segments.filter((p3) => p3.uid !== op.uid);
+        return { ...r3, segments, startedAt: segments[0]?.start ?? r3.startedAt, endedAt: segments.at(-1)?.end ?? r3.endedAt };
+      });
+      await this.commit({ ...this.state, records, deletions: this.state.deletions.map((o2) => o2.id === op.id ? clone(op) : o2) });
+    }
+    async flushDeletion(id) {
+      let op = clone(this.state.deletions?.find((o2) => o2.id === id));
+      if (!op) throw new Error("\u5220\u9664\u64CD\u4F5C\u4E0D\u5B58\u5728\u3002");
+      if (op.status === "saved") return op;
+      try {
+        this.live();
+        await this.deps.calendar.deleteEvent(op);
+        op.resolution = "deleted";
+        await this.lock(async () => {
+          this.guard(`delete:${id}`, op.sync?.revision || 0);
+          await this.confirmDeletion(op);
+        });
+        op = clone(this.state.deletions.find((o2) => o2.id === id));
+      } catch (e3) {
+        await this.lock(async () => {
+          this.guard(`delete:${id}`, op.sync?.revision || 0);
+          op = clone(this.state.deletions.find((o2) => o2.id === id));
+          op.error = e3.message;
+          await this.commit({ ...this.state, deletions: this.state.deletions.map((o2) => o2.id === id ? clone(op) : o2) });
+        });
+      }
+      return op;
+    }
+  };
+  function classifySyncError(message) {
+    if (/授权|请先连接|请启用兼容|scope|HTTP\s+(401|403)\b/i.test(message)) return "auth";
+    if (/外部|已变化|已删除|找不到|不存在|同 UID|分类日历|无法|不允许|只读|HTTP\s+(404|410)\b/i.test(message)) return "conflict";
+    if (/network|offline|fetch|timeout|timed? out|ECONN|ENET|网络|断网|超时|未确认|未能核对|尚未就绪|lost.*response|HTTP\s+(429|5\d\d)\b/i.test(message)) return "network";
+    return "conflict";
+  }
+
+  // Clients/Obsidian/api.ts
+  var EntryError = class extends Error {
+    constructor(code, message) {
+      super(message);
+      this.code = code;
+    }
+    code;
+  };
+  var taskRef = (task) => ({ kind: task.kind === "reminder" ? "reminder" : "local", path: task.path || "", id: task.id });
+  var sameTask = (task, ref) => task.kind === ref.kind && task.path === ref.path && task.id === ref.id;
+  var TimerApi = class {
+    constructor(host2) {
+      this.host = host2;
+    }
+    host;
+    version = 1;
+    listeners = /* @__PURE__ */ new Set();
+    timerListeners = /* @__PURE__ */ new Set();
+    serial = Promise.resolve();
+    disposed = false;
+    getState() {
+      return clone({ ...this.host.state(), available: !this.disposed });
+    }
+    subscribe(listener) {
+      if (this.disposed) {
+        listener(this.getState());
+        return () => {
+        };
+      }
+      this.listeners.add(listener);
+      try {
+        listener(this.getState());
+      } catch {
+        this.listeners.delete(listener);
+      }
+      return () => {
+        this.listeners.delete(listener);
+      };
+    }
+    getTimerState() {
+      return this.host.timerState ? clone({ ...this.host.timerState(), available: !this.disposed }) : timerSnapshot(this.host.controller.state.active, !this.disposed);
+    }
+    subscribeTimer(listener) {
+      if (this.disposed) {
+        listener(this.getTimerState());
+        return () => {
+        };
+      }
+      this.timerListeners.add(listener);
+      try {
+        listener(this.getTimerState());
+      } catch {
+        this.timerListeners.delete(listener);
+      }
+      return () => {
+        this.timerListeners.delete(listener);
+      };
+    }
+    notify() {
+      for (const listener of this.listeners) {
+        try {
+          listener(this.getState());
+        } catch {
+        }
+      }
+      for (const listener of this.timerListeners) {
+        try {
+          listener(this.getTimerState());
+        } catch {
+        }
+      }
+    }
+    dispose() {
+      this.disposed = true;
+      this.notify();
+      this.listeners.clear();
+      this.timerListeners.clear();
+    }
+    action(fn2) {
+      const result = this.serial.then(async () => {
+        if (this.disposed) return { ok: false, code: "unavailable", message: "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D\uFF0C\u8BF7\u91CD\u65B0\u52A0\u8F7D\u3002" };
+        try {
+          return await this.host.execute(fn2);
+        } catch (e3) {
+          return { ok: false, code: e3 instanceof EntryError ? e3.code : "action-error", message: e3.message || String(e3), sessionId: this.host.controller.state.active?.id };
+        }
+      });
+      this.serial = result;
+      return result;
+    }
+    start(ref, context) {
+      return this.action(async () => {
+        if (!ref || !["local", "reminder"].includes(ref.kind) || !ref.id || !ref.path) throw new EntryError("invalid-task", "\u8BF7\u63D0\u4F9B\u5F85\u529E\u6587\u4EF6\u8DEF\u5F84\u548C\u7A33\u5B9A\u4EFB\u52A1 ID\u3002");
+        const current = await this.host.resolve(ref, context);
+        if (current.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
+        const active = this.host.controller.state.active;
+        if (active) {
+          if (sameTask(active.task, taskRef(current))) return { ok: true, sessionId: active.id };
+          throw new EntryError("active-session", `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u660E\u786E\u7ED3\u675F\u8BE5\u4F1A\u8BDD\u518D\u5207\u6362\u4EFB\u52A1\u3002`);
+        }
+        const task = await this.host.prepare(current);
+        if (task.completed) throw new EntryError("invalid-task", "\u6B64\u4EFB\u52A1\u5DF2\u5B8C\u6210\uFF0C\u8BF7\u9009\u62E9\u672A\u5B8C\u6210\u4EFB\u52A1\u3002");
+        await this.host.controller.start(task, task.calendarId);
+        return { ok: true, sessionId: this.host.controller.state.active.id };
+      });
+    }
+    session(id) {
+      if (!id || this.host.controller.state.active?.id !== id) throw new EntryError("stale-session", "\u6B64\u4F1A\u8BDD\u5DF2\u7ED3\u675F\u6216\u5207\u6362\uFF0C\u8BF7\u4F7F\u7528\u5F53\u524D\u72B6\u6001\u91CD\u8BD5\u3002");
+    }
+    pause(sessionId) {
+      return this.action(async () => {
+        this.session(sessionId);
+        await this.host.controller.pause(sessionId);
+        return { ok: true, sessionId };
+      });
+    }
+    resume(sessionId) {
+      return this.action(async () => {
+        this.session(sessionId);
+        if (this.host.controller.state.active.runningSince == null) await this.host.controller.resume(sessionId);
+        return { ok: true, sessionId };
+      });
+    }
+    finish(sessionId, completeTask2 = false) {
+      return this.action(async () => {
+        this.session(sessionId);
+        const record = await this.host.controller.finish(completeTask2 === true, sessionId);
+        let warning = record.error;
+        try {
+          await this.host.refresh();
+        } catch (e3) {
+          warning ||= e3.message;
+        }
+        return { ok: true, sessionId, recordId: record.id, pending: record.status === "pending", warning };
+      });
+    }
+  };
+
+  // Clients/Obsidian/ui.ts
+  init_time();
+
+  // Clients/Obsidian/appearance.ts
+  var DEFAULT_APPEARANCE = { fontSize: 15, fontWeight: 500 };
+  function appearance(value) {
+    return {
+      fontSize: Number.isFinite(value?.fontSize) ? Math.max(13, Math.min(20, value.fontSize)) : DEFAULT_APPEARANCE.fontSize,
+      fontWeight: [400, 500, 600].includes(value?.fontWeight ?? 0) ? value.fontWeight : DEFAULT_APPEARANCE.fontWeight
+    };
+  }
+  function applyAppearance(root, value) {
+    const normalized = appearance(value);
+    root.style.setProperty("--ctt-font-size", `${normalized.fontSize}px`);
+    root.style.setProperty("--ctt-font-weight", String(normalized.fontWeight));
+  }
+  function mountTimerView(content2) {
+    content2.classList.add("ctt-view-host");
+    content2.style.padding = "0";
+    content2.style.overflow = "hidden";
+    const mount = content2.ownerDocument.createElement("div");
+    content2.replaceChildren(mount);
+    return mount;
+  }
+
+  // Clients/Obsidian/dom.ts
+  function el(parent, tag, cls = "", text) {
+    const node = parent.ownerDocument.createElement(tag);
+    node.className = cls;
+    if (text != null) node.textContent = text;
+    parent.append(node);
+    return node;
+  }
+  function button(parent, text, action, cls = "", label) {
+    const b2 = el(parent, "button", cls, text);
+    b2.type = "button";
+    if (label) {
+      b2.title = label;
+      b2.setAttribute("aria-label", label);
+    }
+    b2.onclick = action;
+    return b2;
+  }
+  function field(parent, label, type, value) {
+    const l3 = el(parent, "label", "ctt-field");
+    el(l3, "span", "", label);
+    const input = el(l3, "input");
+    input.type = type;
+    input.value = value;
+    input.setAttribute("aria-label", label);
+    if (type === "datetime-local") input.step = "1";
+    return input;
+  }
+  function options(select, sources, value, placeholder = "\u9009\u62E9\u5206\u7C7B") {
+    const signature = JSON.stringify(sources.map((c3) => [c3.id, c3.name]));
+    if (select.dataset.options !== signature) {
+      select.replaceChildren();
+      const empty = el(select, "option", "", placeholder);
+      empty.value = "";
+      for (const c3 of sources) {
+        const o2 = el(select, "option", "", c3.name);
+        o2.value = c3.id;
+      }
+      select.dataset.options = signature;
+    }
+    if (value && !sources.some((c3) => c3.id === value)) {
+      if (!Array.from(select.options).some((o2) => o2.value === value)) {
+        const o2 = el(select, "option", "", "\u5206\u7C7B\u5DF2\u4E0D\u53EF\u7528");
+        o2.value = value;
+      }
+    }
+    select.value = value;
+  }
+
+  // Clients/Obsidian/categories.ts
+  function categoryPreferences(value) {
+    const ids = (v3) => Array.isArray(v3) ? [...new Set(v3.filter((id) => typeof id === "string" && !!id))] : [];
+    return { categoryOrder: ids(value?.categoryOrder), hiddenCategoryIds: ids(value?.hiddenCategoryIds) };
+  }
+  function orderedCategories(calendars2, value, visibleOnly = false) {
+    const prefs = categoryPreferences(value), positions = new Map(prefs.categoryOrder.map((id, i3) => [id, i3]));
+    return calendars2.filter((c3) => !visibleOnly || !prefs.hiddenCategoryIds.includes(c3.id)).map((c3, i3) => ({ c: c3, i: i3 })).sort((a3, b2) => (positions.get(a3.c.id) ?? Infinity) - (positions.get(b2.c.id) ?? Infinity) || a3.i - b2.i).map((x4) => x4.c);
+  }
+  function renderCategorySettings(root, calendars2, initial2, save) {
+    let prefs = categoryPreferences(initial2), busy2 = false, error2 = "";
+    root.classList.add("ctt-category-settings");
+    const update = async (next, focusId) => {
+      if (busy2) return;
+      const before = prefs;
+      busy2 = true;
+      error2 = "";
+      prefs = next;
+      draw();
+      try {
+        await save(next);
+      } catch (e3) {
+        prefs = before;
+        error2 = e3.message;
+      } finally {
+        busy2 = false;
+        draw();
+        if (focusId) root.querySelector(`[data-category-index="${orderedCategories(calendars2, prefs).findIndex((c3) => c3.id === focusId)}"] input`)?.focus();
+      }
+    };
+    const draw = () => {
+      root.replaceChildren();
+      el(root, "p", "ctt-muted", "\u6392\u5E8F\u548C\u9690\u85CF\u4EC5\u5F71\u54CD\u5F85\u529E\u7B5B\u9009\u680F\u3002\u201C\u5168\u90E8\u201D\u4ECD\u5305\u542B\u6240\u6709\u5F85\u529E\u3002");
+      const list = el(root, "div", "ctt-category-setting-list");
+      const categories2 = orderedCategories(calendars2, prefs);
+      if (!categories2.length) el(list, "p", "ctt-muted", "\u8FDE\u63A5\u65E5\u5386\u540E\u53EF\u8BBE\u7F6E\u5206\u7C7B\u3002");
+      categories2.forEach((c3, index2) => {
+        const row = el(list, "div", "ctt-category-setting");
+        row.dataset.categoryIndex = String(index2);
+        const label = el(row, "label", "ctt-category-visibility"), checkbox = el(label, "input");
+        checkbox.type = "checkbox";
+        checkbox.checked = !prefs.hiddenCategoryIds.includes(c3.id);
+        checkbox.disabled = busy2;
+        checkbox.setAttribute("aria-label", `\u663E\u793A\u5206\u7C7B ${c3.name}`);
+        const dot = el(label, "span", "ctt-category-dot");
+        dot.style.background = c3.color || "var(--interactive-accent)";
+        dot.setAttribute("aria-hidden", "true");
+        el(label, "span", "", c3.name);
+        checkbox.onchange = () => {
+          void update({ ...prefs, hiddenCategoryIds: checkbox.checked ? prefs.hiddenCategoryIds.filter((id) => id !== c3.id) : [...prefs.hiddenCategoryIds, c3.id] }, c3.id);
+        };
+        const move = (offset3) => {
+          const order = categories2.map((c4) => c4.id), other = index2 + offset3;
+          [order[index2], order[other]] = [order[other], order[index2]];
+          void update({ ...prefs, categoryOrder: [...order, ...prefs.categoryOrder.filter((id) => !order.includes(id))] }, c3.id);
+        };
+        const up = button(row, "\u2191", () => move(-1), "ctt-category-move", `\u4E0A\u79FB ${c3.name}`);
+        up.disabled = busy2 || index2 === 0;
+        const down = button(row, "\u2193", () => move(1), "ctt-category-move", `\u4E0B\u79FB ${c3.name}`);
+        down.disabled = busy2 || index2 === categories2.length - 1;
+      });
+      const message = el(root, "div", "ctt-dialog-error", error2);
+      message.setAttribute("role", "alert");
+      const reset = button(root, "\u6062\u590D\u9ED8\u8BA4\u6392\u5E8F\u4E0E\u663E\u793A", () => {
+        void update({ categoryOrder: [], hiddenCategoryIds: [] });
+      }, "ctt-quiet");
+      reset.disabled = busy2;
+    };
+    draw();
+  }
+
+  // Clients/Obsidian/taskOrder.ts
+  var TASK_SORT_LABELS = { manual: "\u624B\u52A8\u6392\u5E8F", due: "\u6309\u65E5\u671F", title: "\u6309\u6807\u9898" };
+  function taskSort(value) {
+    return value === "due" || value === "title" ? value : "manual";
+  }
+  function sortedTasks(tasks2, mode = "manual") {
+    return tasks2.map((task, index2) => ({ task, index: index2 })).sort((a3, b2) => {
+      const cmp = mode === "due" ? (a3.task.due || "9999").localeCompare(b2.task.due || "9999") : mode === "title" ? a3.task.title.localeCompare(b2.task.title, "zh-CN", { numeric: true }) : 0;
+      return cmp || a3.index - b2.index;
+    }).map((x4) => x4.task);
+  }
+  function reorderTaskSlots(tasks2, nextIds, expectedIds) {
+    const selected = new Set(expectedIds);
+    if (!expectedIds.length || selected.size !== expectedIds.length || new Set(nextIds).size !== nextIds.length || nextIds.length !== expectedIds.length || nextIds.some((id) => !selected.has(id))) throw new Error("\u6392\u5E8F\u5217\u8868\u65E0\u6548\u3002");
+    const current = tasks2.filter((t3) => selected.has(t3.id));
+    if (current.length !== expectedIds.length || current.some((t3, i4) => t3.completed || t3.id !== expectedIds[i4])) throw new Error("\u5F85\u529E\u987A\u5E8F\u6216\u5B8C\u6210\u72B6\u6001\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
+    const byId = new Map(current.map((t3) => [t3.id, t3]));
+    let i3 = 0;
+    return tasks2.map((t3) => selected.has(t3.id) ? byId.get(nextIds[i3++]) : t3);
+  }
+
+  // Clients/Obsidian/ui.ts
+  function toolButton(parent, label, action, paths) {
+    const b2 = button(parent, "", action, "ctt-icon", label), svg = parent.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [name, value] of Object.entries({ viewBox: "0 0 24 24", width: "18", height: "18", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false" })) svg.setAttribute(name, value);
+    for (const d3 of paths) {
+      const path = parent.ownerDocument.createElementNS(svg.namespaceURI, "path");
+      path.setAttribute("d", d3);
+      svg.append(path);
+    }
+    b2.append(svg);
+    return b2;
+  }
+  var TimerUI = class {
+    constructor(root, actions2) {
+      this.root = root;
+      this.actions = actions2;
+      root.classList.add("ctt-shell");
+      root.replaceChildren();
+      this.header = el(root, "header", "ctt-header");
+      const tools = el(this.header, "nav", "ctt-tools");
+      tools.setAttribute("aria-label", "\u63D2\u4EF6\u5DE5\u5177");
+      this.connect = button(tools, "\u8FDE\u63A5\u65E5\u5386", actions2.connect, "ctt-primary");
+      this.syncMenu = el(tools, "details", "ctt-sync-menu");
+      this.syncMenu.hidden = true;
+      this.syncSummary = el(this.syncMenu, "summary", "ctt-sync-summary");
+      this.syncSummary.setAttribute("aria-label", "\u540C\u6B65\u72B6\u6001");
+      const syncPanel = el(this.syncMenu, "div", "ctt-sync-panel");
+      el(syncPanel, "strong", "", "\u540C\u6B65\u961F\u5217");
+      this.syncError = el(syncPanel, "div", "ctt-dialog-error");
+      this.syncError.setAttribute("role", "alert");
+      this.pending = el(syncPanel, "div", "ctt-pending");
+      root.ownerDocument.addEventListener("pointerdown", this.closeSync);
+      root.ownerDocument.addEventListener("keydown", this.escapeSync);
+      toolButton(tools, "\u5237\u65B0", actions2.refresh, ["M20 7v5h-5", "M19.5 12a7.5 7.5 0 1 1-2-5.1L20 9"]);
+      toolButton(tools, "\u8BBE\u7F6E", actions2.settings, ["M4 7h5m4 0h7M4 17h9m4 0h3", "M13 7a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]);
+      tools.append(this.syncMenu);
+      this.scroll = el(root, "div", "ctt-scroll");
+      this.error = el(this.scroll, "div", "ctt-error");
+      this.error.setAttribute("role", "alert");
+      this.error.hidden = true;
+      const navigation = el(this.header, "nav", "ctt-page-tabs");
+      this.header.prepend(navigation);
+      navigation.setAttribute("role", "tablist");
+      navigation.setAttribute("aria-label", "\u529F\u80FD\u9875\u9762");
+      const viewId = `ctt-${crypto.randomUUID()}`;
+      for (const [id, label] of [["timer", "\u8BA1\u65F6"], ["tasks", "\u5F85\u529E"], ["calendar", "\u65E5\u5386"]]) {
+        const b2 = button(navigation, label, () => this.selectPage(id), "ctt-page-tab");
+        b2.id = `${viewId}-tab-${id}`;
+        b2.setAttribute("role", "tab");
+        b2.setAttribute("aria-controls", `${viewId}-page-${id}`);
+        b2.onkeydown = (e3) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e3.key)) return;
+          e3.preventDefault();
+          const ids = ["timer", "tasks", "calendar"], i3 = ids.indexOf(id), next = e3.key === "Home" ? 0 : e3.key === "End" ? 2 : (i3 + (e3.key === "ArrowLeft" ? 2 : 1)) % 3;
+          this.selectPage(ids[next]);
+          this.pageButtons.get(ids[next]).focus();
+        };
+        this.pageButtons.set(id, b2);
+      }
+      this.timerBadge = el(this.pageButtons.get("timer"), "span", "ctt-page-timer-badge");
+      this.timerBadge.setAttribute("aria-hidden", "true");
+      for (const id of ["timer", "tasks", "calendar"]) {
+        const panel = el(this.scroll, "section", `ctt-page ctt-${id}-page`);
+        panel.id = `${viewId}-page-${id}`;
+        panel.setAttribute("role", "tabpanel");
+        panel.setAttribute("aria-labelledby", `${viewId}-tab-${id}`);
+        this.pages.set(id, panel);
+      }
+      this.timer = el(this.pages.get("timer"), "section", "ctt-timer");
+      this.timer.setAttribute("aria-label", "\u5F53\u524D\u8BA1\u65F6");
+      this.status = el(this.timer, "div", "ctt-status");
+      this.title = el(this.timer, "h2", "ctt-current-title");
+      const dial = el(this.timer, "div", "ctt-clock");
+      el(dial, "div", "ctt-clock-track");
+      this.hand = el(dial, "div", "ctt-clock-hand");
+      this.readout = el(dial, "div", "ctt-readout", "00:00");
+      this.readout.setAttribute("aria-label", "\u7D2F\u8BA1\u4E13\u6CE8\u65F6\u95F4");
+      el(this.timer, "div", "ctt-idle-label", "\u5F00\u59CB\u4E00\u4E2A\u4EFB\u52A1\u5427");
+      const details = el(this.timer, "div", "ctt-session-details");
+      this.started = button(details, "", actions2.editStart, "ctt-quiet", "\u4FEE\u6539\u5F00\u59CB\u65F6\u95F4");
+      this.category = el(details, "select", "ctt-category");
+      this.category.setAttribute("aria-label", "\u672C\u6B21\u8BA1\u65F6\u5206\u7C7B");
+      this.category.onchange = () => actions2.category(this.category.value);
+      this.controls = el(this.timer, "div", "ctt-timer-controls");
+      this.pause = button(this.controls, "\u6682\u505C", () => this.model.active?.runningSince == null ? actions2.resume(this.model.active?.id || "") : actions2.pause(this.model.active?.id || ""));
+      button(this.controls, "\u7ED3\u675F\u5E76\u5B8C\u6210", () => actions2.finish(true, this.model.active?.id || ""), "ctt-primary");
+      button(this.controls, "\u53EA\u8BB0\u65F6\u95F4", () => actions2.finish(false, this.model.active?.id || ""), "ctt-quiet");
+      const body = el(this.pages.get("tasks"), "div", "ctt-body");
+      const timeline = el(this.pages.get("timer"), "section", "ctt-panel ctt-timeline");
+      const top = el(timeline, "div", "ctt-panel-heading");
+      el(top, "h3", "", "\u6267\u884C\u8BB0\u5F55");
+      const timelineTools = el(top, "div", "ctt-timeline-tools");
+      const nav = el(timelineTools, "div", "ctt-date-nav");
+      button(nav, "\u2039", () => actions2.date(shiftDate(this.model.date, -1)), "ctt-icon", "\u524D\u4E00\u5929");
+      this.dateInput = el(nav, "input");
+      this.dateInput.type = "date";
+      this.dateInput.setAttribute("aria-label", "\u65F6\u95F4\u8F74\u65E5\u671F");
+      this.dateInput.onchange = () => {
+        if (this.dateInput.value) actions2.date(this.dateInput.value);
+      };
+      button(nav, "\u4ECA\u5929", () => actions2.date(dayKey()), "ctt-quiet");
+      button(nav, "\u203A", () => actions2.date(shiftDate(this.model.date, 1)), "ctt-icon", "\u540E\u4E00\u5929");
+      this.rowList = el(timeline, "div", "ctt-timeline-list");
+      this.rowList.setAttribute("aria-label", "\u5F53\u5929\u5DF2\u8BB0\u5F55\u5DE5\u65F6");
+      const tasks2 = el(body, "section", "ctt-panel ctt-tasks");
+      const taskHead = el(tasks2, "div", "ctt-panel-heading");
+      el(taskHead, "h3", "", "\u5F85\u529E");
+      const taskTools = el(taskHead, "div", "ctt-task-tools");
+      this.taskSort = el(taskTools, "select", "ctt-task-sort");
+      this.taskSort.setAttribute("aria-label", "\u5F85\u529E\u6392\u5E8F");
+      for (const [value, text] of Object.entries(TASK_SORT_LABELS)) el(this.taskSort, "option", "", text).value = value;
+      this.taskSort.onchange = () => {
+        void actions2.sortTasks(taskSort(this.taskSort.value));
+      };
+      button(taskTools, "\u21C5", actions2.categorySettings, "ctt-icon", "\u5206\u7C7B\u6392\u5E8F\u4E0E\u663E\u793A");
+      this.sortNotice = el(tasks2, "div", "ctt-sort-notice");
+      this.sortNotice.setAttribute("role", "status");
+      this.sortNotice.setAttribute("aria-live", "polite");
+      this.tabs = el(tasks2, "div", "ctt-tabs");
+      this.tabs.setAttribute("aria-label", "\u5F85\u529E\u5206\u7C7B\u7B5B\u9009");
+      this.filterMenu = el(taskTools, "details", "ctt-filter-menu");
+      this.filterSummary = el(this.filterMenu, "summary", "ctt-filter-summary", "\u7B5B\u9009");
+      this.filterSummary.setAttribute("aria-label", "\u7B5B\u9009\u5F85\u529E");
+      const filters = el(this.filterMenu, "div", "ctt-task-filters");
+      for (const [key2, label, choices] of [["source", "\u5F85\u529E\u6765\u6E90", { "all": "\u5168\u90E8\u6765\u6E90", "local": "\u672C\u5730\u5F85\u529E", "reminder": "iCloud \u63D0\u9192\u4E8B\u9879" }], ["association", "\u5173\u8054\u7B5B\u9009", { "all": "\u5168\u90E8\u5173\u8054", "linked": "Components \u5DF2\u5173\u8054", "unlinked": "\u672A\u5173\u8054" }], ["status", "\u5B8C\u6210\u72B6\u6001", { "open": "\u672A\u5B8C\u6210", "done": "\u5DF2\u5B8C\u6210", "all": "\u5168\u90E8\u72B6\u6001" }], ["due", "\u622A\u6B62\u65E5\u671F\u7B5B\u9009", { "all": "\u5168\u90E8\u622A\u6B62\u65E5\u671F", "today": "\u4ECA\u5929\u622A\u6B62", "overdue": "\u5DF2\u903E\u671F", "none": "\u65E0\u622A\u6B62\u65E5\u671F", "date": "\u6307\u5B9A\u622A\u6B62\u65E5\u671F" }]]) {
+        const select = el(filters, "select");
+        select.setAttribute("aria-label", label);
+        for (const [value, text] of Object.entries(choices)) el(select, "option", "", text).value = value;
+        select.value = this.filters[key2] || "all";
+        select.onchange = () => {
+          this.filters[key2] = select.value;
+          this.filterDate.hidden = this.filters.due !== "date";
+          this.updateFilterSummary();
+          this.renderTasks();
+          this.tick();
+        };
+      }
+      this.filterDate = el(filters, "input");
+      this.filterDate.type = "date";
+      this.filterDate.value = this.filters.date;
+      this.filterDate.hidden = true;
+      this.filterDate.setAttribute("aria-label", "\u6307\u5B9A\u622A\u6B62\u65E5\u671F");
+      this.filterDate.onchange = () => {
+        this.filters.date = this.filterDate.value;
+        this.renderTasks();
+        this.tick();
+      };
+      const taskScroll = el(tasks2, "div", "ctt-task-scroll");
+      taskScroll.setAttribute("aria-label", "\u5F85\u529E\u5185\u5BB9");
+      const form = el(taskScroll, "form", "ctt-inbox");
+      this.taskTitle = el(form, "input", "ctt-new-title");
+      this.taskTitle.placeholder = "\u6DFB\u52A0\u4E00\u4EF6\u8981\u505A\u7684\u4E8B\u2026";
+      this.taskTitle.setAttribute("aria-label", "\u65B0\u5F85\u529E\u540D\u79F0");
+      this.taskTitle.required = true;
+      const addTools = el(form, "div", "ctt-inbox-tools");
+      this.newCategory = el(addTools, "select");
+      this.newCategory.setAttribute("aria-label", "\u65B0\u5F85\u529E\u5206\u7C7B");
+      this.newCategory.required = true;
+      const dateLabel = el(addTools, "div", "ctt-optional-date");
+      const dateToggle = button(dateLabel, "+ \u65E5\u671F", () => {
+        this.due.hidden = !this.due.hidden;
+        if (!this.due.hidden) {
+          this.due.focus();
+          try {
+            this.due.showPicker();
+          } catch {
+          }
+        }
+      }, "ctt-quiet", "\u8BBE\u7F6E\u5F85\u529E\u65E5\u671F");
+      this.due = el(dateLabel, "input");
+      this.due.type = "date";
+      this.due.hidden = true;
+      this.due.setAttribute("aria-label", "\u5F85\u529E\u65E5\u671F\uFF0C\u53EF\u7559\u7A7A");
+      this.due.onchange = () => {
+        dateToggle.hidden = !!this.due.value;
+        if (!this.due.value) this.due.hidden = true;
+      };
+      const add3 = el(addTools, "button", "ctt-primary", "\u6DFB\u52A0");
+      add3.type = "submit";
+      form.onsubmit = async (e3) => {
+        e3.preventDefault();
+        if (await actions2.add(this.taskTitle.value, this.due.value, this.newCategory.value)) {
+          this.taskTitle.value = "";
+          this.due.value = "";
+          this.due.hidden = true;
+          dateToggle.hidden = false;
+          this.resetDraftCategory();
+          this.taskTitle.focus();
+        }
+      };
+      this.taskList = el(taskScroll, "div", "ctt-task-list");
+      this.taskList.setAttribute("aria-label", "\u672A\u5B8C\u6210\u5F85\u529E");
+      this.observer = new ResizeObserver((entries2) => {
+        const { width, height } = entries2[0].contentRect;
+        root.classList.toggle("ctt-stacked", width < 840 || width / Math.max(1, height) < 1.15);
+        root.style.setProperty("--ctt-focus-height", `${Math.max(380, Math.min(660, height * 0.62, height - 330))}px`);
+      });
+      this.observer.observe(root);
+    }
+    root;
+    actions;
+    model;
+    filter = "";
+    page = "tasks";
+    filters = defaultFilters();
+    pages = /* @__PURE__ */ new Map();
+    pageButtons = /* @__PURE__ */ new Map();
+    pageScroll = { timer: 0, tasks: 0, calendar: 0 };
+    calendar;
+    timerBadge;
+    filterDate;
+    filterMenu;
+    filterSummary;
+    observer;
+    header;
+    scroll;
+    connect;
+    error;
+    timer;
+    title;
+    status;
+    readout;
+    hand;
+    category;
+    started;
+    controls;
+    pause;
+    taskTitle;
+    due;
+    newCategory;
+    tabs;
+    taskList;
+    rowList;
+    dateInput;
+    pending;
+    syncMenu;
+    syncSummary;
+    syncError;
+    pendingNodes = /* @__PURE__ */ new Map();
+    closeSync = (e3) => {
+      if (this.syncMenu.open && !this.syncMenu.contains(e3.target)) this.syncMenu.open = false;
+      if (this.filterMenu?.open && !this.filterMenu.contains(e3.target)) this.filterMenu.open = false;
+    };
+    escapeSync = (e3) => {
+      if (e3.key === "Escape" && this.filterMenu?.open) {
+        this.filterMenu.open = false;
+        this.filterSummary.focus();
+        e3.preventDefault();
+        return;
+      }
+      if (e3.key === "Escape" && this.syncMenu.open) {
+        this.syncMenu.open = false;
+        this.syncSummary.focus();
+        e3.preventDefault();
+      }
+    };
+    taskSort;
+    sortNotice;
+    dragged;
+    taskNodes = /* @__PURE__ */ new Map();
+    rowNodes = /* @__PURE__ */ new Map();
+    selectPage(page2, remember = true) {
+      this.pageScroll[this.page] = this.scroll.scrollTop;
+      this.page = page2;
+      this.root.dataset.page = page2;
+      for (const [id, panel] of this.pages) {
+        panel.hidden = id !== page2;
+        const b2 = this.pageButtons.get(id);
+        b2.setAttribute("aria-selected", String(id === page2));
+        b2.tabIndex = id === page2 ? 0 : -1;
+      }
+      if (this.model) {
+        if (page2 === "tasks") {
+          this.renderTasks();
+        } else if (page2 === "timer") {
+          this.renderRows();
+        } else if (page2 === "calendar") {
+          if (!this.calendar) this.calendar = this.actions.mountCalendar?.(this.pages.get("calendar"));
+          this.calendar?.activate();
+        }
+        this.tick();
+      }
+      this.scroll.scrollTop = this.pageScroll[page2];
+      if (remember) this.actions.page?.(page2);
+    }
+    update(m3) {
+      const old = this.model;
+      this.model = m3;
+      if (!old) {
+        this.renderRows();
+        this.selectPage(appPage(m3.appPage), false);
+      }
+      applyAppearance(this.root, m3.appearance);
+      this.root.classList.toggle("ctt-active", !!m3.active);
+      this.root.classList.toggle("ctt-paused", !!m3.active && m3.active.runningSince == null);
+      this.root.setAttribute("aria-busy", String(m3.busy));
+      this.connect.hidden = m3.connected;
+      this.taskSort.value = taskSort(m3.taskSort);
+      this.taskSort.disabled = m3.busy;
+      this.error.textContent = m3.error;
+      this.error.hidden = !m3.error;
+      this.title.textContent = m3.active?.title || "";
+      this.status.textContent = m3.active ? m3.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u4E13\u6CE8\u4E2D" : "";
+      this.pause.textContent = m3.active?.runningSince == null ? "\u7EE7\u7EED" : "\u6682\u505C";
+      this.started.textContent = m3.active ? `\u5F00\u59CB\u4E8E ${dateParts(m3.active.startedAt).date.slice(5)} ${dateParts(m3.active.startedAt).time.slice(0, 5)}` : "";
+      options(this.category, m3.calendars, m3.active?.calendarId || "");
+      const draft = this.newCategory.value;
+      options(this.newCategory, m3.taskCategories || m3.calendars, !old || !draft || old.defaultCalendarId !== m3.defaultCalendarId && !this.taskTitle.value ? this.filter || m3.defaultTaskCategoryId || m3.defaultCalendarId : draft);
+      if (this.root.ownerDocument.activeElement !== this.dateInput) this.dateInput.value = m3.date;
+      if (JSON.stringify(old?.taskCategories || old?.calendars) !== JSON.stringify(m3.taskCategories || m3.calendars) || JSON.stringify(old?.categoryPreferences) !== JSON.stringify(m3.categoryPreferences)) this.renderTabs();
+      if (this.page === "tasks") {
+        this.renderTasks();
+      } else if (this.page === "timer") {
+        this.renderRows();
+      } else if (this.page === "calendar") this.calendar?.activate();
+      this.syncMenu.hidden = !m3.pending.length && !m3.sync?.error;
+      this.syncSummary.textContent = `${m3.sync?.activeKey ? "\u21BB" : m3.pending.some((p3) => p3.error) || m3.sync?.error ? "!" : "\u2191"} ${m3.pending.length}`;
+      this.syncSummary.setAttribute("aria-label", `\u540C\u6B65\u72B6\u6001\uFF08${m3.pending.length} \u6761\u5F85\u540C\u6B65\uFF09`);
+      this.syncSummary.title = this.syncSummary.getAttribute("aria-label");
+      this.syncError.textContent = m3.sync?.error ? `\u540C\u6B65\u6682\u505C\uFF1A${m3.sync.error}` : "";
+      this.syncError.hidden = !m3.sync?.error;
+      const pendingIds = new Set(m3.pending.map((p3) => p3.id));
+      for (const [id, node] of this.pendingNodes) if (!pendingIds.has(id)) {
+        node.root.remove();
+        this.pendingNodes.delete(id);
+      }
+      for (const p3 of m3.pending) {
+        let node = this.pendingNodes.get(p3.id);
+        if (!node) {
+          const row = el(this.pending, "div", "ctt-pending-row"), text = el(row, "div");
+          const title = el(text, "strong"), status = el(text, "div", "ctt-muted"), error2 = el(text, "div", "ctt-muted");
+          const buttons = el(row, "div", "ctt-sync-actions");
+          const retry = button(buttons, "\u91CD\u8BD5", () => this.actions.retry(p3.id));
+          const keep = button(buttons, "\u4EC5\u4FDD\u7559\u65E5\u7A0B", () => this.actions.keep(p3.id));
+          const cleanup = button(buttons, "\u6E05\u7406\u672C\u5730\u6B8B\u7559", () => this.actions.resolveDeletion(p3.id.slice(7)));
+          node = { root: row, title, status, error: error2, retry, keep, cleanup };
+          this.pendingNodes.set(p3.id, node);
+        }
+        node.title.textContent = p3.title;
+        node.status.textContent = p3.status || "\u672C\u673A\u5DF2\u4FDD\u5B58\uFF0C\u7B49\u5F85\u540C\u6B65";
+        node.error.textContent = p3.error;
+        node.keep.hidden = !p3.canKeep;
+        node.cleanup.hidden = !p3.canResolveMissing;
+        node.retry.disabled = node.keep.disabled = node.cleanup.disabled = !!p3.working || m3.busy || !m3.connected;
+      }
+      for (const b2 of this.controls.querySelectorAll("button")) {
+        b2.disabled = m3.busy || b2.textContent === "\u7ED3\u675F\u5E76\u5B8C\u6210" && !!m3.active?.task.readonlyReason;
+        if (b2.textContent === "\u7ED3\u675F\u5E76\u5B8C\u6210") b2.title = m3.active?.task.readonlyReason || "";
+      }
+      this.category.disabled = m3.busy;
+      this.started.disabled = m3.busy;
+      this.tick();
+    }
+    renderTabs() {
+      const sources = orderedCategories(this.model.taskCategories || this.model.calendars, this.model.categoryPreferences, true);
+      if (this.filter && !sources.some((c3) => c3.id === this.filter)) {
+        this.filter = "";
+        this.resetDraftCategory();
+      }
+      this.tabs.replaceChildren();
+      for (const c3 of [{ id: "", name: "\u5168\u90E8" }, ...sources]) {
+        const b2 = button(this.tabs, c3.name, () => {
+          this.filter = c3.id;
+          this.resetDraftCategory();
+          this.renderTabs();
+          this.renderTasks();
+          this.tick();
+        }, "ctt-tab");
+        b2.classList.toggle("is-selected", c3.id === this.filter);
+        b2.setAttribute("aria-pressed", String(c3.id === this.filter));
+      }
+    }
+    updateFilterSummary() {
+      const count = Number(this.filters.source !== void 0 && this.filters.source !== "all") + Number(this.filters.association !== "all") + Number(this.filters.status !== "open") + Number(this.filters.due !== "all");
+      this.filterSummary.textContent = count ? `\u7B5B\u9009 \xB7 ${count}` : "\u7B5B\u9009";
+    }
+    resetDraftCategory() {
+      options(this.newCategory, this.model.taskCategories || this.model.calendars, this.filter || this.model.defaultTaskCategoryId || this.model.defaultCalendarId);
+    }
+    taskSession(task) {
+      const active = this.model.active;
+      return active && active.task.kind === task.kind && active.task.id === task.id && (task.kind === "fcr" ? active.task.calendarId === task.calendarId : active.task.path === task.path) ? active : null;
+    }
+    renderTasks() {
+      const m3 = this.model, manual = taskSort(m3.taskSort) === "manual" && this.filters.status === "open", linked = new Set((m3.linkedTasks || []).map(refKey)), tasks2 = sortedTasks(filterTasks(m3.tasks, this.filters, linked).filter((t3) => !this.filter || (t3.kind === "reminder" ? t3.listId : t3.calendarId || m3.defaultCalendarId) === this.filter), taskSort(m3.taskSort));
+      const ids = tasks2.map((t3) => t3.id);
+      const visibleIds = new Set(ids);
+      for (const [id, item] of this.taskNodes) if (!visibleIds.has(id)) {
+        item.root.remove();
+        this.taskNodes.delete(id);
+      }
+      this.taskList.querySelector(".ctt-empty")?.remove();
+      if (!tasks2.length) el(this.taskList, "div", "ctt-empty", "\u6682\u65E0\u5F85\u529E");
+      tasks2.forEach((task, i3) => {
+        let item = this.taskNodes.get(task.id);
+        if (!item) {
+          const root = el(this.taskList, "div", "ctt-task-row"), handle = button(root, "\u283F", () => {
+          }, "ctt-drag-handle"), check = el(root, "input");
+          check.type = "checkbox";
+          const body = el(root, "div", "ctt-task-text"), text = button(body, "", () => {
+          }, "ctt-task-title"), meta = el(body, "div", "ctt-task-meta"), timing = el(body, "div", "ctt-task-timing");
+          const start = button(root, "\u25B7", () => {
+          }, "ctt-start", "\u5F00\u59CB\u8BA1\u65F6");
+          item = { root, handle, check, text, meta, timing, start };
+          this.taskNodes.set(task.id, item);
+        }
+        item.root.dataset.taskId = task.id;
+        item.handle.hidden = !manual;
+        item.handle.disabled = m3.busy;
+        item.handle.draggable = manual && !m3.busy;
+        item.handle.setAttribute("aria-label", `\u6392\u5E8F ${task.title}`);
+        item.handle.title = "\u62D6\u52A8\u6392\u5E8F\uFF1BAlt + \u2191 / \u2193 \u8C03\u6574\u987A\u5E8F";
+        item.handle.onkeydown = (e3) => {
+          if (!manual || m3.busy || !e3.altKey || !["ArrowUp", "ArrowDown"].includes(e3.key)) return;
+          e3.preventDefault();
+          const to = i3 + (e3.key === "ArrowUp" ? -1 : 1);
+          if (to < 0 || to >= ids.length) return;
+          const next = [...ids];
+          [next[i3], next[to]] = [next[to], next[i3]];
+          void this.saveOrder(next, ids, task.id);
+        };
+        item.handle.ondragstart = (e3) => {
+          if (!manual || m3.busy || !e3.dataTransfer) {
+            e3.preventDefault();
+            return;
+          }
+          this.dragged = { id: task.id, ids: [...ids] };
+          e3.dataTransfer.effectAllowed = "move";
+          e3.dataTransfer.setData("text/plain", task.id);
+          item.root.classList.add("is-dragging");
+        };
+        item.handle.ondragend = () => this.clearDrag();
+        item.root.ondragover = (e3) => {
+          if (!this.dragged || !manual || m3.busy) return;
+          e3.preventDefault();
+          this.taskList.querySelectorAll(".is-drop-before,.is-drop-after").forEach((n2) => n2.classList.remove("is-drop-before", "is-drop-after"));
+          item.root.classList.add(e3.clientY > item.root.getBoundingClientRect().top + item.root.clientHeight / 2 ? "is-drop-after" : "is-drop-before");
+        };
+        item.root.ondrop = (e3) => {
+          if (!this.dragged || !manual || m3.busy) return;
+          e3.preventDefault();
+          const source = this.dragged, next = source.ids.filter((id) => id !== source.id), after = e3.clientY > item.root.getBoundingClientRect().top + item.root.clientHeight / 2;
+          this.clearDrag();
+          if (source.id === task.id || !next.includes(task.id)) return;
+          next.splice(next.indexOf(task.id) + Number(after), 0, source.id);
+          void this.saveOrder(next, source.ids);
+        };
+        const categoryId = task.calendarId || m3.defaultCalendarId, category = m3.sources.find((c3) => c3.id === categoryId);
+        const active = this.taskSession(task), paused = !!active && active.runningSince == null;
+        item.sessionId = active?.id;
+        item.timing.hidden = !active;
+        item.root.dataset.timerState = active ? paused ? "paused" : "running" : "idle";
+        item.root.classList.toggle("is-timing", !!active);
+        item.root.classList.toggle("is-paused", paused);
+        item.text.textContent = task.title;
+        item.text.onclick = () => this.actions.editTask(task);
+        item.check.setAttribute("aria-label", `${task.completed ? "\u6062\u590D" : task.repeat ? "\u5B8C\u6210\u5F53\u524D\u8F6E" : "\u5B8C\u6210"} ${task.title}`);
+        item.check.checked = task.completed;
+        item.check.disabled = m3.busy || !!active || !!task.readonlyReason || !!task.pending;
+        item.check.onchange = () => this.actions.complete(task);
+        item.meta.textContent = [task.kind === "reminder" ? m3.taskCategories?.find((c3) => c3.id === task.listId)?.name || "iCloud" : `\u672C\u5730 \xB7 ${category?.name || "\u9009\u62E9\u5206\u7C7B"}`, deadlineLabel(task), repeatLabel(task.repeat), task.readonlyReason, task.pending ? "\u5F85\u540C\u6B65" : ""].filter(Boolean).join(" \xB7 ");
+        item.meta.style.setProperty("--ctt-category-color", category?.color || "var(--interactive-accent)");
+        if (task.completed) {
+          const completion = (m3.completions || []).filter((e3) => refKey(e3.task) === refKey(task)).at(-1);
+          item.meta.textContent += completion ? ` \xB7 \u63D2\u4EF6\u5B8C\u6210\u4E8E ${dateParts(completion.completedAt).date} ${dateParts(completion.completedAt).time.slice(0, 5)}` : " \xB7 \u5B8C\u6210\u65F6\u95F4\u672A\u77E5";
+        }
+        const label = active ? paused ? "\u7EE7\u7EED\u8BA1\u65F6" : "\u6682\u505C\u8BA1\u65F6" : "\u5F00\u59CB\u8BA1\u65F6";
+        item.start.textContent = active && !paused ? "\u2161" : "\u25B7";
+        item.start.title = label;
+        item.start.setAttribute("aria-label", label);
+        item.start.onclick = () => {
+          if (active) {
+            if (paused) this.actions.resume(active.id);
+            else this.actions.pause(active.id);
+          } else this.actions.start(task);
+        };
+        item.start.disabled = task.completed || m3.busy || !active && (!!m3.active || !m3.connected || !m3.calendars.some((c3) => c3.id === categoryId));
+        if (this.taskList.children[i3] !== item.root) this.taskList.insertBefore(item.root, this.taskList.children[i3] || null);
+      });
+    }
+    clearDrag() {
+      this.dragged = void 0;
+      this.taskList.querySelectorAll(".is-dragging,.is-drop-before,.is-drop-after").forEach((n2) => n2.classList.remove("is-dragging", "is-drop-before", "is-drop-after"));
+    }
+    async saveOrder(next, expected, focusId) {
+      if (JSON.stringify(next) === JSON.stringify(expected)) return;
+      const ok = await this.actions.reorderTasks(next, expected);
+      this.sortNotice.textContent = ok ? "\u987A\u5E8F\u5DF2\u4FDD\u5B58" : "\u6392\u5E8F\u672A\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5";
+      if (focusId) this.taskNodes.get(focusId)?.handle.focus();
+    }
+    renderRows() {
+      const m3 = this.model;
+      const entries2 = m3.rows.filter((r3) => !!r3.recordId).sort((a3, b2) => a3.start - b2.start || a3.key.localeCompare(b2.key));
+      const keys = new Set(entries2.map((r3) => r3.key));
+      for (const [key2, item] of this.rowNodes) if (!keys.has(key2)) {
+        item.root.remove();
+        this.rowNodes.delete(key2);
+      }
+      this.rowList.querySelector(".ctt-empty")?.remove();
+      if (!entries2.length) el(this.rowList, "div", "ctt-empty", "\u5F53\u5929\u6682\u65E0\u5DF2\u8BB0\u5F55\u5DE5\u65F6");
+      entries2.forEach((row, i3) => {
+        let item = this.rowNodes.get(row.key);
+        if (!item) {
+          const root = button(this.rowList, "", () => {
+          }, "ctt-event"), time = el(root, "span", "ctt-event-time");
+          const start = el(time, "span", "ctt-event-start"), link = el(time, "span", "ctt-event-time-link"), end = el(time, "span", "ctt-event-end");
+          link.setAttribute("aria-hidden", "true");
+          const body = el(root, "span", "ctt-event-body"), title = el(body, "span", "ctt-event-title"), meta = el(body, "span", "ctt-event-meta");
+          item = { root, start, end, link, title, meta };
+          this.rowNodes.set(row.key, item);
+        }
+        const startDate = dayKey(row.start), endDate = dayKey(Math.max(row.start, row.end - 1));
+        item.start.textContent = row.allDay ? "\u5168\u5929" : m3.date > startDate ? "00:00" : dateParts(row.start).time.slice(0, 5);
+        item.end.textContent = row.allDay ? "" : m3.date < endDate ? "24:00" : dateParts(row.end).time.slice(0, 5);
+        item.end.hidden = item.link.hidden = !!row.allDay;
+        item.title.textContent = row.title;
+        item.meta.textContent = `${m3.sources.find((c3) => c3.id === row.calendarId)?.name || "\u65E5\u5386"}${row.recordId ? " \xB7 \u8BA1\u65F6" : ""}${row.deleting ? " \xB7 \u5F85\u5220\u9664" : row.pending ? " \xB7 \u5F85\u540C\u6B65" : ""}`;
+        item.root.style.setProperty("--ctt-category-color", row.color || m3.sources.find((c3) => c3.id === row.calendarId)?.color || "var(--interactive-accent)");
+        item.root.classList.toggle("is-pending", !!row.pending);
+        item.root.title = row.error || "\u7F16\u8F91\u65E5\u7A0B";
+        item.root.onclick = () => this.actions.editRow(row);
+        if (this.rowList.children[i3] !== item.root) this.rowList.insertBefore(item.root, this.rowList.children[i3] || null);
+      });
+    }
+    tick() {
+      const ms = elapsed(this.model?.active || null);
+      this.readout.textContent = this.model?.active ? secondsText(ms) : "00:00";
+      this.timerBadge.textContent = this.model?.active ? this.model.active.runningSince == null ? " \xB7 \u5DF2\u6682\u505C" : " \xB7 \u8BA1\u65F6\u4E2D" : "";
+      this.timerBadge.title = this.model?.active ? this.model.active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D" : "";
+      this.pageButtons.get("timer").setAttribute("aria-description", this.timerBadge.title);
+      this.hand.style.transform = `rotate(${ms / 6e4 * 360}deg)`;
+      const active = this.model?.active;
+      if (active && this.page === "tasks") {
+        for (const item of this.taskNodes.values()) if (item.sessionId === active.id) item.timing.textContent = `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u8BA1\u65F6\u4E2D"} \xB7 ${secondsText(ms)}`;
+      }
+    }
+    destroy() {
+      this.calendar?.dispose();
+      this.observer.disconnect();
+      this.root.ownerDocument.removeEventListener("pointerdown", this.closeSync);
+      this.root.ownerDocument.removeEventListener("keydown", this.escapeSync);
+      this.root.replaceChildren();
+    }
+  };
+
+  // Shared/sync.ts
+  var leaseKey = /* @__PURE__ */ Symbol.for("calendar-task-timer.remote-channels.v1");
+  var leases = globalThis[leaseKey] ||= /* @__PURE__ */ new Map();
+  var SyncWorker = class {
+    constructor(controller2, options2) {
+      this.controller = controller2;
+      this.options = options2;
+    }
+    controller;
+    options;
+    view = { activeKey: null, waiting: false, error: "" };
+    timer;
+    warning;
+    stopped = false;
+    running = false;
+    pauseUntil = 0;
+    now() {
+      return this.options.now?.() ?? Date.now();
+    }
+    eligible() {
+      return this.controller.jobs().filter(({ value: j4 }) => {
+        if (!j4.sync && j4.error) return false;
+        return !j4.sync?.issue || j4.sync.issue === "network";
+      });
+    }
+    wake() {
+      if (this.stopped || this.running) return;
+      if (this.timer) clearTimeout(this.timer);
+      if (!this.options.enabled()) return;
+      const jobs = this.eligible();
+      if (!jobs.length) return;
+      const next = Math.max(this.pauseUntil, Math.min(...jobs.map((j4) => j4.value.sync?.retryAt || 0)));
+      this.timer = setTimeout(() => {
+        this.timer = void 0;
+        void this.pump();
+      }, Math.max(this.options.delayMs ?? 80, next - this.now()));
+    }
+    async resume(issue) {
+      for (const j4 of this.controller.jobs().filter((j5) => j5.value.sync?.issue === issue)) await this.controller.requestRetry(j4.key);
+      this.wake();
+    }
+    async retry(key2) {
+      await this.controller.requestRetry(key2);
+      this.pauseUntil = 0;
+      this.wake();
+    }
+    async pump() {
+      if (this.stopped || this.running || !this.options.enabled()) return;
+      const job = this.eligible().find((j4) => (j4.value.sync?.retryAt || 0) <= this.now());
+      if (!job) {
+        this.wake();
+        return;
+      }
+      const channel = this.options.channel, previous = channel ? leases.get(channel) : void 0;
+      if (previous) {
+        this.running = true;
+        this.view.waiting = true;
+        this.view.error = "\u7B49\u5F85\u4E0A\u4E00\u63D2\u4EF6\u5B9E\u4F8B\u7684\u540C\u6B65\u8BF7\u6C42\u7ED3\u675F\uFF0C\u672C\u5730\u8BA1\u65F6\u4ECD\u53EF\u7EE7\u7EED\u3002";
+        this.options.changed?.();
+        await previous.done;
+        this.running = false;
+        if (!this.stopped) {
+          this.view.waiting = false;
+          this.view.error = "";
+          this.options.changed?.();
+          this.wake();
+        }
+        return;
+      }
+      const token = /* @__PURE__ */ Symbol();
+      let release;
+      const done = new Promise((resolve) => {
+        release = resolve;
+      });
+      if (channel) leases.set(channel, { token, done });
+      this.running = true;
+      this.view.activeKey = job.key;
+      this.view.waiting = false;
+      this.view.error = "";
+      const start = this.now();
+      this.options.changed?.();
+      this.warning = setTimeout(() => {
+        if (this.stopped) return;
+        this.view.waiting = true;
+        this.options.changed?.();
+      }, this.options.slowMs ?? 15e3);
+      try {
+        await this.controller.sync(job.key);
+      } catch (e3) {
+        if (!this.stopped) {
+          this.view.error = e3.message;
+          this.pauseUntil = this.now() + 1e4;
+        }
+      } finally {
+        if (channel && leases.get(channel)?.token === token) leases.delete(channel);
+        release();
+        if (this.warning) clearTimeout(this.warning);
+        this.warning = void 0;
+        this.running = false;
+        this.view.activeKey = null;
+        this.view.waiting = false;
+        if (!this.stopped) {
+          this.view.lastDurationMs = Math.max(0, this.now() - start);
+          this.options.settled?.();
+          this.options.changed?.();
+          this.wake();
+        }
+      }
+    }
+    stop() {
+      this.stopped = true;
+      if (this.timer) clearTimeout(this.timer);
+      if (this.warning) clearTimeout(this.warning);
+      this.controller.stopRemote();
+    }
+  };
+
   // Shared/timeline.ts
   init_time();
   function mergeTimeline(remote, records, date2, operations = [], deletions = []) {
@@ -5644,6 +5735,12 @@
     }
     const title = field(root, "\u6807\u9898", "text", expected.title), desc = field(root, "\u5907\u6CE8", "text", expected.description || ""), date2 = field(root, "\u622A\u6B62\u65E5\u671F", "date", expected.due || ""), zone = field(root, "\u622A\u6B62\u65F6\u533A", "text", expected.dueZone || Intl.DateTimeFormat().resolvedOptions().timeZone), time = field(root, "\u622A\u6B62\u65F6\u95F4\uFF08\u53EF\u7559\u7A7A\uFF09", "time", expected.dueInstant != null ? dateParts(expected.dueInstant, expected.dueZone || "UTC").time : "");
     time.step = "1";
+    root.insertBefore(time.parentElement, zone.parentElement);
+    const showZone = () => {
+      zone.parentElement.hidden = !time.value;
+    };
+    time.oninput = showZone;
+    showZone();
     el(root, "p", "ctt-muted", `\u5217\u8868\uFF1A${listName}\uFF1B\u672C\u7248\u8BF7\u5728\u63D0\u9192\u4E8B\u9879\u4E2D\u79FB\u52A8\u5217\u8868\u3002`);
     const error2 = el(root, "p", "ctt-dialog-error"), controls = el(root, "div", "ctt-dialog-controls");
     let busy2 = false;
@@ -5660,16 +5757,52 @@
         for (const b2 of controls.querySelectorAll("button")) b2.disabled = false;
       }
     };
+    const repeatRoot = el(root, "div", "ctt-repeat-editor");
+    root.insertBefore(repeatRoot, error2);
+    const label = el(repeatRoot, "label", "ctt-field");
+    el(label, "span", "", "\u91CD\u590D");
+    const frequency = el(label, "select");
+    frequency.setAttribute("aria-label", "\u91CD\u590D");
+    for (const [value, text] of [["none", "\u4E0D\u91CD\u590D"], ["daily", "\u6BCF\u5929"], ["weekly", "\u6BCF\u5468\u6307\u5B9A\u661F\u671F"], ["monthly", "\u6BCF\u6708\u540C\u4E00\u65E5"]]) {
+      const o2 = el(frequency, "option", "", text);
+      o2.value = value;
+    }
+    frequency.value = expected.repeat?.frequency || "none";
+    frequency.disabled = expected.completed;
+    const interval = field(repeatRoot, "\u91CD\u590D\u95F4\u9694", "number", String(expected.repeat?.interval || 1));
+    interval.min = "1";
+    interval.max = "365";
+    const weekdays = el(repeatRoot, "div", "ctt-repeat-weekdays");
+    const days = [1, 2, 3, 4, 5, 6, 7].map((day) => {
+      const l3 = el(weekdays, "label"), c3 = el(l3, "input");
+      c3.type = "checkbox";
+      c3.checked = expected.repeat?.weekdays?.includes(day) || false;
+      c3.setAttribute("aria-label", `\u5468${["", "\u4E00", "\u4E8C", "\u4E09", "\u56DB", "\u4E94", "\u516D", "\u65E5"][day]}`);
+      el(l3, "span", "", c3.getAttribute("aria-label"));
+      return { day, c: c3 };
+    });
+    const help = el(repeatRoot, "p", "ctt-muted");
+    const show = () => {
+      interval.parentElement.hidden = frequency.value === "none";
+      weekdays.hidden = frequency.value !== "weekly";
+      help.textContent = frequency.value === "none" ? "" : `\u5B8C\u6210\u5F53\u524D\u8F6E\u540E\u8FDB\u5165\u4E0B\u4E00\u4E2A\u672A\u6765\u5468\u671F\uFF1B\u6F0F\u505A\u4FDD\u6301\u903E\u671F\u3002${frequency.value === "monthly" ? "\u6CA1\u6709\u8BE5\u65E5\u671F\u7684\u6708\u4EFD\u8DF3\u8FC7\u3002" : ""}${expected.repeat ? ` \u5F53\u524D\uFF1A${repeatLabel(expected.repeat)}` : ""}`;
+    };
+    frequency.onchange = show;
+    show();
     button(controls, "\u4FDD\u5B58", () => {
       void run2(async () => {
         if (time.value && !date2.value) throw new Error("\u8BF7\u5148\u586B\u5199\u622A\u6B62\u65E5\u671F\u3002");
         const dueInstant = date2.value && time.value ? Temporal3.ZonedDateTime.from(`${date2.value}T${time.value}[${zone.value}]`, { disambiguation: "reject" }).epochMilliseconds : void 0;
-        await save({ title: title.value, description: desc.value, due: date2.value, dueInstant, dueZone: dueInstant == null ? void 0 : zone.value });
+        const repeat = frequency.value === "none" ? null : { frequency: frequency.value, interval: Number(interval.value), weekdays: frequency.value === "weekly" ? days.filter((d3) => d3.c.checked).map((d3) => d3.day) : [], zone: dueInstant != null ? zone.value : Intl.DateTimeFormat().resolvedOptions().timeZone };
+        validateRepeat(repeat, { due: date2.value, dueInstant, dueZone: dueInstant == null ? null : zone.value });
+        const patch = { title: title.value, description: desc.value, due: date2.value, dueInstant, dueZone: dueInstant == null ? void 0 : zone.value };
+        if (JSON.stringify(repeat && { ...repeat, ruleId: void 0, revision: void 0 }) !== JSON.stringify(expected.repeat ? { ...expected.repeat, ruleId: void 0, revision: void 0 } : null)) patch.repeat = repeat;
+        await save(patch);
       });
     }, "ctt-primary");
     const confirm = el(root, "div", "ctt-delete-confirm");
     confirm.hidden = true;
-    el(confirm, "p", "", "\u5220\u9664\u8FD9\u9879 iCloud \u63D0\u9192\u4E8B\u9879\uFF1F\u5DF2\u6709\u5DE5\u65F6\u4FDD\u7559\uFF1B\u5173\u8054\u5361\u7247\u518D\u6B21\u70B9\u51FB\u65F6\u4F1A\u521B\u5EFA\u65B0\u4EFB\u52A1\u3002");
+    el(confirm, "p", "", expected.repeat ? "\u5220\u9664\u6574\u4E2A\u91CD\u590D\u4EFB\u52A1\uFF1F\u672C\u8F6E\u53CA\u5386\u53F2\u5DE5\u65F6\u4FDD\u7559\u3002" : "\u5220\u9664\u8FD9\u9879 iCloud \u63D0\u9192\u4E8B\u9879\uFF1F\u5DF2\u6709\u5DE5\u65F6\u4FDD\u7559\uFF1B\u5173\u8054\u5361\u7247\u518D\u6B21\u70B9\u51FB\u65F6\u4F1A\u521B\u5EFA\u65B0\u4EFB\u52A1\u3002");
     button(confirm, "\u786E\u8BA4\u5220\u9664", () => {
       void run2(() => remove());
     }, "ctt-danger");
@@ -5943,7 +6076,17 @@
       if (!old) throw Error("\u4EFB\u52A1\u5DF2\u5220\u9664");
       if (old.readonlyReason) throw Error(old.readonlyReason);
       if (old.revision !== op.before.revision) throw Error("\u5916\u90E8\u53D8\u5316\u51B2\u7A81");
-      const next = { ...old, ...op.patch, revision: "updated" };
+      if (op.cycle) {
+        const done = cloud.get(op.cycle.historyId);
+        if (done) return { task: clone(cloud.get(old.id)), history: clone(done) };
+        const history = { ...old, id: op.cycle.historyId, repeat: null, completed: true, completedAt: op.cycle.completedAt };
+        const next2 = { ...old, ...op.cycle.next, completed: false, revision: op.id };
+        cloud.set(history.id, history);
+        cloud.set(next2.id, next2);
+        return { task: clone(next2), history: clone(history) };
+      }
+      const next = { ...old, ...op.patch, revision: crypto.randomUUID() };
+      if (next.repeat) next.repeat = { ...next.repeat, ruleId: next.repeat.ruleId || "rule-" + old.id, revision: next.revision };
       cloud.set(next.id, next);
       return { task: clone(next) };
     } };
@@ -5964,7 +6107,7 @@
       const start2 = Date.parse(`${event.date}T${event.startTime}Z`), end = Date.parse(`${event.endDate}T${event.endTime}Z`);
       events.push({ key: event.uid, title: event.title, calendarId: id, start: start2, end, original: { id: event.uid, calendarId: id, event } });
       return event;
-    } }, tasks: { complete: (task) => provider.completeRemote(task) }, onChange: () => {
+    } }, tasks: { complete: (task, context) => provider.completeRemote(task, context) }, onChange: () => {
       render2();
       worker2?.wake();
     } });

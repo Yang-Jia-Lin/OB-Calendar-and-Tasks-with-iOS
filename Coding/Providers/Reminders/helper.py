@@ -1,6 +1,7 @@
 """Pinned pyicloud adapter. NDJSON over private stdio; never log account payloads."""
 from __future__ import annotations
 import contextlib
+import base64
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -42,7 +43,43 @@ def due_fields(task):
 
 class Adapter:
     def __init__(self):
-        self.api=None;self.account="";self.last_items={};self.children=set()
+        self.api=None;self.account="";self.last_items={};self.children=set();self.rules={}
+
+    def read_rules(self,service,rows):
+        from pyicloud.services.reminders._constants import _REMINDERS_ZONE_REQ
+        names=list({"RecurrenceRule/"+x.split("/")[-1] for r in rows for x in r.recurrence_rule_ids})
+        if not names:return
+        for name in names:self.rules.pop(name,None)
+        for start in range(0,len(names),100):
+            response=service._writes._get_raw().lookup(record_names=names[start:start+100],zone_id=_REMINDERS_ZONE_REQ)
+            for rec in response.records:
+                if getattr(rec,"recordType",None)=="RecurrenceRule":self.rules[rec.recordName]=rec
+
+    def repeat(self,r):
+        if not r.recurrence_rule_ids:return None
+        if len(r.recurrence_rule_ids)!=1 or not r.due_date:return None
+        ident="RecurrenceRule/"+r.recurrence_rule_ids[0].split("/")[-1];rec=self.rules.get(ident)
+        if not rec:return None
+        f=rec.fields;known={"Reminder","Frequency","Interval","OccurrenceCount","FirstDayOfTheWeek","Imported","Deleted","EndDate","DaysOfTheWeek"}
+        if set(f.keys())-known or f.get_value("EndDate") is not None or f.get_value("OccurrenceCount") or f.get_value("Deleted"):return None
+        frequency=f.get_value("Frequency");interval=f.get_value("Interval");interval=1 if interval is None else interval
+        owner=f.get_value("Reminder")
+        if not owner or (owner.get("recordName") if isinstance(owner,dict) else getattr(owner,"recordName",None))!=r.id:return None
+        if frequency==1 and interval!=1 and f.get_value("FirstDayOfTheWeek")!=1:return None
+        if type(frequency) is not int or frequency not in (0,1,2) or type(interval) is not int or not 1<=interval<=365:return None
+        days=None;encoded=f.get_value("DaysOfTheWeek")
+        if encoded:
+            try:
+                values=json.loads(encoded if isinstance(encoded,bytes) else base64.b64decode(encoded,validate=True));days=[]
+                for v in values:
+                    if set(v)!={"weekNumber","dayOfTheWeek"} or v["weekNumber"]!=0 or type(v["dayOfTheWeek"]) is not int or not 1<=v["dayOfTheWeek"]<=7:return None
+                    days.append((v["dayOfTheWeek"]+5)%7+1)
+                if len(days)!=len(set(days)) or days and frequency!=1:return None
+            except Exception:return None
+        # Native all-day values are floating even if the SDK filled TimeZone=UTC.
+        zone=getattr(self,"display_zone","UTC") if r.all_day else r.time_zone or "UTC"
+        if frequency==1 and not days:days=[r.due_date.astimezone(ZoneInfo(zone)).isoweekday() if not r.all_day else r.due_date.isoweekday()]
+        return {"frequency":["daily","weekly","monthly"][frequency],"interval":interval,"weekdays":sorted(days) if days else [],"zone":zone,"ruleId":ident,"revision":rec.recordChangeTag}
 
     def meta(self):
         file=ROOT/"private"/"connection.json"
@@ -121,12 +158,14 @@ class Adapter:
             else:
                 instant=int(r.due_date.timestamp()*1000)
                 due=r.due_date.astimezone(ZoneInfo(r.time_zone or "UTC")).date().isoformat()
-        reason="周期任务，请在提醒事项中编辑／完成" if r.recurrence_rule_ids else "子任务，请在提醒事项中编辑／完成" if r.parent_reminder_id else "包含子任务，请在提醒事项中编辑／完成" if r.id in self.children else "原生文本无法解码，保留原内容" if r.undecodable_text_fields else ""
-        return {"id":r.id,"listId":r.list_id,"title":r.title,"description":r.desc,"completed":r.completed,"deleted":r.deleted,"due":due or "","dueInstant":instant,"dueZone":r.time_zone,"completedAt":int(r.completed_date.timestamp()*1000) if r.completed_date else None,"revision":r.record_change_tag,"kind":"reminder","path":"icloud:"+self.account,"accountId":self.account,"parentId":r.parent_reminder_id,"readonlyReason":reason}
+        repeat=self.repeat(r)
+        reason="复杂周期任务，请在提醒事项中编辑／完成" if r.recurrence_rule_ids and not repeat else "子任务，请在提醒事项中编辑／完成" if r.parent_reminder_id else "包含子任务，请在提醒事项中编辑／完成" if r.id in self.children else "原生文本无法解码，保留原内容" if r.undecodable_text_fields else ""
+        return {"id":r.id,"listId":r.list_id,"title":r.title,"description":r.desc,"completed":r.completed,"deleted":r.deleted,"due":due or "","dueInstant":instant,"dueZone":r.time_zone,"completedAt":int(r.completed_date.timestamp()*1000) if r.completed_date else None,"revision":r.record_change_tag,"kind":"reminder","path":"icloud:"+self.account,"accountId":self.account,"parentId":r.parent_reminder_id,"readonlyReason":reason,"repeat":repeat}
 
     def snapshot(self,args):
         service=self.service(args.get("accountId"));lists=[l for l in service.lists() if not l.deleted and not l.is_group]
-        full=not args.get("cursor");rows=[];deleted=[]
+        self.display_zone=args.get("zone") or "UTC"
+        full=not args.get("cursor") or not self.last_items;rows=[];deleted=[]
         # Obtain the cursor BEFORE reading. Changes during paging are replayed, never skipped.
         cursor=service.sync_cursor()
         if not full:
@@ -145,12 +184,13 @@ class Adapter:
                 if r.deleted:self.last_items.pop(r.id,None);deleted.append(r.id)
                 else:self.last_items[r.id]=r
         self.children={r.parent_reminder_id for r in self.last_items.values() if r.parent_reminder_id}
-        return {"full":full,"lists":[{"id":l.id,"name":l.title,"color":l.color} for l in lists],"items":[self.item(r) for r in rows if not r.deleted],"deleted":deleted,"cursor":cursor}
+        self.rules={};self.read_rules(service,list(self.last_items.values()))
+        return {"full":full,"lists":[{"id":l.id,"name":l.title,"color":l.color} for l in lists],"items":[self.item(r) for r in self.last_items.values()],"deleted":deleted,"cursor":cursor}
 
-    def assert_ordinary(self,service,r):
+    def assert_ordinary(self,service,r,allow_repeat=False):
         # Recheck native structure at write time, including parents that acquired children.
         children=any(x.parent_reminder_id==r.id and not x.deleted for x in service.reminders(list_id=r.list_id))
-        if r.recurrence_rule_ids or r.parent_reminder_id or children:raise AdapterError("复杂周期／子任务不允许修改或完成。")
+        if (r.recurrence_rule_ids and not (allow_repeat and self.repeat(r))) or r.parent_reminder_id or children:raise AdapterError("复杂周期／子任务不允许修改或完成。")
         if r.undecodable_text_fields:raise AdapterError("原生文本无法解码，拒绝写入。")
 
     def create(self,args):
@@ -193,8 +233,96 @@ class Adapter:
         _assert_modify_success(response,"Create reminder")
         return {"task":self.item(service.get(ident))}
 
+    def transaction(self,service,op):
+        """Persist a fixed atomic native operation before sending it. Retries never advance twice."""
+        from pyicloud.common.cloudkit.models import CKModifyOperation,CKZoneIDReq
+        from pyicloud.services.reminders._constants import _REMINDERS_ZONE_REQ
+        from pyicloud.services.reminders._writes import _assert_modify_success,_merge_resolution_token_map
+        key=hashlib.sha256(op['id'].encode()).hexdigest();journal=ROOT/'private'/'mutations'/(key+'.json')
+        desired={k:op.get(k) for k in ('id','task','before','patch','cycle')}
+        raw=service._writes._get_raw();original=raw.modify
+        if journal.exists():
+            payload=json.loads(journal.read_text(encoding='utf8'))
+            if payload['desired']!=desired:raise AdapterError('周期操作意图变化，发生冲突。')
+        else:
+            before=op.get('before') or op['task'];r=service.get(op['task']['id']);self.read_rules(service,[r]);self.assert_ordinary(service,r,True)
+            current=self.item(r)
+            if current['revision']!=before.get('revision') or current.get('repeat')!=before.get('repeat'):raise AdapterError('提醒事项或重复规则已变化，发生冲突，请刷新核对。')
+            if r.deleted or r.completed:raise AdapterError('周期任务已删除或已完成，请刷新核对。')
+            operations=[];captured=[]
+            class Captured(Exception):pass
+            def capture(*,operations: list,**kwargs):
+                captured.extend(x.model_dump(mode='json',exclude_none=False) for x in operations);raise Captured()
+            def prepare(fn):
+                nonlocal captured
+                captured=[];raw.modify=capture
+                try:
+                    try:fn()
+                    except Captured:pass
+                finally:raw.modify=original
+                if not captured:raise AdapterError('未生成原生周期操作，已停止。')
+                return captured
+            patch_data=op.get('patch') or {};cycle=op.get('cycle')
+            if cycle:
+                if not current.get('repeat') or before.get('due')!=current.get('due') or before.get('dueInstant')!=current.get('dueInstant'):raise AdapterError('本轮周期已变化，拒绝重复完成。')
+                history=uuid.UUID(cycle['historyId'].split('/')[-1])
+                with patch('pyicloud.services.reminders._writes.uuid.uuid4',return_value=history):
+                    operations+=prepare(lambda:service.create(list_id=r.list_id,title=r.title,desc=r.desc or '',completed=True,priority=r.priority,flagged=r.flagged,**due_fields(current)))
+                operations[-1]['record']['fields']['CompletionDate']={'type':'TIMESTAMP','value':cycle['completedAt']}
+                patch_data=cycle['next']
+            if 'title' in patch_data:r.title=patch_data['title']
+            if 'description' in patch_data:r.desc=patch_data['description'] or ''
+            if any(k in patch_data for k in ('due','dueInstant','dueZone')):
+                for k,v in due_fields({**current,**patch_data}).items():setattr(r,k,v)
+            main=prepare(lambda:service.update(r))[0]
+            if 'repeat' in patch_data:
+                repeat=patch_data['repeat'];old=current.get('repeat')
+                if repeat:
+                    if not r.due_date or repeat.get('frequency') not in ('daily','weekly','monthly') or type(repeat.get('interval')) is not int or not 1<=repeat['interval']<=365:raise AdapterError('重复规则或截止日期无效。')
+                    ZoneInfo(repeat['zone']);days=repeat.get('weekdays') or []
+                    if repeat['frequency']=='weekly' and (not days or any(type(d) is not int or not 1<=d<=7 for d in days) or len(set(days))!=len(days)):raise AdapterError('重复星期无效。')
+                    if repeat['frequency']!='weekly' and days:raise AdapterError('重复规则包含不支持的星期条件。')
+                    rule_id=old['ruleId'] if old else 'RecurrenceRule/'+str(uuid.uuid5(uuid.NAMESPACE_URL,op['id'])).upper()
+                    fields={'FirstDayOfTheWeek':{'type':'INT64','value':1},'Frequency':{'type':'INT64','value':['daily','weekly','monthly'].index(repeat['frequency'])},'Interval':{'type':'INT64','value':repeat['interval']},'DaysOfTheWeek':{'type':'BYTES','value':base64.b64encode(json.dumps([{'weekNumber':0,'dayOfTheWeek':d%7+1} for d in sorted(days)],separators=(',',':')).encode()).decode() if days else "W10="}}
+                    if old:
+                        rule=CKModifyOperation(operationType='update',record=service._writes._write_record(record_name=rule_id,record_type='RecurrenceRule',record_change_tag=old['revision'],fields=fields)).model_dump(mode='json',exclude_none=False)
+                    else:
+                        from pyicloud.services.reminders.models import RecurrenceFrequency
+                        rule_uuid=uuid.UUID(rule_id.split('/')[-1])
+                        with patch('pyicloud.services.reminders._writes.uuid.uuid4',return_value=rule_uuid):
+                            result=prepare(lambda:service.create_recurrence_rule(r,frequency=RecurrenceFrequency(fields['Frequency']['value']),interval=repeat['interval']))
+                        rule=next(x for x in result if x['record']['recordName']==rule_id);rule['record']['fields'].update(fields)
+                    operations.append(rule)
+                    main['record']['fields']['RecurrenceRuleIDs']={'type':'STRING_LIST','value':[rule_id.split('/')[-1]]}
+                elif old:
+                    operations.append(CKModifyOperation(operationType='update',record=service._writes._write_record(record_name=old['ruleId'],record_type='RecurrenceRule',record_change_tag=old['revision'],fields={'Deleted':{'type':'INT64','value':1}})).model_dump(mode='json',exclude_none=False))
+                    main['record']['fields']['RecurrenceRuleIDs']={'type':'STRING_LIST','value':[]}
+                token=main['record']['fields']['ResolutionTokenMap'];token['value']=_merge_resolution_token_map(token['value'],['recurrenceRuleIDs','lastModifiedDate'])
+            operations.insert(0,main)
+            payload={'desired':desired,'operations':operations,'done':False};atomic(journal,payload)
+        cycle=op.get('cycle')
+        if not payload.get('done'):
+            # A lost reply is reconciled by exact record fields before replaying old change tags.
+            response=raw.lookup(record_names=[x['record']['recordName'] for x in payload['operations']],zone_id=_REMINDERS_ZONE_REQ)
+            records={x.recordName:x for x in response.records if getattr(x,'recordType',None)}
+            def matches(operation):
+                record=records.get(operation['record']['recordName'])
+                def equivalent(k,v):
+                    actual=record.fields[k].model_dump(mode='json').get('value') if k in record.fields else None;expected=v.get('value')
+                    if v.get('type')=='REFERENCE' and actual and expected:return actual.get('recordName')==expected.get('recordName')
+                    return actual==expected
+                return record is not None and all(equivalent(k,v) for k,v in operation['record']['fields'].items() if k not in ('ResolutionTokenMap',))
+            if not all(matches(x) for x in payload['operations']):
+                result=raw.modify(operations=[CKModifyOperation.model_validate(x) for x in payload['operations']],zone_id=_REMINDERS_ZONE_REQ,atomic=True)
+                _assert_modify_success(result,'Recurring reminder transaction')
+            payload['done']=True;atomic(journal,payload)
+        fresh=service.get(op['task']['id']);self.read_rules(service,[fresh]);result={'task':self.item(fresh)}
+        if cycle:result['history']=self.item(service.get(cycle['historyId']))
+        return result
+
     def mutate(self,args,delete=False):
         service=self.service(args.get("accountId"));op=args["op"];before=op.get("before") or op["task"];ident=op["task"]["id"]
+        if not delete and (op.get('cycle') or 'repeat' in (op.get('patch') or {})):return self.transaction(service,op)
         try:r=service.get(ident)
         except Exception as exc:
             if delete and is_missing(exc):return {"deleted":True}
@@ -202,7 +330,11 @@ class Adapter:
         if r.deleted:
             if delete:return {"deleted":True}
             raise AdapterError("提醒事项已在远端删除。")
-        self.assert_ordinary(service,r);current=self.item(r);patch_data=op.get("patch") or {}
+        if r.recurrence_rule_ids:self.read_rules(service,[r])
+        self.assert_ordinary(service,r,True);current=self.item(r);patch_data=op.get("patch") or {}
+        if r.recurrence_rule_ids and not delete:
+            if 'completed' in patch_data:raise AdapterError('周期任务必须明确完成当前轮，拒绝直接修改完成状态。')
+            return self.transaction(service,op)
         def equivalent(k,v):return (current.get(k) or None)==(v or None)
         if not delete and all(equivalent(k,v) for k,v in patch_data.items()):return {"task":current}
         if not current["revision"]:raise AdapterError("提醒事项缺少版本信息，拒绝修改。")
@@ -213,6 +345,7 @@ class Adapter:
         if "completed" in patch_data:
             r.completed=bool(patch_data["completed"])
             if not r.completed:r.completed_date=None
+            elif patch_data.get("completedAt") is not None:r.completed_date=datetime.fromtimestamp(patch_data["completedAt"]/1000,timezone.utc)
         if any(k in patch_data for k in ["due","dueInstant","dueZone"]):
             combined={**current,**patch_data}
             for k,v in due_fields(combined).items():setattr(r,k,v)
@@ -221,10 +354,12 @@ class Adapter:
         return {"task":fresh}
 
     def dispatch(self,method,args):
+        self.display_zone=args.get("zone") or getattr(self,"display_zone","UTC")
         if method=="connect":return self.connect(args)
         if method=="code":return self.code(args)
         if method=="snapshot":return self.snapshot(args)
-        if method=="lookup":return {"task":self.item(self.service(args.get("accountId")).get(args["id"]))}
+        if method=="lookup":
+            service=self.service(args.get("accountId"));r=service.get(args["id"]);self.read_rules(service,[r]);return {"task":self.item(r)}
         if method=="create":return self.create(args)
         if method=="update":return self.mutate(args)
         if method=="delete":return self.mutate(args,True)

@@ -159,7 +159,7 @@ export default class CalendarTaskTimer extends Plugin {
     const state = await this.sessionStore.load();
     if (state.legacyImport && !this.settings.importedLegacy) { this.settings = { ...this.settings, ...state.legacyImport, importedLegacy: true }; await this.saveSettings(); }
     this.controller = new TimerController({ state, persist: s => this.sessionStore.save(s), calendar: this.bridge, background: true, ownerDeviceId:device!,
-      tasks: { complete: task => this.completeOriginal(task) }, onChange: () => { this.render(); this.worker?.wake(); } });
+      tasks: { complete: (task,context) => this.completeOriginal(task,context) }, onChange: () => { this.render(); this.worker?.wake(); } });
     const recovered = await this.controller.recover();
     this.initializeApi();
     this.initializeDiary();
@@ -386,9 +386,9 @@ export default class CalendarTaskTimer extends Plugin {
     if (!r.ok) { if (r.code !== "cancelled") { this.fail(new Error(r.message)); new Notice(r.message); } }
     else if (r.recordId) new Notice(r.warning || "本机已保存，工时将在后台同步");
   }
-  private async completeOriginal(task: Task) {
+  private async completeOriginal(task: Task,context?:import("../../Shared/contracts").CompletionContext) {
     if (task.kind === "local") { await this.tasks.completeLocal(task); return; }
-    if(task.kind==="reminder"){await this.reminders.completeRemote(task);return;}
+    if(task.kind==="reminder"){await this.reminders.completeRemote(task,context);return;}
     const entry = this.bridge.entries().find(e => e.calendarId === task.calendarId && (task.uid ? e.event.uid === task.uid : e.id === task.id));
     if (!entry || entry.event.type !== "single" || !(entry.event.isTask || entry.event.completed != null)) throw new Error("旧版原待办不存在或不再支持完成；工时已保留。");
     if (entry.event.completed) return;
