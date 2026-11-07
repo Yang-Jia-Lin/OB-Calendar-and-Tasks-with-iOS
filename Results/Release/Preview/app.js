@@ -3944,6 +3944,34 @@
     return `${late ? "\u903E\u671F \xB7 " : ""}${relative}${time ? ` ${time} (${zone})` : ""}`;
   }
 
+  // Shared/scheduling.ts
+  var SCHEDULE_START = "[CalendarTaskTimer:v1]";
+  var SCHEDULE_END = "[/CalendarTaskTimer]";
+  function validDay(value) {
+    return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value + "T00:00:00Z")) && (/* @__PURE__ */ new Date(value + "T00:00:00Z")).toISOString().slice(0, 10) === value;
+  }
+  function reminderMetadata(description = "") {
+    const start = description.indexOf(SCHEDULE_START), close = description.indexOf(SCHEDULE_END);
+    if (description.includes("[CalendarTaskTimer:") && start < 0) throw new Error("\u5E94\u7528\u5907\u6CE8\u533A\u7248\u672C\u6682\u4E0D\u652F\u6301\uFF0C\u539F\u5907\u6CE8\u5DF2\u4FDD\u7559\u3002");
+    if (start < 0 && close < 0) return { notes: description, metadata: { scheduledDate: null }, start: -1, end: -1 };
+    if (start < 0 || close < start || description.indexOf(SCHEDULE_START, start + 1) >= 0 || description.indexOf(SCHEDULE_END, close + 1) >= 0) throw new Error("\u5E94\u7528\u5907\u6CE8\u533A\u635F\u574F\u6216\u91CD\u590D\uFF0C\u505C\u6B62\u4FEE\u6539\u4EE5\u4FDD\u7559\u539F\u5907\u6CE8\u3002");
+    let data;
+    try {
+      data = JSON.parse(description.slice(start + SCHEDULE_START.length, close));
+    } catch {
+      throw new Error("\u5E94\u7528\u5907\u6CE8\u533A\u65E0\u6CD5\u89E3\u6790\uFF0C\u539F\u5907\u6CE8\u5DF2\u4FDD\u7559\u3002");
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data) || Object.keys(data).some((k3) => !["scheduledDate", "topicId"].includes(k3)) || data.scheduledDate != null && !validDay(data.scheduledDate) || data.topicId != null && (typeof data.topicId !== "string" || data.topicId.length > 256)) throw new Error("\u5E94\u7528\u5907\u6CE8\u533A\u7248\u672C\u6216\u65E5\u671F\u65E0\u6548\uFF0C\u539F\u5907\u6CE8\u5DF2\u4FDD\u7559\u3002");
+    const end = close + SCHEDULE_END.length;
+    return { notes: description.slice(0, start) + description.slice(end), metadata: { scheduledDate: data.scheduledDate ?? null, ...data.topicId ? { topicId: data.topicId } : {} }, start, end };
+  }
+  function withReminderMetadata(description, metadata) {
+    if (metadata.scheduledDate != null && !validDay(metadata.scheduledDate)) throw new Error("\u5B89\u6392\u65E5\u671F\u65E0\u6548\u3002");
+    const parsed = reminderMetadata(description);
+    const block = SCHEDULE_START + "\n" + JSON.stringify(metadata) + "\n" + SCHEDULE_END;
+    return parsed.start < 0 ? description + (description && !description.endsWith("\n") ? "\n" : "") + block : description.slice(0, parsed.start) + block + description.slice(parsed.end);
+  }
+
   // Shared/application.ts
   init_time();
   var defaultFilters = () => ({ source: "all", association: "all", status: "open", due: "all", date: dayKey() });
@@ -4056,7 +4084,7 @@
         const id = fixedId || `Reminder/${uid().toUpperCase()}`;
         if (this.data.operations.some((o2) => o2.task.id === id) || this.data.items.some((t3) => t3.id === id)) return { kind: "reminder", path: `icloud:${this.data.accountId}`, id };
         const task = { id, title: title.trim(), completed: false, kind: "reminder", path: `icloud:${this.data.accountId}`, accountId: this.data.accountId, listId, ...patch };
-        const op = { id: uid(), action: "create", task, migration, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+        const op = { id: uid(), action: "create", task, migration, dispatched: false, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
         await this.commit({ ...this.data, operations: [...this.data.operations, op] });
         return reminderRef(task);
       });
@@ -4078,7 +4106,7 @@
         if (allowed.repeat && current.completed) throw new Error("\u8BF7\u5148\u6062\u590D\u5F85\u529E\uFF0C\u518D\u8BBE\u7F6E\u91CD\u590D\u3002");
         validateRepeat(Object.hasOwn(allowed, "repeat") ? allowed.repeat : current.repeat, { ...current, ...allowed });
         if (allowed.title !== void 0 && !allowed.title.trim()) throw new Error("\u8BF7\u586B\u5199\u6807\u9898\u3002");
-        const op = { id: uid(), action: "update", task: clone(current), before: clone(current), patch: allowed, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+        const op = { id: uid(), action: "update", task: clone(current), before: clone(current), patch: allowed, dispatched: false, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
         await this.commit({ ...this.data, operations: [...this.data.operations, op] });
       });
     }
@@ -4149,6 +4177,19 @@
       if (!this.enabled) return [];
       return this.data.operations.filter((o2) => o2.status === "pending").map((o2) => ({ key: `reminder:${o2.id}`, value: o2 }));
     }
+    /** Only metadata edits proven never dispatched may be coalesced. Fixed wire identities remain immutable. */
+    async amendUnsentDescription(task, description) {
+      return this.lock(async () => {
+        const current = this.assertEditable(task);
+        if (current.description !== task.description || current.revision !== task.revision) throw new Error("\u63D0\u9192\u4E8B\u9879\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u3002");
+        const pending = this.data.operations.filter((o2) => o2.status === "pending" && o2.task.id === task.id);
+        if (pending.length !== 1) return false;
+        const op = pending[0];
+        if (!["update", "create"].includes(op.action) || op.dispatched !== false || op.phase || op.cycle || op.migration || (op.sync?.attempt || 0) > 0) return false;
+        await this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === op.id ? o2.action === "create" ? { ...o2, task: { ...o2.task, description } } : { ...o2, patch: { ...o2.patch, description } } : o2) });
+        return true;
+      });
+    }
     async requestRetry(key2) {
       const id = key2.slice(9);
       await this.lock(async () => {
@@ -4161,10 +4202,22 @@
       await this.lock(() => this.commit({ ...this.data, items: task ? [...this.data.items.filter((t3) => t3.id !== id), task] : this.data.items, deleted: deleted ? [.../* @__PURE__ */ new Set([...this.data.deleted, id])] : this.data.deleted.filter((x4) => x4 !== id) }));
     }
     async sync(key2) {
-      const id = key2.slice(9), op = clone(this.data.operations.find((o2) => o2.id === id));
-      if (!op || op.status === "saved") return;
+      const id = key2.slice(9), initial2 = this.data.operations.find((o2) => o2.id === id);
+      if (!initial2 || initial2.status === "saved") return;
+      let op = clone(initial2);
       try {
         if (!op.phase) {
+          const ready = await this.lock(async () => {
+            const current = this.data.operations.find((o2) => o2.id === id);
+            if (!current || current.status === "saved") return false;
+            op = clone(current);
+            if (!op.dispatched) {
+              op.dispatched = true;
+              await this.commit({ ...this.data, operations: this.data.operations.map((o2) => o2.id === id ? op : o2) });
+            }
+            return true;
+          });
+          if (!ready) return;
           const result = await this.rpc.call(op.action, { accountId: this.data.accountId, op });
           await this.accept(result.task, op.task.id, op.action === "delete");
           if (result.history) await this.accept(result.history, result.history.id);
@@ -4186,7 +4239,7 @@
     async queueCycle(task, current, completedAt = Date.now(), requestId) {
       if (occurrenceKey(task) !== occurrenceKey(current) || JSON.stringify(task.repeat) !== JSON.stringify(current.repeat) || task.revision !== current.revision) throw new Error("\u672C\u8F6E\u5468\u671F\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
       if (this.data.operations.some((o2) => o2.status === "pending" && o2.task.id === task.id)) throw new Error("\u6B64\u63D0\u9192\u4E8B\u9879\u6709\u5F85\u540C\u6B65\u64CD\u4F5C\uFF0C\u8BF7\u5148\u5B8C\u6210\u540C\u6B65\u3002");
-      const op = { id: uid(), action: "update", task: clone(current), before: clone(current), patch: { completed: true }, cycle: { key: occurrenceKey(current), requestId, historyId: `Reminder/${uid().toUpperCase()}`, completedAt, next: nextOccurrence(current, completedAt) }, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
+      const op = { id: uid(), action: "update", task: clone(current), before: clone(current), patch: { completed: true }, cycle: { key: occurrenceKey(current), requestId, historyId: `Reminder/${uid().toUpperCase()}`, completedAt, next: { ...nextOccurrence(current, completedAt), ...current.description?.includes(SCHEDULE_START) ? { description: withReminderMetadata(current.description, { ...reminderMetadata(current.description).metadata, scheduledDate: null }) } : {} } }, status: "pending", error: "", sync: { revision: 0, attempt: 0, retryAt: 0 } };
       await this.commit({ ...this.data, operations: [...this.data.operations, op] });
       return op.id;
     }
@@ -5882,6 +5935,9 @@
         this.reconcile();
       }
     }
+    tick() {
+      if (!this.stopped) for (const button2 of this.buttons.values()) this.paint(button2);
+    }
     schedule() {
       if (this.frame || this.stopped) return;
       this.frame = this.doc.defaultView.requestAnimationFrame(() => {
@@ -5922,7 +5978,7 @@
       const activate = (e3) => {
         e3.preventDefault();
         e3.stopImmediatePropagation();
-        if (item.working || !this.state.available || e3 instanceof MouseEvent && e3.detail > 1) return;
+        if (item.working || !this.state.available && !this.host.canWake || e3 instanceof MouseEvent && e3.detail > 1) return;
         const expected = item.expected;
         item.working = true;
         item.error = "";
@@ -5968,13 +6024,13 @@
       const active = this.state.active, ref = this.host.binding(item.note), own = active && ref && sameTask(active.task, ref);
       item.expected = own ? active.id : null;
       const phase = !this.state.available ? "unavailable" : item.working ? "working" : own ? active.runningSince == null ? "paused" : "running" : active ? "blocked" : "idle";
-      const text = phase === "unavailable" ? "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D" : item.working ? "\u5904\u7406\u4E2D\u2026" : own ? `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u25CF"} ${secondsText(elapsed(active))} \xB7 \u7ED3\u675F` : "\u5F00\u59CB\u8BA1\u65F6";
+      const text = item.working ? "\u5904\u7406\u4E2D\u2026" : phase === "unavailable" ? this.host.canWake ? "\u8FDE\u63A5\u8BA1\u65F6\u5E94\u7528" : "\u8BA1\u65F6\u63D2\u4EF6\u5DF2\u5378\u8F7D" : own ? `${active.runningSince == null ? "\u5DF2\u6682\u505C" : "\u25CF"} ${secondsText(elapsed(active))} \xB7 \u7ED3\u675F` : "\u5F00\u59CB\u8BA1\u65F6";
       if (item.label.textContent !== text) item.label.textContent = text;
       item.button.dataset.cttState = phase;
-      const title = item.error || (own ? "\u70B9\u51FB\u7ED3\u675F\uFF0C\u53EA\u8BB0\u5F55\u5DE5\u65F6\uFF0C\u4FDD\u7559\u4EFB\u52A1\u672A\u5B8C\u6210" : active ? `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u7ED3\u675F\u8BE5\u4F1A\u8BDD` : "\u70B9\u51FB\u5F00\u59CB\u6B64\u8BFE\u9898\u5173\u8054\u7684\u4EFB\u52A1");
+      const title = item.error || (!this.state.available && this.host.canWake ? "\u70B9\u51FB\u5524\u8D77\u672C\u673A\u8BA1\u65F6\u5E94\u7528\u5E76\u7B49\u5F85\u8FDE\u63A5\uFF0C\u4E0D\u5728 OB \u5185\u53E6\u8D77\u8BA1\u65F6" : own ? "\u70B9\u51FB\u7ED3\u675F\uFF0C\u53EA\u8BB0\u5F55\u5DE5\u65F6\uFF0C\u4FDD\u7559\u4EFB\u52A1\u672A\u5B8C\u6210" : active ? `\u6B63\u5728\u8BA1\u65F6\u300C${active.title}\u300D\uFF0C\u8BF7\u5148\u7ED3\u675F\u8BE5\u4F1A\u8BDD` : "\u70B9\u51FB\u5F00\u59CB\u6B64\u8BFE\u9898\u5173\u8054\u7684\u4EFB\u52A1");
       if (item.button.title !== title) item.button.title = title;
       if (item.button.getAttribute("aria-label") !== text) item.button.setAttribute("aria-label", text);
-      item.button.setAttribute("aria-disabled", String(item.working || !this.state.available));
+      item.button.setAttribute("aria-disabled", String(item.working || !this.state.available && !this.host.canWake));
     }
     dispose() {
       if (this.stopped) return;
@@ -6000,7 +6056,7 @@
   }
 
   // Preview/componentsFixture.ts
-  function componentsFixture(api2, bindings) {
+  function componentsFixture(api2, bindings, canWake = false) {
     const style = document.createElement("style");
     style.textContent = `
     #ctt-native-fixture { position:fixed;top:65px;left:20px;width:900px;max-width:calc(100vw - 40px);z-index:30;background:var(--background-primary);border:1px solid var(--background-modifier-border);padding:12px;box-shadow:0 8px 30px #0002; }
@@ -6031,17 +6087,20 @@
       </div>
     </div></div>`).join("")}</div>`;
     document.body.append(root);
-    const counts = { escapedClicks: 0 };
+    const counts = { escapedClicks: 0, toggleCalls: 0 };
     root.addEventListener("click", () => {
       counts.escapedClicks++;
     });
-    const toggle = (note, expected) => toggleNoteTimer(note, expected, {
-      state: () => api2.getState(),
-      binding: (note2) => bindings[note2],
-      start: (note2) => api2.start(bindings[note2], { source: "components", path: note2 }),
-      finish: (id) => api2.finish(id, false)
-    });
-    const manager = new ComponentsTimerButtons(document, { api: api2, binding: (note) => bindings[note], toggle });
+    const toggle = (note, expected) => {
+      counts.toggleCalls++;
+      return toggleNoteTimer(note, expected, {
+        state: () => api2.getState(),
+        binding: (note2) => bindings[note2],
+        start: (note2) => api2.start(bindings[note2], { source: "components", path: note2 }),
+        finish: (id) => api2.finish(id, false)
+      });
+    };
+    const manager = new ComponentsTimerButtons(document, { api: api2, canWake, binding: (note) => bindings[note], toggle });
     manager.setScopes([{ root, labels: /* @__PURE__ */ new Set(["\u5F00\u59CB\u8BA1\u65F6"]) }]);
     return { root, manager, counts, toggle, dispose: () => {
       manager.dispose();
@@ -31680,7 +31739,7 @@ ${DIARY_END}
   if (new URLSearchParams(location.search).has("components") && !new URLSearchParams(location.search).has("reminders")) window.__preview.native = componentsFixture(timerApi, {
     "research.md": taskRef(tasks.find((t3) => t3.id === "t1")),
     "reading.md": taskRef(tasks.find((t3) => t3.id === "t2"))
-  });
+  }, new URLSearchParams(location.search).has("desktopWake"));
   if (new URLSearchParams(location.search).has("reminders")) {
     ui.destroy();
     window.__remindersPreview = reminderFixture(mountTimerView(document.querySelector("#app")));

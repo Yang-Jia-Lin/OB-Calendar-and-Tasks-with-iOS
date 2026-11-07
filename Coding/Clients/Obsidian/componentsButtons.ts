@@ -19,7 +19,8 @@ export class ComponentsTimerButtons {
   private stopped = false;
   private state: TimerSnapshot;
   constructor(private doc: Document, private host: {
-    api: TimerApi; binding(note: string): TaskRef | undefined;
+    api: Pick<TimerApi, "getTimerState" | "subscribeTimer">; binding(note: string): TaskRef | undefined;
+    canWake?: boolean;
     toggle(note: string, expected: string | null): Promise<ActionResult>;
   }) {
     this.state = host.api.getTimerState();
@@ -31,6 +32,7 @@ export class ComponentsTimerButtons {
     this.unsubscribe = host.api.subscribeTimer(state => { this.state = state; for (const button of this.buttons.values()) this.paint(button); });
   }
   setScopes(scopes: NativeButtonScope[]) { if (!this.stopped) { this.scopes = scopes; this.reconcile(); } }
+  tick() { if (!this.stopped) for (const button of this.buttons.values()) this.paint(button); }
   private schedule() {
     if (this.frame || this.stopped) return;
     this.frame = this.doc.defaultView!.requestAnimationFrame(() => { this.frame = 0; this.reconcile(); });
@@ -63,7 +65,7 @@ export class ComponentsTimerButtons {
     const item: NativeButton = { field, button, label, content, note, expected: null, working: false, error: "", restore: () => {} };
     const activate = (e: Event) => {
       e.preventDefault(); e.stopImmediatePropagation();
-      if (item.working || !this.state.available || e instanceof MouseEvent && e.detail > 1) return;
+      if (item.working || !this.state.available && !this.host.canWake || e instanceof MouseEvent && e.detail > 1) return;
       const expected = item.expected; item.working = true; item.error = ""; this.paint(item);
       void this.host.toggle(note, expected).then(r => { if (!r.ok && r.code !== "cancelled") item.error = r.message; })
         .catch(e => { item.error = (e as Error).message; }).finally(() => { item.working = false; if (!this.stopped && this.buttons.get(field) === item) this.paint(item); });
@@ -90,13 +92,13 @@ export class ComponentsTimerButtons {
     const active = this.state.active, ref = this.host.binding(item.note), own = active && ref && sameTask(active.task, ref);
     item.expected = own ? active.id : null;
     const phase = !this.state.available ? "unavailable" : item.working ? "working" : own ? active.runningSince == null ? "paused" : "running" : active ? "blocked" : "idle";
-    const text = phase === "unavailable" ? "计时插件已卸载" : item.working ? "处理中…" : own ? `${active.runningSince == null ? "已暂停" : "●"} ${secondsText(elapsed(active))} · 结束` : "开始计时";
+    const text = item.working ? "处理中…" : phase === "unavailable" ? this.host.canWake ? "连接计时应用" : "计时插件已卸载" : own ? `${active.runningSince == null ? "已暂停" : "●"} ${secondsText(elapsed(active))} · 结束` : "开始计时";
     if (item.label.textContent !== text) item.label.textContent = text;
     item.button.dataset.cttState = phase;
-    const title = item.error || (own ? "点击结束，只记录工时，保留任务未完成" : active ? `正在计时「${active.title}」，请先结束该会话` : "点击开始此课题关联的任务");
+    const title = item.error || (!this.state.available && this.host.canWake ? "点击唤起本机计时应用并等待连接，不在 OB 内另起计时" : own ? "点击结束，只记录工时，保留任务未完成" : active ? `正在计时「${active.title}」，请先结束该会话` : "点击开始此课题关联的任务");
     if (item.button.title !== title) item.button.title = title;
     if (item.button.getAttribute("aria-label") !== text) item.button.setAttribute("aria-label", text);
-    item.button.setAttribute("aria-disabled", String(item.working || !this.state.available));
+    item.button.setAttribute("aria-disabled", String(item.working || !this.state.available && !this.host.canWake));
   }
   dispose() {
     if (this.stopped) return; this.stopped = true; this.observer.disconnect(); this.unsubscribe();

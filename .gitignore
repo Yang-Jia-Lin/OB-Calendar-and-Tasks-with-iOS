@@ -13,3 +13,5 @@ __pycache__/
 *.bundle
 *.tmp
 .vscode/
+Coding/Clients/Desktop/native/target/
+Coding/Clients/Desktop/native/gen/

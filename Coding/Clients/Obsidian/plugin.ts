@@ -7,6 +7,9 @@ import { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, MarkdownRen
 import fs from "node:fs/promises";
 import path from "node:path";
 import { TimerController, blankJournal } from "../../Shared/timer";
+import { ObsidianDesktopConnector } from "./desktopConnector";
+import { exportDesktop } from "../Desktop/migration";
+import { acquireWriterLease } from "../Desktop/ownership";
 import { uid, type Task, type TimelineRow, type Calendar } from "../../Shared/contracts";
 import { dayKey } from "../../Shared/time";
 import { mergeTimeline } from "../../Shared/timeline";
@@ -112,6 +115,8 @@ class TimerSettings extends PluginSettingTab {
   }
 }
 export default class CalendarTaskTimer extends Plugin {
+  private desktopConnector?: ObsidianDesktopConnector;
+  private writerLease?:Awaited<ReturnType<typeof acquireWriterLease>>;
   settings: Settings = { defaultCalendarId: "", tasksPath: "待办计时/待办.md", importedLegacy: false, closeUnusedSidebarViewsOnStartup: true, ...DEFAULT_APPEARANCE };
   controller!: TimerController; bridge!: CalendarBridge; engine!:CalendarEngine; private calendarStore?:CalendarCacheFile; tasks!: MarkdownTasks; reminders!:RemindersProvider;private reminderRuntime?:ReminderRuntime;private reminderStore?:ReminderStore; dialogs!: Dialogs;
   worker?: SyncWorker;
@@ -133,6 +138,13 @@ export default class CalendarTaskTimer extends Plugin {
   private calendarView: { date: string; sources: ViewModel["sources"]; calendars: ViewModel["calendars"]; rows: TimelineRow[]; error: string } = { date: "", sources: [], calendars: [], rows: [], error: "" };
   async onload() {
     const data = await this.loadData() || {};
+    if (data.desktopConnection === true) {
+      this.desktopConnector = new ObsidianDesktopConnector(this, data);
+      this.api = this.desktopConnector.api as unknown as TimerApi;
+      await this.desktopConnector.start(); return;
+    }
+    try{this.writerLease=await acquireWriterLease();}catch(error){new Notice((error as Error).message);throw error;}
+    this.register(()=>{void (async()=>{await this.reminderRuntime?.untilExited();await this.writerLease?.release();})();});
     for (const k of ["defaultCalendarId", "tasksPath"] as const) if (typeof data[k] === "string") this.settings[k] = data[k];
     this.settings.importedLegacy = data.importedLegacy === true;this.settings.reminders=reminderSettings(data.reminders);
     this.settings.calendarSources=calendarSources(data.calendarSources);this.settings.calendarPreferences=calendarPreferences(data.calendarPreferences);if(typeof data.calendarMigration==="string")this.settings.calendarMigration=data.calendarMigration;
@@ -176,6 +188,13 @@ export default class CalendarTaskTimer extends Plugin {
     this.dialogs = new Dialogs(host, this.controller, this.bridge, () => this.bridge.writableCalendars(), () => this.settings.defaultCalendarId, () => this.refreshLocal(), id => this.worker!.retry(`delete:${id}`),()=>calendarPreferences(this.settings.calendarPreferences).timezone);
     this.registerView(VIEW, leaf => new TimerView(leaf, this)); this.addRibbonIcon("timer", "日历与待办计时", () => { void this.openView(); });
     this.addCommand({ id: "open", name: "打开计时与时间轴", callback: () => { void this.openView(); } });
+    this.addCommand({ id: "prepare-desktop-handoff", name: "准备交接到 Windows 桌面版", callback: () => {
+      const modal = new Modal(this.app); modal.titleEl.textContent = "交接到桌面应用";
+      const info = document.createElement("p"); info.textContent = "请先确认桌面版已通过专用样例验证。此操作会备份并冻结本插件的数据、停止本插件计时与同步，切换为桌面连接模式。不会按标题重建任务。";
+      const prepare = document.createElement("button"); prepare.textContent = "备份并停止旧写入者";
+      prepare.onclick = () => { prepare.disabled = true; void this.prepareDesktopHandoff().then(directory => { modal.close(); const result = new Modal(this.app); result.titleEl.textContent = "交接快照已保存"; const text = document.createElement("p"); text.textContent = "在桌面应用设置中导入此目录。重新加载本插件后，OB 将只连接桌面后台。"; const location = document.createElement("input"); location.value = directory; location.readOnly = true; location.style.width = "100%"; result.contentEl.append(text, location); result.open(); }).catch(error => { new Notice(error.message); prepare.disabled = false; }); };
+      modal.contentEl.append(info, prepare); modal.open();
+    } });
     this.addCommand({ id: "start-note-task", name: "开始当前课题的计时任务", callback: () => { void this.startFromNote(this.app.workspace.getActiveFile()?.path || ""); } });
     this.addCommand({ id: "pause-resume", name: "暂停／继续当前计时", callback: () => { const s = this.api.getState().active; void this.showResult(s?.runningSince == null ? this.api.resume(s?.id || "") : this.api.pause(s.id)); } });
     this.addCommand({ id: "finish-record-only", name: "结束计时只记时间", callback: () => this.actions().finish(false) });
@@ -207,7 +226,7 @@ export default class CalendarTaskTimer extends Plugin {
     await this.refresh();
     await this.refreshComponentButtons();
   }
-  onunload() { this.unloaded = true;this.engine?.stop();this.calendarStore?.stop();this.reminders?.stop();this.reminderStore?.stop();this.reminderRuntime?.stop(); this.application.dispose();this.componentButtons?.dispose(); this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
+  onunload() { if (this.desktopConnector) { this.unloaded = true; this.desktopConnector.stop(); return; } this.unloaded = true;this.engine?.stop();this.calendarStore?.stop();this.reminders?.stop();this.reminderStore?.stop();this.reminderRuntime?.stop(); this.application.dispose();this.componentButtons?.dispose(); this.api?.dispose(); this.worker?.stop(); for (const id of this.timers) window.clearTimeout(id); }
   private diaryFile(note: string): TFile {
     const file = this.app.vault.getAbstractFileByPath(note);
     if (!file || !("extension" in file) || file.extension !== "md") throw new Error("请先打开一篇日记。");
@@ -234,7 +253,19 @@ export default class CalendarTaskTimer extends Plugin {
       process: async (note, update) => { const file = this.diaryFile(note); await this.app.vault.process(file, text => { if (file.path !== note) throw new Error("日记已移动或重命名，请重新更新。"); return update(text); }); }
     });
   }
-  updateDiaryFromNote(note: string) { return this.diary.update(note); }
+  updateDiaryFromNote(note: string) { return this.desktopConnector ? this.desktopConnector.updateDiaryFromNote(note) : this.diary.update(note); }
+  private async prepareDesktopHandoff() {
+    if (this.controller.state.active || this.busy || this.worker?.view.activeKey || this.reminders.syncing || this.engine.state.syncing) throw new Error("请先结束计时，并等待当前同步／登录操作结束后交接。");
+    this.importing = true; this.unloaded = true; this.worker?.stop(); this.engine.stop(); this.calendarStore?.stop(); this.reminderRuntime?.stop(); this.api.dispose(); this.componentButtons?.dispose();
+    await this.reminderRuntime?.quiesce();
+    const journal = await this.store.load(), reminders = await this.reminderStore!.load();
+    const legacyTasks = (await this.tasks.list()).filter(task => task.kind === "local");
+    const exported = await exportDesktop({ pluginDir: this.pluginDir, settings: this.settings, journal, reminders: reminders || this.reminders.data, legacyTasks,
+      reminderRoot: this.reminderRuntime!.root, secret: key => (this.app as any).secretStorage.getSecret(key) });
+    await this.saveData({ ...this.settings, desktopConnection: true, desktopHandoffId: exported.id });
+    await this.writerLease?.release();
+    return exported.root;
+  }
   private async refreshComponentButtons() {
     const revision = ++this.componentRevision, sources: { file: TFile; root: HTMLElement }[] = [];
     this.app.workspace.iterateAllLeaves(leaf => {
@@ -335,6 +366,7 @@ export default class CalendarTaskTimer extends Plugin {
     });
   }
   async startFromNote(notePath: string, chooseTask = false, notify = true): Promise<ActionResult> {
+    if (this.desktopConnector) return this.desktopConnector.startFromNote(notePath, chooseTask);
     let result: ActionResult;
     try {
       if (this.unloaded) return { ok: false, code: "unavailable", message: "计时插件已卸载。" };
@@ -355,6 +387,7 @@ export default class CalendarTaskTimer extends Plugin {
     });
   }
   toggleFromNote(notePath: string, chooseTask = false, expectedSession?: string | null): Promise<ActionResult> {
+    if (this.desktopConnector) return this.desktopConnector.toggleFromNote(notePath, chooseTask, expectedSession);
     if (this.unloaded) return Promise.resolve({ ok: false, code: "unavailable", message: "计时插件已卸载。" });
     const ref = componentTaskBindings(this.settings.componentTaskBindings)[notePath], key = ref ? JSON.stringify(ref) : notePath;
     const previous = this.noteToggles.get(key); if (previous) return previous;

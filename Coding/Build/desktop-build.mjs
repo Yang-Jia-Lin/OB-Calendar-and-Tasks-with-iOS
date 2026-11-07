@@ -1,0 +1,12 @@
+import { build } from 'esbuild';
+import { mkdir, copyFile, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const coding = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const output = path.resolve(coding, '../Agents/Tests/Desktop');
+await mkdir(path.join(output, 'ui'), {recursive:true}); await mkdir(path.join(output, 'resources'), {recursive:true});
+await build({entryPoints:[path.join(coding,'Clients/Desktop/backend.ts')],outfile:path.join(output,'resources/backend.cjs'),platform:'node',format:'cjs',target:'node24',bundle:true,sourcemap:false,minify:true});
+await build({entryPoints:[path.join(coding,'Clients/Desktop/ui/app.ts')],outfile:path.join(output,'ui/app.js'),platform:'browser',format:'iife',target:'es2022',bundle:true,sourcemap:false,minify:true});
+for (const [source,target] of [['Clients/Desktop/ui/index.html','ui/index.html'],['Clients/Desktop/ui/app.css','ui/app.css'],['Providers/Reminders/helper.py','resources/helper.py']]) await copyFile(path.join(coding,source),path.join(output,target));
+await writeFile(path.join(output,'resources/LICENSES.txt'),await readFile(path.join(coding,'../LICENSE.md'),'utf8')+'\n'+await readFile(path.join(coding,'THIRD-PARTY-NOTICES.md'),'utf8'));
+console.log('Desktop frontend and backend built in Agents/Tests/Desktop (no installation or account changes).');

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -16,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 logging.disable(logging.CRITICAL)
 ROOT = Path(sys.argv[1]).resolve() if len(sys.argv)>1 else Path.cwd()
-SDK = ROOT / "sdk" / "pyicloud-af5246511c729eee4d5a95671135ad75fdd77b22"
+SDK = Path(os.environ["CTT_REMINDERS_SDK"]) if os.environ.get("CTT_REMINDERS_SDK") else ROOT / "sdk" / "pyicloud-af5246511c729eee4d5a95671135ad75fdd77b22"
 sys.path.insert(0, str(SDK))
 
 class AdapterError(Exception):

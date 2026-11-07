@@ -3,7 +3,7 @@ import { toggleNoteTimer } from "../Clients/Obsidian/components";
 import type { TaskRef, TimerApi } from "../Clients/Obsidian/api";
 
 /** Opt-in native DOM fixture, based on the inspected Components 3.1.260826 structure. */
-export function componentsFixture(api: TimerApi, bindings: Record<string, TaskRef>) {
+export function componentsFixture(api: TimerApi, bindings: Record<string, TaskRef>, canWake=false) {
   const style = document.createElement("style");
   style.textContent = `
     #ctt-native-fixture { position:fixed;top:65px;left:20px;width:900px;max-width:calc(100vw - 40px);z-index:30;background:var(--background-primary);border:1px solid var(--background-modifier-border);padding:12px;box-shadow:0 8px 30px #0002; }
@@ -33,11 +33,11 @@ export function componentsFixture(api: TimerApi, bindings: Record<string, TaskRe
       </div>
     </div></div>`).join("")}</div>`;
   document.body.append(root);
-  const counts = { escapedClicks: 0 }; root.addEventListener("click", () => { counts.escapedClicks++; });
-  const toggle = (note: string, expected: string | null) => toggleNoteTimer(note, expected, {
+  const counts = { escapedClicks: 0, toggleCalls:0 }; root.addEventListener("click", () => { counts.escapedClicks++; });
+  const toggle = (note: string, expected: string | null) => {counts.toggleCalls++;return toggleNoteTimer(note, expected, {
     state: () => api.getState(), binding: note => bindings[note], start: note => api.start(bindings[note],{source:"components",path:note}), finish: id => api.finish(id, false)
-  });
-  const manager = new ComponentsTimerButtons(document, { api, binding: note => bindings[note], toggle });
+  });};
+  const manager = new ComponentsTimerButtons(document, { api, canWake, binding: note => bindings[note], toggle });
   manager.setScopes([{ root, labels: new Set(["开始计时"]) }]);
   return { root, manager, counts, toggle, dispose: () => { manager.dispose(); root.remove(); style.remove(); } };
 }

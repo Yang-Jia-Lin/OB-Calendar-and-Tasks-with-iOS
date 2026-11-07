@@ -1,9 +1,9 @@
 {
   "id": "calendar-task-timer",
   "name": "日历与待办计时",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "minAppVersion": "1.12.7",
-  "description": "计时、待办与独立 CalDAV 日历，共享工时和后台同步。",
+  "description": "Windows 桌面计时连接、课题按钮与日记快照；保留受控交接前的完整插件模式。",
   "author": "Personal tools",
   "isDesktopOnly": true
 }

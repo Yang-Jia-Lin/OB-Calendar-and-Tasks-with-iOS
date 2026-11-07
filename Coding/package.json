@@ -1,8 +1,14 @@
 {
   "name": "calendar-task-timer-workspace",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "scripts": {
+    "desktop:build": "node Build/desktop-build.mjs",
+    "desktop:runtime": "pwsh -NoProfile -File Build/desktop-runtime.ps1",
+    "desktop:package": "pwsh -NoProfile -File Build/desktop-package.ps1",
+    "desktop:release": "pwsh -NoProfile -File Build/desktop-release.ps1",
+    "test:desktop-ui": "npm run desktop:build && node Tests/desktop-ui.mjs",
+    "test:desktop-smoke": "npm run desktop:build && node Tests/desktop-smoke.mjs",
     "check": "tsc --noEmit",
     "build": "node Build/build.mjs",
     "release": "pwsh -NoProfile -File Build/release.ps1",
@@ -11,6 +17,7 @@
     "test:ui": "node Tests/ui.mjs && node Tests/native-toggle-ui.mjs && node Tests/diary-ui.mjs && node Tests/task-link-ui.mjs && node Tests/note-task-ui.mjs && node Tests/calendar-ui.mjs && node Tests/reminder-ui.mjs && node Tests/recurrence-ui.mjs"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
     "@types/node": "25.9.9",
     "esbuild": "0.28.2",
     "obsidian": "1.14.4",

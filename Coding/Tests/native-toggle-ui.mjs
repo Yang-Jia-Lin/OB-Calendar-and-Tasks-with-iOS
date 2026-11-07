@@ -98,6 +98,11 @@ try {
   await page.locator('#ctt-native-fixture').evaluate(e=>{e.style.pointerEvents='';});await button.click();await page.waitForFunction(()=>window.__preview.controller.state.active);
   check('Card start recreates one deleted task with the bound identity',await page.evaluate(()=>window.__preview.tasks().filter(t=>t.id==='t1').length===1&&window.__preview.controller.state.active.task.id==='t1'));
   check('Disposing the enhancement restores native labels and unsubscribes', await page.evaluate(() => { const p = window.__preview, before = p.api.timerListeners.size; p.native.manager.dispose(); return p.api.timerListeners.size === before - 1 && !document.querySelector('.ctt-components-timer-button') && [...p.native.root.querySelectorAll('.components--DynamicDataView-ButtonLabel')].every(e => e.textContent === '开始计时'); }));
+  await page.goto('http://127.0.0.1:4173/?components&desktopWake');await button.waitFor();
+  const disconnected=await page.evaluate(()=>{const p=window.__preview;p.api.dispose();return{calls:p.native.counts.toggleCalls,active:p.controller.state.active?.id||null};});
+  check('Desktop connector button remains usable to wake an unavailable app',await button.getAttribute('aria-disabled')==='false'&&(await button.textContent()).includes('连接计时应用'));
+  await button.click();await page.waitForFunction(before=>window.__preview.native.counts.toggleCalls>before,disconnected.calls);
+  check('Unavailable desktop click reaches the connection action without a fallback local timer',await page.evaluate(before=>(window.__preview.controller.state.active?.id||null)===before,disconnected.active));
   check('No native toggle browser errors', errors.length === 0);
   await writeFile('../Agents/Tests/native-toggle-ui.json', JSON.stringify({ passed: checks.length, checks, errors }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, errors }, null, 2));

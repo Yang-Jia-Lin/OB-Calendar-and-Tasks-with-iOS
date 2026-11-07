@@ -1,0 +1,48 @@
+import { build } from 'esbuild';
+import { chromium } from 'playwright';
+import { createServer } from 'node:http';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const output = path.resolve('../Agents/Tests/Desktop');
+await mkdir(path.resolve('../Agents/Tests/Visuals'),{recursive:true});
+await build({entryPoints:['Preview/desktopFixture.ts'],outfile:path.join(output,'fixture.cjs'),bundle:true,platform:'node',format:'cjs'});
+const { desktopFixture }=createRequire(import.meta.url)(path.join(output,'fixture.cjs'));
+const fixture=await desktopFixture();
+const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://127.0.0.1').pathname;const file={'/':'index.html','/index.html':'index.html','/app.js':'app.js','/app.css':'app.css'}[name];if(!file){res.writeHead(404).end();return;}res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(await readFile(path.join(output,'ui',file)));}catch{res.writeHead(500).end();}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({executablePath:process.env.CTT_CHROME||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true}); const errors=[]; const results=[];
+const check=(name,passed)=>{assert.ok(passed,name);results.push(name);};
+try{
+  const context=await browser.newContext({viewport:{width:1100,height:850}});
+  await context.exposeFunction('desktopTestApi',async(route,body)=>{
+    const url=new URL(route,'http://127.0.0.1');
+    if(url.pathname==='/v1/state')return fixture.service.snapshot();
+    if(url.pathname==='/v1/command')return fixture.service.command(body);
+    if(url.pathname==='/v1/day')return fixture.service.day(url.searchParams.get('date'));
+    if(url.pathname==='/v1/history')return fixture.service.history(url.searchParams.get('from'),url.searchParams.get('to'),Number(url.searchParams.get('offset')||0));
+    if(url.pathname==='/v1/refresh')return{};
+    throw new Error('unexpected test route '+route);
+  });
+  await context.addInitScript(()=>{window.__CTT_TEST_API__=(route,body)=>window.desktopTestApi(route,body);});
+  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));const url=`http://127.0.0.1:${server.address().port}`;await page.goto(url);
+  await page.getByText('阅读论文',{exact:true}).waitFor();
+  check('main opens cached tasks without cloud',await page.locator('#pool-tasks .task-row').count()===3);
+  await page.locator('#pool-tasks .task-row').first().getByRole('button',{name:'计时',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#active-title')?.textContent==='阅读论文');
+  const session=fixture.service.snapshot().active;check('main starts authoritative backend session',!!session);
+  const island=await context.newPage();await island.goto(url+'?window=island');await island.getByText('阅读论文',{exact:true}).waitFor();await island.getByRole('button',{name:'展开',exact:true}).click();await island.getByRole('button',{name:'暂停',exact:true}).click();await island.getByRole('button',{name:'继续',exact:true}).waitFor();
+  check('island pauses the same session',fixture.service.snapshot().active.id===session.id&&fixture.service.snapshot().active.runningSince===null);
+  await page.getByRole('button',{name:'刷新',exact:true}).click();await page.getByRole('button',{name:'继续',exact:true}).waitFor();check('main observes island state',await page.getByRole('button',{name:'继续',exact:true}).count()===1);
+  const task=page.locator('#pool-tasks .task-row').first(), date=await page.locator('.day:not(.muted)').nth(8).getAttribute('data-date');
+  await task.dragTo(page.locator(`[data-date="${date}"]`));await page.waitForFunction(()=>document.querySelectorAll('#pool-tasks .task-row').length===2);
+  check('drag schedules date without changing deadline',fixture.service.snapshot().tasks[0].scheduledDate===date&&fixture.service.snapshot().tasks[0].due==='2026-12-31');
+  await page.getByRole('button',{name:'撤销安排',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('#pool-tasks .task-row').length===3);check('offline undo coalesces undispatched update',fixture.service.snapshot().tasks[0].scheduledDate===null);
+  await page.getByRole('button',{name:'新建',exact:true}).click();await page.getByLabel('标题',{exact:true}).fill('<script>安全标题</script>');await page.getByRole('button',{name:'保存',exact:true}).click();await page.getByText('<script>安全标题</script>',{exact:true}).waitFor();check('untrusted titles render as text',await page.locator('script').count()===1);
+  const widget=await context.newPage();await widget.setViewportSize({width:370,height:650});await widget.goto(url+'?window=calendar');await widget.locator('.month-grid').waitFor();
+  check('widget shares month component',await widget.locator('.day').count()===42);
+  check('widget has no horizontal overflow',await widget.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.screenshot({path:path.resolve('../Agents/Tests/Visuals/desktop-main.png'),fullPage:true});await widget.screenshot({path:path.resolve('../Agents/Tests/Visuals/desktop-calendar.png'),fullPage:true});await island.screenshot({path:path.resolve('../Agents/Tests/Visuals/desktop-island.png'),fullPage:true});
+  check('no browser exceptions',errors.length===0);
+  await writeFile(path.join(output,'ui-test-results.json'),JSON.stringify({passed:results.length,results,errors},null,2));console.log(`Desktop UI: ${results.length} scenarios passed`);
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));await fixture.dispose();}

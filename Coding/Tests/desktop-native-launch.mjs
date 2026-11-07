@@ -1,0 +1,13 @@
+import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { build } from 'esbuild';
+const out=path.resolve('../Agents/Tests/Desktop');
+await build({entryPoints:['Preview/desktopFixture.ts'],outfile:path.join(out,'fixture.cjs'),bundle:true,platform:'node',format:'cjs'});
+const {desktopFixture}=createRequire(import.meta.url)(path.join(out,'fixture.cjs'));
+const fixture=await desktopFixture();await fixture.service.close();
+const root=path.dirname(fixture.store.file),resources=path.join(out,'resources');
+const child=spawn(path.join(out,'target/release/calendar-task-timer-desktop.exe'),[],{windowsHide:true,detached:true,stdio:'ignore',env:{...process.env,CTT_DESKTOP_DATA:root,CTT_DESKTOP_RESOURCES:resources,CTT_DESKTOP_OFFLINE:'1',CTT_TEST_ALL_WINDOWS:'1'}});child.unref();
+await fs.writeFile(path.join(out,'native-test-profile.json'),JSON.stringify({root,pid:child.pid}));
+console.log('Native desktop launched with isolated offline sample data. PID '+child.pid);

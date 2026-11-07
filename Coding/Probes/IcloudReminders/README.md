@@ -1,8 +1,10 @@
 # iCloud 提醒事项最小探针
 
-仅验证真正的 Apple 提醒事项，不用日历事件代替待办。2026-10-31 目标已更新为统一 iCloud 业务数据；现有本地待办保留作接入前兼容，不将其宣称为云同步。需求与实施顺序见[产品需求](../../../Notes/1-产品需求.md)。
+2026-11-07 定位：本目录保留为 Windows 提醒事项通道的专用验证与维护工具，供未来桌面宿主迁移时参考；它不是 OB 按钮接口，也不是 Mac 运行方案。Mac 轻量工具只在结束后写入系统 iCloud 日历。当前各端分工见[产品需求](../../../Notes/1-产品需求.md)，历史实测见[归档日志](../../../Notes/Archive/2026-11-07-OB完整工作台/开发日志-截至0.6.1.md)。
 
-候选源码：`timlaing/pyicloud`，固定提交 `af5246511c729eee4d5a95671135ad75fdd77b22`。本机解压源码和独立 Python 3.13 环境在根目录 `Results/Probes/IcloudReminders`，依赖版本见 `requirements.lock.txt`。这是独立探针，不是产品安装包，不接入现有插件。
+仅验证真正的 Apple 提醒事项，不用日历事件代替待办。现有 Markdown 待办仅作迁移兼容，不能宣称已经云同步。
+
+候选源码：`timlaing/pyicloud`，固定提交 `af5246511c729eee4d5a95671135ad75fdd77b22`。本机解压源码和独立 Python 3.13 环境在根目录 `Results/Probes/IcloudReminders`，依赖版本见 `requirements.lock.txt`。这是独立探针，不是产品安装包；正式插件已有单独的 Provider／Runtime，按钮不直接调用探针。
 
 首次克隆后，先安装 Python 3.13 和 PowerShell 7，在项目根目录运行 `pwsh -NoProfile -File .\Coding\Probes\IcloudReminders\Setup.ps1`。脚本下载固定提交并核对 SHA-256、建立隔离环境、按锁文件安装依赖，只执行无账户预检。已有本机会话保留，不随整合删除。探针环境与会话不进入 Git 或插件安装包。
 
@@ -41,7 +43,7 @@ pwsh -NoProfile -File .\Coding\Probes\IcloudReminders\Run.ps1 -Browser -Resume
 .\Results\Probes\IcloudReminders\.venv\Scripts\python.exe -m unittest discover -s .\Coding\Probes\IcloudReminders -p test_*.py -v
 ```
 
-预检不会访问账户。验证标准、历史实测和剩余项统一见[开发日志](../../../Notes/开发日志.md)，脱敏运行结果保留在 Results。本轮日志合并没有执行上述命令或触发云端操作；后续开发和验证将新结果插入日志最前。
+预检不会访问账户。历史实测见[归档日志](../../../Notes/Archive/2026-11-07-OB完整工作台/开发日志-截至0.6.1.md)，当前待办见[开发日志](../../../Notes/开发日志.md)，脱敏运行结果保留在 Results。本轮日志合并没有执行上述命令或触发云端操作；后续开发和验证将新结果插入日志最前。
 
 ## 受控异常与真实外部修改
 

@@ -134,6 +134,6 @@ window.addEventListener("beforeunload", () => worker?.stop());
 if (new URLSearchParams(location.search).has("diary")) { document.querySelector<HTMLElement>("#app")!.style.display = "none"; (window as any).__diaryPreview = diaryFixture(); }
 if (new URLSearchParams(location.search).has("components")&&!new URLSearchParams(location.search).has("reminders")) (window as any).__preview.native = componentsFixture(timerApi!, {
   "research.md": taskRef(tasks.find(t => t.id === "t1")!), "reading.md": taskRef(tasks.find(t => t.id === "t2")!)
-});
+},new URLSearchParams(location.search).has("desktopWake"));
 
 if(new URLSearchParams(location.search).has("reminders")){ui.destroy();(window as any).__remindersPreview=reminderFixture(mountTimerView(document.querySelector<HTMLElement>("#app")!));}
