@@ -9,6 +9,7 @@
     "desktop:release": "pwsh -NoProfile -File Build/desktop-release.ps1",
     "test:desktop-ui": "npm run desktop:build && node Tests/desktop-ui.mjs",
     "test:desktop-smoke": "npm run desktop:build && node Tests/desktop-smoke.mjs",
+    "test:desktop-paths": "node Tests/desktop-paths.mjs",
     "check": "tsc --noEmit",
     "build": "node Build/build.mjs",
     "release": "pwsh -NoProfile -File Build/release.ps1",

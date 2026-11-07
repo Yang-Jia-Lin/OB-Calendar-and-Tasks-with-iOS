@@ -6,13 +6,14 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { build } from 'esbuild';
-const out=path.resolve('../Agents/Tests/Desktop'),resources=path.join(out,'resources');
+const out=path.resolve('../Agents/Tests/Desktop'),resources=process.env.CTT_SMOKE_RESOURCES?path.resolve(process.env.CTT_SMOKE_RESOURCES):path.join(out,'resources');
+const nodeOptions=JSON.parse(await fs.readFile('Clients/Desktop/native/node-options.json','utf8'));
 await build({entryPoints:['Preview/desktopFixture.ts'],outfile:path.join(out,'fixture.cjs'),bundle:true,platform:'node',format:'cjs'});
 const {desktopFixture}=createRequire(import.meta.url)(path.join(out,'fixture.cjs'));
 await build({entryPoints:['Clients/Desktop/runtime.ts'],outfile:path.join(out,'runtime-test.cjs'),bundle:true,platform:'node',format:'cjs'});
 const {BundledReminders}=createRequire(import.meta.url)(path.join(out,'runtime-test.cjs'));
 const fixture=await desktopFixture();await fixture.service.close();
-const child=spawn(path.join(resources,'runtime/node.exe'),[path.join(resources,'backend.cjs'),resources],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,CTT_DESKTOP_DATA:path.dirname(fixture.store.file),CTT_DESKTOP_OFFLINE:'1'}});
+const child=spawn(path.join(resources,'runtime/node.exe'),[...nodeOptions,path.toNamespacedPath(path.join(resources,'backend.cjs')),path.toNamespacedPath(resources)],{cwd:resources,windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,CTT_DESKTOP_DATA:path.dirname(fixture.store.file),CTT_DESKTOP_OFFLINE:'1'}});
 let stderr='';child.stderr.on('data',data=>stderr+=data);const lines=createInterface({input:child.stdout});
 const started=performance.now();
 const exited=new Promise(resolve=>child.once('exit',(code,signal)=>resolve({code,signal})));
@@ -42,7 +43,7 @@ try{
   const conflictRoot=path.join(path.dirname(fixture.store.file),'startup-conflict');await fs.mkdir(conflictRoot);
   await fs.writeFile(path.join(conflictRoot,'backend.lock'),String(process.pid));
   const conflictEnv={...process.env,CTT_DESKTOP_DATA:conflictRoot};delete conflictEnv.CTT_DESKTOP_OFFLINE;
-  const conflict=spawn(path.join(resources,'runtime/node.exe'),[path.join(resources,'backend.cjs'),resources],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:conflictEnv});
+  const conflict=spawn(path.join(resources,'runtime/node.exe'),[...nodeOptions,path.toNamespacedPath(path.join(resources,'backend.cjs')),path.toNamespacedPath(resources)],{cwd:resources,windowsHide:true,stdio:['pipe','pipe','pipe'],env:conflictEnv});
   let conflictError='';conflict.stderr.on('data',data=>conflictError+=data);conflict.stdout.resume();
   let startupTimeout;
   try{const code=await Promise.race([new Promise((resolve,reject)=>{conflict.once('exit',resolve);conflict.once('error',reject);}),new Promise((_,reject)=>{startupTimeout=setTimeout(()=>reject(new Error('Failed backend left its writer lease alive')),7000);})]);assert.equal(code,1);assert.match(conflictError,/已有.*(?:后台运行|宿主)/);}

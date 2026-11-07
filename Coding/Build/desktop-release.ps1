@@ -16,9 +16,11 @@ $checksum=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInva
 if($checksum -ne (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()){throw 'Installer copy checksum mismatch.'}
 ($checksum+'  '+$name) | Set-Content -LiteralPath (Join-Path $release 'SHA256SUMS.txt') -Encoding utf8
 @'
-# Windows 桌面 0.1.0 功能首版预览
+# Windows 桌面 0.1.1 功能首版预览
 
-安装文件：`Calendar Task Timer_0.1.0_x64-setup.exe`，Windows 11 x64 用户级安装。当前未配置发布签名，不自动安装或更新。
+安装文件：`Calendar Task Timer_0.1.1_x64-setup.exe`，Windows 11 x64 用户级安装。当前未配置发布签名，不自动安装或更新。
+
+0.1.1 修复自定义安装路径启动时 Node 报 `EISDIR ... lstat 'S:'`：原生宿主为随包后台启用保留模块路径的启动选项，避免 Windows 扩展路径被错误解析。可继续使用原安装位置；先从托盘退出旧桌面程序，再覆盖安装此版本，无需卸载或清空数据。
 
 已实现主窗口、桌面底层日历、计时灵动岛、待办拖动安排与撤销、日程／工时／生活补记、独立后台及 iCloud 适配。Node／Python／固定 SDK 随包提供，正常启动不在线安装依赖。后续版本再统一视觉和动画。
 
@@ -30,7 +32,7 @@ if($checksum -ne (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLo
 
 本机已查看主窗口与灵动岛，核对同一任务的启动／暂停同步；用户手动确认 Win+D 后日历和灵动岛可见，日历可以点击。仍需验收资源管理器重启、多屏／DPI、物理睡眠／休眠、Apple 原生往返、实际课题按钮／日记以及正式数据迁移。首次主窗口关闭采样超出内存目标，已增加隐藏 WebView 暂停与 Python 空闲退出；修正进程统计后仍需复测 350MB 目标。因此此包仍为预览。
 
-已通过 TypeScript、280 项核心／本机传输、22 项 Python 适配、10 项桌面浏览器、167 项原有 UI 回归及 10 个随包后台隔离场景；详细结果见项目 Notes/开发日志.md。最终空闲隔离样例后台操作 P95 169ms，真实业务体量尚待测量。
+0.1.1 已通过 3 个安装路径专项场景及使用实际安装资源的 10 个隔离后台场景。首版 0.1.0 验证记录为 TypeScript、280 项核心／本机传输、22 项 Python、10 项桌面浏览器、167 项原有 UI 及 10 个随包后台场景；其空闲隔离样例后台操作 P95 为 169ms。0.1.1 安装资源测试与编译并行，P95 241ms，不作为空闲性能达标。详细结果见项目 Notes/开发日志.md。
 
 数据位置：`%LOCALAPPDATA%/CalendarTaskTimer/Desktop`。已有日记和手写区保留。回退前先结束并退出桌面、核对待提交队列、备份桌面与导出数据，再恢复旧程序和旧设置；存在桌面新增业务时不直接覆盖旧文件回灌。
 

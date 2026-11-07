@@ -58,7 +58,11 @@ async fn window_action(app: tauri::AppHandle, action: String, label: String) -> 
 }
 fn start_backend(app: &tauri::AppHandle, state: Backend) -> Result<(), Box<dyn std::error::Error>> {
     let resources = if let Ok(root) = std::env::var("CTT_DESKTOP_RESOURCES") { std::path::PathBuf::from(root) } else { app.path().resource_dir()?.join("resources") };
-    let mut child = Command::new(resources.join("runtime/node.exe")).arg(resources.join("backend.cjs")).arg(&resources)
+    // Tauri may return a verbatim Windows path (\\?\...). Node 24's JS
+    // realpath walk can lstat the drive-relative root and fail with EISDIR.
+    // Keep the packaged module paths unchanged instead of canonicalizing them.
+    let node_options: Vec<String> = serde_json::from_str(include_str!("../node-options.json"))?;
+    let mut child = Command::new(resources.join("runtime/node.exe")).args(&node_options).arg(resources.join("backend.cjs")).arg(&resources)
         .creation_flags(0x08000000).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     platform::contain_child(&child)?;
     let stdout = child.stdout.take().ok_or("后台输出不可用")?; let stderr = child.stderr.take().ok_or("后台错误通道不可用")?;
