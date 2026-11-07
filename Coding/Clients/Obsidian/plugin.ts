@@ -86,6 +86,8 @@ class TimerSettings extends PluginSettingTab {
     renderCategorySettings(categoryRoot, p.taskCategories(), p.settings, next => p.saveCategoryPreferences(next));
     new Setting(root).setName("待办显示顺序").setDesc("手动模式可拖动任务左侧手柄，或用 Alt + ↑ / ↓ 排序。")
       .addDropdown(d => d.addOptions(TASK_SORT_LABELS).setValue(taskSort(p.settings.taskSort)).onChange(value => { void p.run(() => p.saveTaskSort(taskSort(value))); }));
+    new Setting(root).setName("启动时关闭反向链接和全部属性").setDesc("保留当前笔记属性，启动后关闭 Obsidian 自动补回的这两个标签；仍可通过命令手动打开。")
+      .addToggle(t => t.setValue(p.settings.closeUnusedSidebarViewsOnStartup === true).onChange(async value => { p.settings.closeUnusedSidebarViewsOnStartup = value; await p.saveSettings(); if (value) p.closeUnusedSidebarViews(); }));
     new Setting(root).setName("页面字号").setDesc("计时、待办和时间轴一起调整。")
       .addSlider(s => s.setLimits(13, 20, 1).setValue(appearance(p.settings).fontSize).setDynamicTooltip().onChange(async value => { p.settings.fontSize = value; p.render(); await p.saveSettings(); }));
     new Setting(root).setName("页面字重").addDropdown(d => d.addOptions({ "400": "常规", "500": "适中", "600": "加粗" }).setValue(String(appearance(p.settings).fontWeight)).onChange(async value => { p.settings.fontWeight = Number(value); p.render(); await p.saveSettings(); }));
@@ -110,7 +112,7 @@ class TimerSettings extends PluginSettingTab {
   }
 }
 export default class CalendarTaskTimer extends Plugin {
-  settings: Settings = { defaultCalendarId: "", tasksPath: "待办计时/待办.md", importedLegacy: false, ...DEFAULT_APPEARANCE };
+  settings: Settings = { defaultCalendarId: "", tasksPath: "待办计时/待办.md", importedLegacy: false, closeUnusedSidebarViewsOnStartup: true, ...DEFAULT_APPEARANCE };
   controller!: TimerController; bridge!: CalendarBridge; engine!:CalendarEngine; private calendarStore?:CalendarCacheFile; tasks!: MarkdownTasks; reminders!:RemindersProvider;private reminderRuntime?:ReminderRuntime;private reminderStore?:ReminderStore; dialogs!: Dialogs;
   worker?: SyncWorker;
   api!: TimerApi;
@@ -137,6 +139,7 @@ export default class CalendarTaskTimer extends Plugin {
     Object.assign(this.settings, appearance(data));
     Object.assign(this.settings, categoryPreferences(data));
     this.settings.taskSort = taskSort(data.taskSort);
+    this.settings.closeUnusedSidebarViewsOnStartup = data.closeUnusedSidebarViewsOnStartup !== false;
     this.settings.componentTaskBindings = componentTaskBindings(data.componentTaskBindings);
     this.settings.componentTaskSnapshots = componentTaskSnapshots(data.componentTaskSnapshots);
     this.settings.appPage=appPage(data.appPage);this.settings.focusPins=focusRefs(data.focusPins);this.settings.focusLimit=focusLimit(data.focusLimit);
@@ -193,7 +196,7 @@ export default class CalendarTaskTimer extends Plugin {
       if (file.path.endsWith(".components")) void this.refreshComponentButtons();
     }));
     this.registerEvent(this.app.workspace.on("layout-change", () => { void this.refreshComponentButtons(); }));
-    this.app.workspace.onLayoutReady(() => { void (async () => { try { await this.bridge.connect(false); await this.worker?.resume("auth"); } catch {} await this.refresh();void this.engine.refresh().catch(e=>this.fail(e)); if (recovered) new Notice("上次计时已恢复为暂停。"); })().catch(e => this.fail(e)); });
+    this.app.workspace.onLayoutReady(() => { this.closeUnusedSidebarViews(); void (async () => { try { await this.bridge.connect(false); await this.worker?.resume("auth"); } catch {} await this.refresh();void this.engine.refresh().catch(e=>this.fail(e)); if (recovered) new Notice("上次计时已恢复为暂停。"); })().catch(e => this.fail(e)); });
     this.registerInterval(window.setInterval(()=>{if(!this.unloaded&&navigator.onLine!==false)void this.engine.refresh().catch(e=>this.fail(e));if(this.reminders.enabled)void this.reminders.refresh();},120000));
     if(this.reminders.enabled)void this.reminders.refresh();
     const online = () => { if(this.reminders.enabled)void this.reminders.refresh();void this.engine.refresh().catch(e=>this.fail(e)); void this.worker?.resume("network").catch(e => this.fail(e)); };
@@ -268,7 +271,20 @@ export default class CalendarTaskTimer extends Plugin {
       }, execute: action => this.execute(action), refresh: () => this.refreshLocal(),
       state: () => ({ available: !this.unloaded, active: this.controller.state.active, tasks: this.items, pending: this.controller.jobs().length, sync: this.worker?.view }) });
   }
-  async openView() { let leaf = this.app.workspace.getLeavesOfType(VIEW)[0]; if (!leaf) { leaf = this.app.workspace.getLeaf("tab"); await leaf.setViewState({ type: VIEW, active: true }); } await this.app.workspace.revealLeaf(leaf); }
+  closeUnusedSidebarViews() {
+    if (!this.settings.closeUnusedSidebarViewsOnStartup) return;
+    for (const type of ["backlink", "all-properties"]) this.app.workspace.detachLeavesOfType(type);
+  }
+  async openView() {
+    await new Promise<void>(resolve => this.app.workspace.onLayoutReady(resolve));
+    let leaf: WorkspaceLeaf | null = this.app.workspace.getLeavesOfType(VIEW)[0] ?? null;
+    if (!leaf) {
+      leaf = this.app.workspace.getRightLeaf(false);
+      if (!leaf) { new Notice("无法打开右侧栏，请稍后重试。"); return; }
+      await leaf.setViewState({ type: VIEW, active: true });
+    }
+    await this.app.workspace.revealLeaf(leaf);
+  }
   reminderPreferences(){return reminderSettings(this.settings.reminders);}
   reminderCalendar(listId:string){const p=this.reminderPreferences();return p.calendarMap[listId]||this.settings.defaultCalendarId;}
   reminderCalendars(){try{return this.bridge.writableCalendars();}catch{return [];}}

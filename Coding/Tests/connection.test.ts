@@ -188,3 +188,26 @@ test("a failed task write retains its durable note identity so retry creates no 
   assert.equal((await p.startFromNote("端边云平台.md")).ok,false);const ref=p.settings.componentTaskBindings["端边云平台.md"];assert.ok(ref.id);assert.equal(h.text(),"");
   assert.equal((await p.startFromNote("端边云平台.md")).ok,true);assert.equal(prompts,1);const tasks=parseTasks(h.text(),"tasks.md");assert.equal(tasks.length,1);assert.equal(tasks[0].id,ref.id);
 });
+
+
+test("opening the timer waits for layout restoration and reuses its saved leaf", async () => {
+  const p = new PluginClass(); let ready!:()=>void; const revealed:any[]=[]; let restored=false;
+  const saved={id:"saved-right-tab"};
+  p.app={workspace:{onLayoutReady:(cb:()=>void)=>{ready=cb;},getLeavesOfType:()=>{assert.ok(restored);return [saved];},getRightLeaf:()=>{throw Error("must reuse saved view");},revealLeaf:async(leaf:any)=>{revealed.push(leaf);}}};
+  const opening=p.openView();assert.deepEqual(revealed,[]);restored=true;ready();await opening;assert.deepEqual(revealed,[saved]);
+});
+test("a missing timer opens in the existing right tab group and repeated opens reuse it", async () => {
+  const p = new PluginClass(); const leaves:any[]=[]; const splits:boolean[]=[]; const revealed:any[]=[];
+  const leaf={setViewState:async(state:any)=>{assert.equal(state.type,"calendar-task-timer-view");leaves.push(leaf);}};
+  p.app={workspace:{onLayoutReady:(cb:()=>void)=>cb(),getLeavesOfType:()=>leaves,getRightLeaf:(split:boolean)=>{splits.push(split);return leaf;},getLeaf:()=>{throw Error("must not create a main tab");},revealLeaf:async(l:any)=>{revealed.push(l);}}};
+  await p.openView();await p.openView();assert.deepEqual(splits,[false]);assert.deepEqual(revealed,[leaf,leaf]);assert.equal(leaves.length,1);
+});
+test("unavailable right sidebar never falls back to the main editor", async () => {
+  const p=new PluginClass();p.app={workspace:{onLayoutReady:(cb:()=>void)=>cb(),getLeavesOfType:()=>[],getRightLeaf:()=>null,getLeaf:()=>{throw Error("main tab fallback");},revealLeaf:()=>{throw Error("missing leaf");}}};
+  await p.openView();
+});
+test("startup cleanup can be disabled and preserves file properties and other sidebar views",()=>{
+  const p=new PluginClass();const types=["backlink","all-properties","file-properties","bookmarks","calendar-task-timer-view"];
+  p.app={workspace:{detachLeavesOfType:(type:string)=>{const i=types.indexOf(type);if(i>=0)types.splice(i,1);}}};
+  p.settings.closeUnusedSidebarViewsOnStartup=false;p.closeUnusedSidebarViews();assert.equal(types.length,5);p.settings.closeUnusedSidebarViewsOnStartup=true;p.closeUnusedSidebarViews();assert.deepEqual(types,["file-properties","bookmarks","calendar-task-timer-view"]);
+});
