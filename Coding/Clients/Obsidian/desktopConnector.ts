@@ -98,6 +98,7 @@ export class ObsidianDesktopConnector {
   private buttons?: ComponentsTimerButtons; private diary!: DiaryUpdater;
   private active = true;
   constructor(private plugin: Plugin, private settings: any) {}
+  configure(settings:{diaryFolder:string;diaryLayoutPath:string}){Object.assign(this.settings,settings);}
   async start() {
     const p = this.plugin;
     const status = p.addStatusBarItem();

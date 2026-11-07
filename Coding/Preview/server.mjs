@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-const root = path.resolve(import.meta.dirname, '../../Results/Release/Preview');
+const root = path.resolve(import.meta.dirname, '../../Results/Preview/Obsidian');
 const server = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const files = { '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/styles.css': 'styles.css' };

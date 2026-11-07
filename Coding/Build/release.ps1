@@ -10,7 +10,7 @@ $manifest = Get-Content -Raw -LiteralPath (Join-Path $coding 'Clients\Obsidian\m
 if ($manifest.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid plugin version.' }
 $artifact = "V{0}_calendar-task-timer" -f $manifest.version
 if ($Channel) { $artifact += "_$Channel" }
-$release = Join-Path $workspace 'Results\Release'
+$release = Join-Path $workspace 'Results\Obsidian'
 $plugin = Join-Path $release $artifact
 $previousChannel = $env:CTT_RELEASE_CHANNEL
 Push-Location $coding

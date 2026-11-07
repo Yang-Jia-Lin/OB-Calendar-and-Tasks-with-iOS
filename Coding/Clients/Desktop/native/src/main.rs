@@ -72,7 +72,7 @@ fn start_backend(app: &tauri::AppHandle, state: Backend) -> Result<(), Box<dyn s
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if let Ok(data) = serde_json::from_str::<Value>(&line) {
                 if data["event"] == "ready" { if let (Some(port), Some(token)) = (data["port"].as_u64(), data["token"].as_str()) { *reader_state.endpoint.lock().unwrap() = Some(Endpoint { port: port as u16, token: token.into() }); let _ = handle.emit("backend-ready", true); } }
-                if data["event"] == "state" { let _ = handle.emit("desktop-state", &data["data"]); if let Some(tray)=handle.tray_by_id("timer-tray") { let active=&data["data"]["active"]; let title=active["title"].as_str().unwrap_or("当前没有计时"); let phase=if active.is_null(){"待机"}else if active["runningSince"].is_null(){"暂停"}else{"计时中"};let _=tray.set_tooltip(Some(format!("{} · {}",phase,title.chars().take(60).collect::<String>()))); } }
+                if data["event"] == "state" { for window in handle.webview_windows().values(){if window.is_visible().unwrap_or(false){let _=window.emit("desktop-state",&data["data"]);}} if let Some(tray)=handle.tray_by_id("timer-tray") { let active=&data["data"]["active"]; let title=active["title"].as_str().unwrap_or("当前没有计时"); let phase=if active.is_null(){"待机"}else if active["runningSince"].is_null(){"暂停"}else{"计时中"};let _=tray.set_tooltip(Some(format!("{} · {}",phase,title.chars().take(60).collect::<String>()))); } }
             }
         }
         *reader_state.endpoint.lock().unwrap() = None;

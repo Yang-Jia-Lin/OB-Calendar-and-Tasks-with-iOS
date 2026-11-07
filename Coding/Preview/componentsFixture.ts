@@ -3,7 +3,7 @@ import { toggleNoteTimer } from "../Clients/Obsidian/components";
 import type { TaskRef, TimerApi } from "../Clients/Obsidian/api";
 
 /** Opt-in native DOM fixture, based on the inspected Components 3.1.260826 structure. */
-export function componentsFixture(api: TimerApi, bindings: Record<string, TaskRef>, canWake=false) {
+export function componentsFixture(api: Pick<TimerApi,"getTimerState"|"subscribeTimer"|"getState"> & {start(task:TaskRef,context?:unknown):Promise<any>;finish(id:string,complete?:boolean):Promise<any>}, bindings: Record<string, TaskRef>, canWake=false) {
   const style = document.createElement("style");
   style.textContent = `
     #ctt-native-fixture { position:fixed;top:65px;left:20px;width:900px;max-width:calc(100vw - 40px);z-index:30;background:var(--background-primary);border:1px solid var(--background-modifier-border);padding:12px;box-shadow:0 8px 30px #0002; }

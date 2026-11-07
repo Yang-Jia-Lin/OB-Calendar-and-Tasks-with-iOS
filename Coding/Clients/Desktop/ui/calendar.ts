@@ -3,9 +3,9 @@ import { dayKey } from "../../../Shared/time";
 import type { Task } from "../../../Shared/contracts";
 /** Shared by main and desktop widget. It owns display state, never timer/sync state. */
 export class MonthCalendar {
-  private month: Date; private tasks: Task[] = [];
+  private month: Date; private tasks: Task[] = [];private signature="";
   constructor(private root: HTMLElement, private selected: string, private choose: (date: string) => void, private drop: (taskId: string, date: string) => void) { this.month = new Date(selected + "T12:00:00"); }
-  update(tasks: Task[], selected = this.selected) { this.tasks = tasks; this.selected = selected; this.render(); }
+  update(tasks: Task[], selected = this.selected) { this.tasks = tasks; this.selected = selected;const signature=JSON.stringify([this.month.getFullYear(),this.month.getMonth(),selected,dayKey(),tasks.filter(t=>!t.completed&&validDay(t.scheduledDate)).map(t=>t.scheduledDate)]);if(signature===this.signature)return;this.signature=signature;this.render(); }
   private render() {
     this.root.replaceChildren(); const head = document.createElement("div"); head.className = "month-head";
     const previous = document.createElement("button"), next = document.createElement("button"), today = document.createElement("button"), label = document.createElement("strong");

@@ -28,12 +28,14 @@ try{
   await context.addInitScript(()=>{window.__CTT_TEST_API__=(route,body)=>window.desktopTestApi(route,body);});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));const url=`http://127.0.0.1:${server.address().port}`;await page.goto(url);
   await page.getByText('阅读论文',{exact:true}).waitFor();
+  await page.evaluate(()=>{window.firstCalendarDay=document.querySelector('.day');});
   check('main opens cached tasks without cloud',await page.locator('#pool-tasks .task-row').count()===3);
   await page.locator('#pool-tasks .task-row').first().getByRole('button',{name:'计时',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#active-title')?.textContent==='阅读论文');
   const session=fixture.service.snapshot().active;check('main starts authoritative backend session',!!session);
   const island=await context.newPage();await island.goto(url+'?window=island');await island.getByText('阅读论文',{exact:true}).waitFor();await island.getByRole('button',{name:'展开',exact:true}).click();await island.getByRole('button',{name:'暂停',exact:true}).click();await island.getByRole('button',{name:'继续',exact:true}).waitFor();
   check('island pauses the same session',fixture.service.snapshot().active.id===session.id&&fixture.service.snapshot().active.runningSince===null);
   await page.getByRole('button',{name:'刷新',exact:true}).click();await page.getByRole('button',{name:'继续',exact:true}).waitFor();check('main observes island state',await page.getByRole('button',{name:'继续',exact:true}).count()===1);
+  check('timer updates retain calendar DOM',await page.evaluate(()=>window.firstCalendarDay===document.querySelector('.day')));
   const task=page.locator('#pool-tasks .task-row').first(), date=await page.locator('.day:not(.muted)').nth(8).getAttribute('data-date');
   await task.dragTo(page.locator(`[data-date="${date}"]`));await page.waitForFunction(()=>document.querySelectorAll('#pool-tasks .task-row').length===2);
   check('drag schedules date without changing deadline',fixture.service.snapshot().tasks[0].scheduledDate===date&&fixture.service.snapshot().tasks[0].due==='2026-12-31');
@@ -42,6 +44,8 @@ try{
   const widget=await context.newPage();await widget.setViewportSize({width:370,height:650});await widget.goto(url+'?window=calendar');await widget.locator('.month-grid').waitFor();
   check('widget shares month component',await widget.locator('.day').count()===42);
   check('widget has no horizontal overflow',await widget.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await fixture.store.change(data=>({settings:{...data.settings,migratedFrom:'sample-migration'}}));await page.getByRole('button',{name:'刷新',exact:true}).click();await page.getByRole('button',{name:'设置',exact:true}).click();
+  check('completed setup removes verification and migration controls',await page.getByRole('button',{name:'核对原生往返',exact:true}).count()===0&&await page.getByRole('button',{name:'预览并导入交接快照',exact:true}).count()===0);
   await page.screenshot({path:path.resolve('../Agents/Tests/Visuals/desktop-main.png'),fullPage:true});await widget.screenshot({path:path.resolve('../Agents/Tests/Visuals/desktop-calendar.png'),fullPage:true});await island.screenshot({path:path.resolve('../Agents/Tests/Visuals/desktop-island.png'),fullPage:true});
   check('no browser exceptions',errors.length===0);
   await writeFile(path.join(output,'ui-test-results.json'),JSON.stringify({passed:results.length,results,errors},null,2));console.log(`Desktop UI: ${results.length} scenarios passed`);

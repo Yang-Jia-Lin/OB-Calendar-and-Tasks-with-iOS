@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { blankJournal, validateJournal } from "../../Shared/timer";
 import { type Journal, type Task } from "../../Shared/contracts";
-import type { CategoryPreferences } from "./categories";
+import type { CategoryPreferences } from "../../Shared/categories";
 import type { TaskSort } from "./taskOrder";
 import type { TaskRef } from "./api";
 import type { CalendarSource, CalendarPreferences } from "../../Providers/Calendar/config";

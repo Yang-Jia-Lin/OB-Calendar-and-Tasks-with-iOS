@@ -3,7 +3,7 @@ import type { Task, WorkRecord, TimelineRow } from "../../../Shared/contracts";
 import { elapsed, secondsText, dayKey } from "../../../Shared/time";
 import { reminderMetadata } from "../../../Shared/scheduling";
 import { MonthCalendar } from "./calendar";
-import { orderedCategories } from "../../Obsidian/categories";
+import { orderedCategories } from "../../../Shared/categories";
 declare global { interface Window {
   __TAURI__?: { core: { invoke<T>(command: string, args?: object): Promise<T> }; event: { listen<T>(event: string, fn: (event: { payload: T }) => void): Promise<() => void> } };
   __CTT_TEST_API__?: (route: string, body?: unknown) => Promise<any>;
@@ -11,7 +11,7 @@ declare global { interface Window {
 const app = document.querySelector<HTMLDivElement>("#app")!, notice = document.querySelector<HTMLDivElement>("#notice")!;
 const mode = new URLSearchParams(location.search).get("window") || "main";
 let state: DesktopSnapshot | undefined, selected = dayKey(), page = "tasks", filter = "open", query = "", listFilter = "", taskPage = 0, lastUndo = "", day: DiarySnapshot = { calendars: [], rows: [] }, requestGeneration = 0;
-let calendar: MonthCalendar | undefined, daySignature = "", taskSignature = "", islandExpanded = false, disconnected = false;
+let calendar: MonthCalendar | undefined, daySignature = "", taskSignature = "", settingsSignature="", islandExpanded = false, disconnected = false;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "", className = "") => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
 const button = (text: string, run: () => unknown, className = "") => { const node = el("button", text, className); node.type = "button"; node.onclick = () => { void act(run); }; return node; };
 const calendarChoices=()=>state?orderedCategories(state.settings.calendarSources.filter(s=>s.type==="caldav"&&!s.readOnly&&s.enabled!==false),state.settings,true):[];
@@ -41,6 +41,8 @@ function timerText() {
   if (clock) clock.textContent = disconnected ? "连接断开" : active ? secondsText(elapsed(active)) : "00:00:00";
 }
 function renderTimer(root: HTMLElement) {
+  const signature=JSON.stringify([state?.active?.id,state?.active?.title,state?.active?.runningSince==null,islandExpanded,disconnected]);
+  if(root.dataset.signature===signature){timerText();return;}root.dataset.signature=signature;
   root.replaceChildren(); const text = el("div", "", "timer-copy"); text.append(el("strong", "", "active-title")); text.firstElementChild!.id = "active-title";
   const clock = el("span", "", "clock"); clock.id = "clock"; text.append(clock); root.append(text);
   const active = state?.active;
@@ -141,7 +143,7 @@ function render() {
   const date = document.querySelector("#selected-date"); if (date) date.textContent = selected;
   const lists = document.querySelector<HTMLSelectElement>("#list-filter"); if (lists && lists.dataset.signature !== JSON.stringify(state.lists)) { lists.dataset.signature = JSON.stringify(state.lists); lists.replaceChildren(); const all = el("option", "全部分类"); all.value = ""; lists.append(all); for (const list of state.lists) { const o = el("option", list.name); o.value = list.id; lists.append(o); } lists.value = listFilter; }
   calendar?.update(state.tasks, selected); renderTasks();
-  if (mode === "main" && page === "settings") { const main = app.querySelector("main")!; main.replaceChildren(); renderSettings(main); }
+  if (mode === "main" && page === "settings" && settingsSignature!==JSON.stringify([state.settings,state.pending])) { const main = app.querySelector("main")!; main.replaceChildren(); renderSettings(main); }
   const signature = selected + ":" + state.revision; if (calendar && signature !== daySignature) { daySignature = signature; void readDay(); }
   if (state.recovery) show(state.recovery);
 }
@@ -193,6 +195,7 @@ function recordForm(record: WorkRecord) {
   f.submit(() => command({ action: "record.edit", record, title: title.value, calendarId: calendarId.value, segments: parts.map(p => ({ ...p.part, start: +new Date(p.start.value), end: +new Date(p.end.value) })) }));
 }
 function renderSettings(root: HTMLElement) {
+  settingsSignature=JSON.stringify([state!.settings,state!.pending]);
   root.className = "settings"; root.append(el("h2", "账户与同步"));
   if(!state!.settings.ownershipAcknowledged&&!state!.isolated){root.append(el("p","已有 OB 用户先退出桌面，加载 0.7.0 旧模式并执行交接，再打开桌面导入；在交接前不会启动第二套计时或提交业务操作。"),button("全新使用：启用独立模式",()=>{const f=form("仅供没有旧计时／同步宿主的新用户"),label=el("label"),check=el("input");check.type="checkbox";label.append(check,el("span","我已停止旧计时器与同步，并确认不需要导入原 OB 数据"));f.fields.append(label);f.submit(()=>{if(!check.checked)throw new Error("请先停止旧写入者；已有数据请使用交接导入。");return command({action:"ownership.activate",stoppedOldWriters:true});});}));}
   root.append(button("连接提醒事项", () => { const f = form("iCloud 提醒事项登录"), username = f.field("Apple 账户"), password = f.field("账户密码", "", "password"), region = f.select("账户区域", [{ id: "china", name: "中国大陆" }, { id: "global", name: "其他地区" }]); f.submit(async () => { const result = await api("/v1/auth", { username: username.value, password: password.value, china: region.value === "china" }); password.value = ""; if (result.needsCode) { const code = form("双重认证"), input = code.field("验证码"); code.submit(async () => { await api("/v1/auth", { code: input.value }); await load(); }); } else await load(); }); }));
@@ -200,9 +203,9 @@ function renderSettings(root: HTMLElement) {
   root.append(button("管理日历来源",()=>{const f=form("日历来源（移除配置不删除云端数据）");let sources=structuredClone(state!.settings.calendarSources);const rows=el("div");f.fields.append(rows);const draw=()=>{rows.replaceChildren();for(const source of sources){const line=el("div","","tools"),check=el("input");check.type="checkbox";check.checked=source.enabled!==false;check.onchange=()=>source.enabled=check.checked;line.append(check,el("span",source.name),button("移除此连接",()=>{sources=sources.filter(s=>s.id!==source.id);draw();}));rows.append(line);}};draw();f.submit(()=>command({action:"calendar.configure",sources}));}));
   root.append(button("分类显示与顺序",()=>{const f=form("分类显示与顺序"),sources=state!.settings.calendarSources;let order=orderedCategories(sources,state!.settings).map(s=>s.id),hidden=new Set(state!.settings.hiddenCategoryIds||[]);const rows=el("div");f.fields.append(rows);const draw=()=>{rows.replaceChildren();order.forEach((id,index)=>{const line=el("div","","tools"),check=el("input");check.type="checkbox";check.checked=!hidden.has(id);check.onchange=()=>{check.checked?hidden.delete(id):hidden.add(id);};const move=(delta:number)=>{const other=index+delta;if(other<0||other>=order.length)return;[order[index],order[other]]=[order[other],order[index]];draw();};line.append(check,el("span",sources.find(s=>s.id===id)!.name),button("上移",()=>move(-1)),button("下移",()=>move(1)));rows.append(line);});};draw();f.submit(()=>command({action:"categories.save",order,hidden:[...hidden]}));}));
   root.append(button("工时日历与分类映射", () => { const f = form("工时日历"), sources = state!.settings.calendarSources.filter(s => s.type === "caldav" && !s.readOnly), defaultCalendar = f.select("默认工时日历", sources, state!.settings.defaultCalendarId), mappings = state!.lists.map(list => ({ id: list.id, input: f.select(list.name, sources, state!.settings.reminders.calendarMap[list.id] || state!.settings.defaultCalendarId) })); f.submit(() => command({ action: "settings.save", defaultCalendarId: defaultCalendar.value, calendarMap: Object.fromEntries(mappings.map(m => [m.id, m.input.value])) })); }));
-  root.append(el("h3", "安排日期验证"), el("p", "先创建专用样例，在 Apple 原生提醒事项中按说明编辑，再核对。应用信息区验证通过后才用于真实任务。"), button("创建验证样例", async () => { show((await api("/v1/metadata-probe", {})).message); }), button("核对原生往返", async () => { show((await api("/v1/metadata-probe", { check: true })).message); await load(); }));
-  root.append(el("h3", "待提交操作")); for (const pending of state?.pending || []) root.append(el("p", pending.error || "等待提交"), button("重试", async () => { await api("/v1/retry", { key: pending.key }); await load(); }));
-  root.append(el("h3", "OB 数据交接"), el("p", "先在新版 OB 插件中执行“准备交接到 Windows 桌面版”，结束计时并冻结旧写入者，再导入生成的目录。桌面已有业务数据时禁止覆盖。"), button("预览并导入交接快照", () => { const f = form("导入 OB 交接快照"), directory = f.field("交接目录（绝对路径）"); let digest = "";
+  if(!state!.settings.metadataVerified)root.append(el("h3", "首次启用安排日期"), el("p", "在 Apple 原生提醒事项编辑专用样例并核对一次，完成后此入口自动收起。"), button("创建验证样例", async () => { show((await api("/v1/metadata-probe", {})).message); }), button("核对原生往返", async () => { show((await api("/v1/metadata-probe", { check: true })).message); await load(); }));
+  if(state!.pending.length)root.append(el("h3", "待提交操作")); for (const pending of state?.pending || []) root.append(el("p", pending.error || "等待提交"), button("重试", async () => { await api("/v1/retry", { key: pending.key }); await load(); }));
+  if(!state!.settings.migratedFrom)root.append(el("h3", "导入已有 OB 数据"), el("p", "仅用于尚未迁移的旧版数据。用保留的 OB 0.7.0 完成交接，再导入；现有桌面业务不会被覆盖。"), button("预览并导入交接快照", () => { const f = form("导入 OB 交接快照"), directory = f.field("交接目录（绝对路径）"); let digest = "";
     f.actions.append(button("预览", async () => { const result = await api("/v1/migration-preview", { directory: directory.value }); digest = result.digest; const summary = el("p", `${result.tasks} 个原生任务，${result.legacyTasks} 个旧本地任务，${result.records} 条工时，${result.bindings} 个课题绑定，${result.pending} 项待确认操作。`); f.fields.append(summary); directory.readOnly = true; }));
     f.submit(async () => { if (!digest) throw new Error("请先预览并核对导入内容。"); await api("/v1/migration-import", { directory: directory.value, digest }); await load(); }); }));
   root.append(el("p", "关闭主窗口后继续在托盘运行；明确退出会保存为暂停。睡眠与休眠继续计时。", "muted"));

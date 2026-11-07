@@ -1,9 +1,9 @@
 {
   "id": "calendar-task-timer",
   "name": "日历与待办计时",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "minAppVersion": "1.12.7",
-  "description": "Windows 桌面计时连接、课题按钮与日记快照；保留受控交接前的完整插件模式。",
+  "description": "本机桌面计时连接、课题按钮、日记更新与侧栏自动整理。",
   "author": "Personal tools",
   "isDesktopOnly": true
 }
