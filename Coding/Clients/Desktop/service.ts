@@ -104,6 +104,7 @@ export class DesktopService {
     const records = this.controller.state.records.filter(r => r.endedAt >= a && r.startedAt < +b).reverse();
     return { total: records.length, records: clone(records.slice(offset, offset + 100)) };
   }
+  record(id:string){const record=this.controller.state.records.find(r=>r.id===id);if(!record)throw new Error("计时记录不存在或已变化。");return clone(record);}
   async refresh() {
     if(this.isolated){this.changed();return;}
     if (this.refreshFlight) return this.refreshFlight;
@@ -163,7 +164,7 @@ export class DesktopService {
           }
           case "task.update": {
             const allowed: Partial<Task> = {};
-            for (const key of ["title", "due", "dueInstant", "dueZone", "description", "repeat", "completed"] as const) if (Object.hasOwn(c.patch, key)) (allowed as any)[key] = c.patch[key];
+            for (const key of ["title", "due", "dueInstant", "dueZone", "description", "repeat", "completed", "listId"] as const) if (Object.hasOwn(c.patch, key)) (allowed as any)[key] = c.patch[key];
             if (allowed.due && !validDay(allowed.due)) throw new Error("截止日期无效。");
             if (Object.hasOwn(allowed, "description")) allowed.description = withReminderMetadata(allowed.description || "", reminderMetadata(c.task.description).metadata);
             await this.reminders.update(c.task, allowed); break;
@@ -174,7 +175,7 @@ export class DesktopService {
             await this.reminders.create(task.title, c.listId, { due: task.due, description: task.description || "" }, c.task, "Reminder/" + c.requestId.toUpperCase());
             await this.store.update({ reminders: this.reminders.data }, "reminders"); break;
           }
-          case "task.delete": await this.reminders.remove(c.task); break;
+          case "task.delete": if(this.controller.state.active&&refKey(this.controller.state.active.task)===refKey(c.task))throw new Error("请先结束这项任务的计时，再删除待办。");await this.reminders.remove(c.task); break;
           case "task.schedule": {
             this.requireMetadata();
             if (c.date !== null && !validDay(c.date)) throw new Error("安排日期无效。");

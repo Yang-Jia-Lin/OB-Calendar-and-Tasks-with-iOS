@@ -249,7 +249,7 @@ class Adapter:
             before=op.get('before') or op['task'];r=service.get(op['task']['id']);self.read_rules(service,[r]);self.assert_ordinary(service,r,True)
             current=self.item(r)
             if current['revision']!=before.get('revision') or current.get('repeat')!=before.get('repeat'):raise AdapterError('提醒事项或重复规则已变化，发生冲突，请刷新核对。')
-            if r.deleted or r.completed:raise AdapterError('周期任务已删除或已完成，请刷新核对。')
+            if r.deleted or r.completed and (op.get('cycle') or 'repeat' in (op.get('patch') or {})):raise AdapterError('周期任务已删除或已完成，请刷新核对。')
             operations=[];captured=[]
             class Captured(Exception):pass
             def capture(*,operations: list,**kwargs):
@@ -276,6 +276,11 @@ class Adapter:
             if any(k in patch_data for k in ('due','dueInstant','dueZone')):
                 for k,v in due_fields({**current,**patch_data}).items():setattr(r,k,v)
             main=prepare(lambda:service.update(r))[0]
+            if 'listId' in patch_data:
+                main['record']['fields']['List']={'type':'REFERENCE','value':{'recordName':patch_data['listId'],'action':'VALIDATE'}}
+                main['record']['parent']={'recordName':patch_data['listId']}
+                token=main['record']['fields']['ResolutionTokenMap']
+                token['value']=_merge_resolution_token_map(token['value'],['list','lastModifiedDate'])
             if 'repeat' in patch_data:
                 repeat=patch_data['repeat'];old=current.get('repeat')
                 if repeat:
@@ -312,7 +317,8 @@ class Adapter:
                     actual=record.fields[k].model_dump(mode='json').get('value') if k in record.fields else None;expected=v.get('value')
                     if v.get('type')=='REFERENCE' and actual and expected:return actual.get('recordName')==expected.get('recordName')
                     return actual==expected
-                return record is not None and all(equivalent(k,v) for k,v in operation['record']['fields'].items() if k not in ('ResolutionTokenMap',))
+                parent=operation['record'].get('parent')
+                return record is not None and (not parent or getattr(getattr(record,'parent',None),'recordName',None)==parent['recordName']) and all(equivalent(k,v) for k,v in operation['record']['fields'].items() if k not in ('ResolutionTokenMap',))
             if not all(matches(x) for x in payload['operations']):
                 result=raw.modify(operations=[CKModifyOperation.model_validate(x) for x in payload['operations']],zone_id=_REMINDERS_ZONE_REQ,atomic=True)
                 _assert_modify_success(result,'Recurring reminder transaction')
@@ -323,7 +329,7 @@ class Adapter:
 
     def mutate(self,args,delete=False):
         service=self.service(args.get("accountId"));op=args["op"];before=op.get("before") or op["task"];ident=op["task"]["id"]
-        if not delete and (op.get('cycle') or 'repeat' in (op.get('patch') or {})):return self.transaction(service,op)
+        if not delete and (op.get('cycle') or any(k in (op.get('patch') or {}) for k in ('repeat','listId'))):return self.transaction(service,op)
         try:r=service.get(ident)
         except Exception as exc:
             if delete and is_missing(exc):return {"deleted":True}

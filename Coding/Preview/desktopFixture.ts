@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import { DesktopStore } from "../Clients/Desktop/store";
 import { DesktopService } from "../Clients/Desktop/service";
 import type { Task } from "../Shared/contracts";
+export {eventForSegment} from "../Shared/time";
+export {withReminderMetadata} from "../Shared/scheduling";
 export async function desktopFixture() {
   const root = await fs.mkdtemp(path.resolve("../Agents/Tests/desktop-ui-")), store = new DesktopStore(path.join(root, "state.json"));
   const source = { id: "cal", name: "科研工时", type: "caldav" as const, url: "https://example.test/cal/", username: "sample", secretKey: "key" };

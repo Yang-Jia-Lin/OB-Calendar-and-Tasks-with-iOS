@@ -27,6 +27,24 @@ class AdapterTests(unittest.TestCase):
         self.before=self.adapter.item(self.item)
     def tearDown(self):helper.ROOT=self.old_root;self.temp.cleanup()
     def args(self,patch_data):return {"op":{"task":self.before,"before":self.before,"patch":patch_data}}
+    def test_category_move_preserves_identity_and_reconciles_lost_response(self):
+        from pyicloud.common.cloudkit.models import CKModifyOperation,CKRecord
+        remote=CKRecord(recordName=self.item.id,recordType="Reminder",recordChangeTag="v1",parent={"recordName":"list"},fields={"List":{"type":"REFERENCE","value":{"recordName":"list","action":"VALIDATE"}}})
+        sent=[];lost=[True]
+        def send(*,operations,**kwargs):
+            wire=operations[0].model_dump(mode="json",exclude_none=False);sent.append(wire)
+            self.assertTrue(kwargs['atomic']);self.assertEqual(wire['record']['recordName'],self.item.id)
+            self.item.list_id=wire['record']['fields']['List']['value']['recordName'];self.item.record_change_tag="v2"
+            updated=CKRecord(recordName=self.item.id,recordType="Reminder",recordChangeTag="v2",parent=wire['record']['parent'],fields=wire['record']['fields']);remote.fields=updated.fields;remote.parent=updated.parent
+            if lost[0]:lost[0]=False;raise OSError("response lost")
+            return SimpleNamespace(records=[])
+        raw=SimpleNamespace(modify=Mock(side_effect=send),lookup=Mock(side_effect=lambda **kwargs:SimpleNamespace(records=[remote])))
+        self.service._writes._get_raw.return_value=raw
+        self.service.update.side_effect=lambda r:raw.modify(operations=[CKModifyOperation(operationType="update",record={"recordName":r.id,"recordType":"Reminder","recordChangeTag":r.record_change_tag,"fields":{"ResolutionTokenMap":{"type":"STRING","value":"{}"}}})])
+        args=self.args({"listId":"other"});args['op']['id']='list-move'
+        with self.assertRaises(OSError):self.adapter.mutate(args)
+        result=self.adapter.mutate(args)
+        self.assertEqual(len(sent),1);self.assertEqual(result['task']['id'],self.before['id']);self.assertEqual(result['task']['listId'],'other');self.assertEqual(self.item.unknown,'keep')
     def test_unknown_fields_and_alarm_are_preserved_on_title_edit(self):
         result=self.adapter.mutate(self.args({"title":"Changed"}))
         self.assertEqual(result["task"]["title"],"Changed");self.assertEqual(self.item.unknown,"keep");self.assertEqual(self.item.alarm_ids,["original-alarm"]);self.assertEqual(self.item.desc,"User notes")

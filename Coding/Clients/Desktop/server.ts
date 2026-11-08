@@ -21,6 +21,7 @@ export async function startServer(service: DesktopService, discoveryFile: string
     const url = new URL(request.url || "/", "http://127.0.0.1");
     if (request.method === "GET") {
       if (url.pathname === "/v1/state") { send(response, 200, service.snapshot()); return; }
+      if (url.pathname === "/v1/record") { send(response,200,service.record(url.searchParams.get("id")||""));return; }
       if (url.pathname === "/v1/day") { send(response, 200, service.day(url.searchParams.get("date") || "")); return; }
       if (url.pathname === "/v1/history") { send(response, 200, service.history(url.searchParams.get("from") || "", url.searchParams.get("to") || "", Number(url.searchParams.get("offset") || 0))); return; }
       if (url.pathname === "/v1/events") {

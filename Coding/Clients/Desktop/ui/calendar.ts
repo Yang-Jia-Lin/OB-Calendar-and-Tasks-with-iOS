@@ -1,11 +1,11 @@
-import { validDay } from "../../../Shared/scheduling";
+import {taskDisplayDate} from "../../../Shared/taskDates";
 import { dayKey } from "../../../Shared/time";
 import type { Task } from "../../../Shared/contracts";
 /** Shared by main and desktop widget. It owns display state, never timer/sync state. */
 export class MonthCalendar {
   private month: Date; private tasks: Task[] = [];private signature="";
   constructor(private root: HTMLElement, private selected: string, private choose: (date: string) => void, private drop: (taskId: string, date: string) => void) { this.month = new Date(selected + "T12:00:00"); }
-  update(tasks: Task[], selected = this.selected) { this.tasks = tasks; this.selected = selected;const signature=JSON.stringify([this.month.getFullYear(),this.month.getMonth(),selected,dayKey(),tasks.filter(t=>!t.completed&&validDay(t.scheduledDate)).map(t=>t.scheduledDate)]);if(signature===this.signature)return;this.signature=signature;this.render(); }
+  update(tasks: Task[], selected = this.selected) { this.tasks = tasks; this.selected = selected;const signature=JSON.stringify([this.month.getFullYear(),this.month.getMonth(),selected,dayKey(),tasks.map(t=>taskDisplayDate(t)).filter(Boolean)]);if(signature===this.signature)return;this.signature=signature;this.render(); }
   private render() {
     this.root.replaceChildren(); const head = document.createElement("div"); head.className = "month-head";
     const previous = document.createElement("button"), next = document.createElement("button"), today = document.createElement("button"), label = document.createElement("strong");
@@ -17,7 +17,7 @@ export class MonthCalendar {
     const grid = document.createElement("div"); grid.className = "month-grid";
     for (const day of ["一", "二", "三", "四", "五", "六", "日"]) { const cell = document.createElement("span"); cell.className = "weekday"; cell.textContent = day; grid.append(cell); }
     const first = new Date(this.month.getFullYear(), this.month.getMonth(), 1, 12); first.setDate(first.getDate() - (first.getDay() + 6) % 7);
-    const counts = new Map<string, number>(); for (const task of this.tasks) if (!task.completed && validDay(task.scheduledDate)) counts.set(task.scheduledDate, (counts.get(task.scheduledDate) || 0) + 1);
+    const counts = new Map<string, number>(); for (const task of this.tasks){const date=taskDisplayDate(task);if(date)counts.set(date,(counts.get(date)||0)+1);}
     for (let i = 0; i < 42; i++) {
       const date = new Date(first); date.setDate(first.getDate() + i); const key = dayKey(+date), button = document.createElement("button");
       button.type = "button"; button.dataset.date = key; button.className = "day" + (key === this.selected ? " selected" : "") + (date.getMonth() !== this.month.getMonth() ? " muted" : "") + (key === dayKey() ? " today" : "");

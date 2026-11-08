@@ -4,7 +4,7 @@
 
 | 产物 | 当前版本 | 内容 |
 | --- | --- | --- |
-| [Windows 安装包](<Results/PC/V0.1.2_calendar-task-timer-desktop_preview/Calendar Task Timer_0.1.2_x64-setup.exe>) | 0.1.2 预览 | 主窗口、贴桌面日历、灵动岛、拖动安排、记录与后台同步 |
+| [Windows 安装包](<Results/PC/V0.1.3_calendar-task-timer-desktop_preview/Calendar Task Timer_0.1.3_x64-setup.exe>) | 0.1.3 预览 | 主窗口、贴桌面日历、灵动岛、拖动安排、记录与后台同步 |
 | [OB 插件](Results/Obsidian/V0.8.1_calendar-task-timer/) | 0.8.1 | 本机计时连接、Components 按钮、日记、侧栏自动关闭及四个左侧快捷入口隐藏；无完整工作台或云同步引擎 |
 | [旧迁移桥接版](Results/Obsidian/V0.7.0_calendar-task-timer/) | 0.7.0 | 仅供尚未交接的旧用户生成迁移快照 |
 

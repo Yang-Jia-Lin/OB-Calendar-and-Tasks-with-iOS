@@ -18,7 +18,7 @@ impl Backend {
 }
 #[tauri::command]
 async fn backend(state: tauri::State<'_, Backend>, route: String, body: Option<Value>) -> Result<Value, String> {
-    let allowed = ["/v1/state", "/v1/day", "/v1/history", "/v1/command", "/v1/refresh", "/v1/auth", "/v1/calendar", "/v1/retry", "/v1/metadata-probe", "/v1/migration-preview", "/v1/migration-import"];
+    let allowed = ["/v1/state", "/v1/day", "/v1/history", "/v1/record", "/v1/command", "/v1/refresh", "/v1/auth", "/v1/calendar", "/v1/retry", "/v1/metadata-probe", "/v1/migration-preview", "/v1/migration-import"];
     if !allowed.contains(&route.split('?').next().unwrap_or("")) || route.contains('#') { return Err("不允许的本机接口".into()); }
     let mut endpoint = None;
     for _ in 0..600 {
@@ -39,8 +39,11 @@ fn open_window(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
     if label=="calendar"{platform::calendar_enabled(true);}
     if let Some(window) = app.get_webview_window(label) { if label == "calendar" { platform::attach_calendar(app)?; } platform::suspend_webview(&window,false);window.show().map_err(|e| e.to_string())?; if label == "main" { let _ = window.set_focus(); } return Ok(()); }
     let (width, height, title) = if label == "calendar" { (370.0, 650.0, "桌面日历") } else { (370.0, 54.0, "计时灵动岛") };
-    let window = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(format!("index.html?window={label}").into()))
-        .title(title).inner_size(width, height).decorations(false).skip_taskbar(true).resizable(label == "calendar").always_on_top(label == "island").transparent(label == "island").visible(false).build().map_err(|e| e.to_string())?;
+    let mut builder = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(format!("index.html?window={label}").into()))
+        .title(title).inner_size(width, height).decorations(false).skip_taskbar(true).resizable(label == "calendar").always_on_top(label == "island").transparent(label == "island").visible(false);
+    // Tauri documents a 1px white Windows border for shadowed undecorated windows.
+    if label=="island"{builder=builder.shadow(false).background_color(tauri::window::Color(0,0,0,0));}
+    let window=builder.build().map_err(|e|e.to_string())?;
     platform::restore_geometry(app, &window);
     if label == "calendar" { platform::attach_calendar(app)?; }
     window.show().map_err(|e| e.to_string())?; Ok(())

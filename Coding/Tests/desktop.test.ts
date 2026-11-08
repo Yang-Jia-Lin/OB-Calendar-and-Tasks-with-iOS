@@ -26,6 +26,7 @@ async function harness() {
   const service = new DesktopService(store, rpc, secrets, async () => { throw new Error("offline"); }); await service.initialize(false);
   return { root, store, service, task, async close() { await service.close(); await fs.rm(root, { recursive: true, force: true }); } };
 }
+test("deleting the currently timed task is rejected without enqueueing a deletion",async()=>{const h=await harness();try{const started=await h.service.command(cmd({action:"timer.start",task:h.task}));await assert.rejects(h.service.command(cmd({action:"task.delete",task:h.task})),/先结束/);assert.equal(h.store.data.reminders.operations.length,0);await h.service.command(cmd({action:"timer.pause",sessionId:started.sessionId!}));}finally{await h.close();}});
 test("reminder app block preserves user prefix/suffix and rejects malformed or unknown data", () => {
   const block = withReminderMetadata("手写\r\n", { scheduledDate: "2026-11-08" }) + "\n末尾备注";
   const changed = withReminderMetadata(block, { scheduledDate: null });
