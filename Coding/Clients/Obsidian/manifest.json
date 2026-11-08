@@ -1,7 +1,7 @@
 {
   "id": "calendar-task-timer",
   "name": "日历与待办计时",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "minAppVersion": "1.12.7",
   "description": "本机桌面计时连接、课题按钮、日记更新与侧栏自动整理。",
   "author": "Personal tools",

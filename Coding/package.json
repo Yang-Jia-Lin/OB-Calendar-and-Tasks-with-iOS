@@ -1,6 +1,6 @@
 {
   "name": "calendar-task-timer-workspace",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "scripts": {
     "desktop:build": "node Build/desktop-build.mjs",
@@ -15,7 +15,7 @@
     "release": "pwsh -NoProfile -File Build/release.ps1",
     "test": "node Build/test.mjs",
     "preview": "node Preview/server.mjs",
-    "test:ui": "node Tests/connector-ui.mjs && node Tests/diary-ui.mjs"
+    "test:ui": "node Tests/connector-ui.mjs && node Tests/diary-ui.mjs && node Tests/ribbon-ui.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.4",

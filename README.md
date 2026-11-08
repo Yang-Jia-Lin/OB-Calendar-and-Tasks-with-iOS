@@ -1,11 +1,11 @@
 # 日历、待办与计时
 
-更新：2026-11-07。Windows 桌面管理待办、日程、计时与云同步；Obsidian 只保留课题计时按钮、日记更新和必要的侧栏控制。Mac 轻量计时工具仍待开发。
+更新：2026-11-08。Windows 桌面管理待办、日程、计时与云同步；Obsidian 只保留课题计时按钮、日记更新和必要的侧栏控制。Mac 轻量计时工具仍待开发。
 
 | 产物 | 当前版本 | 内容 |
 | --- | --- | --- |
 | [Windows 安装包](<Results/PC/V0.1.2_calendar-task-timer-desktop_preview/Calendar Task Timer_0.1.2_x64-setup.exe>) | 0.1.2 预览 | 主窗口、贴桌面日历、灵动岛、拖动安排、记录与后台同步 |
-| [OB 插件](Results/Obsidian/V0.8.0_calendar-task-timer/) | 0.8.0 | 本机计时连接、Components 按钮、日记及侧栏自动关闭；无完整工作台或云同步引擎 |
+| [OB 插件](Results/Obsidian/V0.8.1_calendar-task-timer/) | 0.8.1 | 本机计时连接、Components 按钮、日记、侧栏自动关闭及四个左侧快捷入口隐藏；无完整工作台或云同步引擎 |
 | [旧迁移桥接版](Results/Obsidian/V0.7.0_calendar-task-timer/) | 0.7.0 | 仅供尚未交接的旧用户生成迁移快照 |
 
 已交接用户覆盖安装 PC 新版、更新 OB 三程序文件即可，不需要重复交接或往返验证。现有绑定、历史、待提交操作和凭据保留。插件程序更新不会自动重载。
