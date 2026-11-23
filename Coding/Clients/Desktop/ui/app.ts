@@ -3,6 +3,7 @@ import type { Task, WorkRecord, TimelineRow } from "../../../Shared/contracts";
 import { elapsed, secondsText, dayKey } from "../../../Shared/time";
 import { reminderMetadata } from "../../../Shared/scheduling";
 import { MonthCalendar } from "./calendar";
+import { appearanceSettings, startAppearance } from "./appearance";
 import { orderedCategories } from "../../../Shared/categories";
 import {taskOverdue,taskDisplayDate} from "../../../Shared/taskDates";
 declare global { interface Window {
@@ -17,6 +18,17 @@ const taskFilters = { today: { status: "today", query: "", list: "" }, tasks: { 
 const currentFilters = () => page === "today" ? taskFilters.today : taskFilters.tasks;
 let viewDate = dayKey(), historySignature = -1, refreshHistory: (() => Promise<void>) | undefined;
 let calendar: MonthCalendar | undefined, daySignature = "", taskSignature = "", settingsSignature="", islandExpanded = false, disconnected = false;
+const calendarLayout = {
+  view: "month" as "month" | "week", poolOpen: true, togglePool() {
+    calendarLayout.poolOpen = !calendarLayout.poolOpen;
+    const pool = app.querySelector<HTMLElement>("#calendar-task-pool");
+    if (!pool) return;
+    pool.hidden = !calendarLayout.poolOpen;
+    pool.parentElement!.classList.toggle("pool-closed", pool.hidden);
+    calendar?.update(state!.tasks, selected);
+    app.querySelector<HTMLButtonElement>(".calendar-controls [aria-controls]")?.focus();
+  }
+};
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "", className = "") => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
 const button = (text: string, run: () => unknown, className = "") => { const node = el("button", text, className); node.type = "button"; node.onclick = () => { void act(run); }; return node; };
 const calendarChoices=()=>state?orderedCategories(state.settings.calendarSources.filter(s=>s.type==="caldav"&&!s.readOnly&&s.enabled!==false),state.settings,true):[];
@@ -67,6 +79,25 @@ function timerText() {
   if (title) title.textContent = active?.title || "当前没有计时";
   if (clock) clock.textContent = disconnected ? "连接断开" : active ? secondsText(elapsed(active)) : "00:00:00";
 }
+const startTask = (task: Task) => command({ action: "timer.start", task: { kind: task.kind === "reminder" ? "reminder" : "local", path: task.path!, id: task.id } });
+function renderTimerPicker(root: HTMLElement) {
+  const picker = root.querySelector<HTMLSelectElement>("select");
+  const tasks = state?.tasks.filter(task => !task.completed) || [];
+  const signature = JSON.stringify(tasks.map(task => [task.id, task.title]));
+  if (picker?.dataset.signature === signature) return;
+  const selected = picker?.value;
+  const label = el("label", "选择待办"), select = el("select");
+  select.dataset.signature = signature;
+  for (const task of tasks) select.add(new Option(task.title, task.id));
+  if (tasks.some(task => task.id === selected)) select.value = selected!;
+  const start = button("开始计时", () => {
+    const task = state?.tasks.find(task => task.id === select.value && !task.completed);
+    if (task) return startTask(task);
+  }, "primary-button");
+  start.disabled = !tasks.length; select.disabled = !tasks.length;
+  if (!tasks.length) select.add(new Option("暂无可计时的待办", ""));
+  label.append(select); root.replaceChildren(label, start);
+}
 function renderTimer(root: HTMLElement) {
   const signature=JSON.stringify([state?.active?.id,state?.active?.title,state?.active?.runningSince==null,islandExpanded,disconnected]);
   if(root.dataset.signature===signature){timerText();return;}root.dataset.signature=signature;
@@ -91,23 +122,28 @@ function skeleton() {
   if (mode === "island") { const timer = el("section", "", "island-timer"); timer.id = "timer"; app.append(timer); return; }
   const header = el("header"); header.dataset.tauriDragRegion = ""; header.append(el("strong", mode === "calendar" ? "桌面日历" : "日历与计时"));
   if (mode === "calendar") { delete header.dataset.tauriDragRegion; header.append(button("移动", () => native("move")), button("锁定／解锁", () => native("lock")), button("打开", () => native("main")), button("隐藏", () => native("hide"))); }
-  else { header.append(button("桌面日历", () => native("calendar")), button("灵动岛", () => native("island"))); }
-  app.append(header);
-  const timer = el("section", "", "timer"); timer.id = "timer"; app.append(timer);
   if (mode === "main") {
-    const nav = el("nav");
-    for (const [id, name] of [["today", "今天"], ["tasks", "安排"], ["records", "记录"], ["settings", "设置"]]) {
+    const sidebar = el("aside", "", "sidebar"), nav = el("nav");
+    nav.setAttribute("aria-label", "主导航");
+    sidebar.append(button("新建", () => taskForm(), "primary-button"));
+    for (const [id, name] of [["tasks", "日历"], ["today", "今天"], ["timer", "计时"], ["records", "记录"]]) {
       const tab = button(name, () => { if (id !== page) { page = id; taskPage = 0; buildBody(); render(); } });
       tab.dataset.page = id;
       nav.append(tab);
     }
-    nav.append(button("刷新", async () => {
+    sidebar.append(nav);
+    const footer = el("div", "", "sidebar-footer"), settings = button("设置", () => { if (page !== "settings") { page = "settings"; buildBody(); render(); } });
+    settings.dataset.page = "settings";
+    footer.append(settings, button("桌面日历", () => native("calendar")), button("灵动岛", () => native("island")), button("刷新", async () => {
       await api("/v1/refresh", {});
       if (!window.__TAURI__) { daySignature = ""; await load(); }
     }, "refresh-button"));
-    app.append(nav);
-    const status = el("div", "", "sync-status"); status.id = "sync-status"; app.append(status);
+    const status = el("div", "", "sync-status"); status.id = "sync-status";
+    sidebar.append(footer, status);
+    app.append(sidebar, el("main")); buildBody(); return;
   }
+  app.append(header);
+  const timer = el("section", "", "timer"); timer.id = "timer"; app.append(timer);
   app.append(el("main")); buildBody();
 }
 function buildBody() {
@@ -115,6 +151,12 @@ function buildBody() {
   requestGeneration++; refreshHistory = undefined; historySignature = -1;
   if (page === "settings" && mode === "main") { renderSettings(main); return; }
   if (page === "records" && mode === "main") { renderRecords(main); return; }
+  if (page === "timer" && mode === "main") {
+    main.className = "timer-view";
+    const card = el("section", "", "timer-card"), timer = el("div", "", "timer"), picker = el("div", "", "timer-picker");
+    timer.id = "timer"; picker.id = "timer-picker";
+    card.append(el("h2", "计时"), timer, picker); main.append(card); return;
+  }
   const today = mode === "main" && page === "today";
   main.className = today ? "today-view" : mode === "main" ? "workspace" : "widget-body";
   if (mode === "main") {
@@ -128,7 +170,13 @@ function buildBody() {
     } else {
       const undo = button("撤销安排", async () => { await command({ action: "undo", undoId: lastUndo }); lastUndo = ""; undo.disabled = true; });
       undo.id = "undo"; undo.disabled = !lastUndo;
-      top.append(undo);
+      const close = button("×", calendarLayout.togglePool);
+      close.setAttribute("aria-label", "收起任务池");
+      heading.textContent = "任务池";
+      top.replaceChildren(heading, undo, close);
+      pool.id = "calendar-task-pool";
+      pool.hidden = !calendarLayout.poolOpen;
+      main.classList.toggle("pool-closed", pool.hidden);
     }
     pool.append(top, tools);
     const search = el("input"); search.type = "search"; search.placeholder = "搜索待办"; search.setAttribute("aria-label", "搜索待办"); search.value = filters.query;
@@ -146,13 +194,13 @@ function buildBody() {
     if (today) return;
   }
   const planning = el("section", "", "planning"), month = el("div"); month.id = "month"; planning.append(month);
-  calendar = new MonthCalendar(month, selected, choose, (id, date) => { void act(() => schedule(id, date)); });
+  calendar = new MonthCalendar(month, selected, choose, (id, date) => { void act(() => schedule(id, date)); }, mode === "main" ? calendarLayout : undefined);
   const dayHead = el("div", "", "day-head"), date = el("h2"); date.id = "selected-date"; dayHead.append(date);
   if (mode === "main") dayHead.append(button("日程／补记", () => eventForm())); planning.append(dayHead);
   const tasks = el("div"); tasks.id = "day-tasks"; const rows = el("div"); rows.id = "day-rows"; planning.append(tasks, rows); main.append(planning);
 }
 async function schedule(id: string, date: string | null) { const task = state?.tasks.find(t => t.id === id); if (!task) throw new Error("任务已变化。"); await command({ action: "task.schedule", task, date }); show(date ? "安排已在本机保存，后台同步中。" : "已退回待安排。" ); }
-function taskRow(task: Task, visible: Task[], editable: boolean, today = false) {
+function taskRow(task: Task, visible: Task[], editable: boolean, today = false, compact = today) {
   const row = el("article", "", "task-row"); row.dataset.taskId = task.id;
   if (editable && !today && !task.completed && !task.readonlyReason) {
     row.draggable = true; row.ondragstart = e => { e.dataTransfer?.setData("application/x-ctt-task", task.id); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; };
@@ -168,8 +216,8 @@ function taskRow(task: Task, visible: Task[], editable: boolean, today = false) 
   };
   const copy = el("div", "", "task-copy"); copy.append(el("strong", task.title));if(taskOverdue(task)){row.classList.add("overdue");copy.append(el("span","逾期","overdue-badge"));}const details = [state?.lists.find(l => l.id === task.listId)?.name, task.due ? "截止 " + task.due : "", task.scheduledDate&&task.scheduledDate<dayKey()?"原安排 "+task.scheduledDate:"",task.pending ? "待同步" : "", task.readonlyReason || ""].filter(Boolean).join(" · "); copy.append(el("small", details));
   row.append(check, copy);
-  if (!task.completed) row.append(button("计时", () => command({ action: "timer.start", task: { kind: task.kind === "reminder" ? "reminder" : "local", path: task.path!, id: task.id } })));
-  if (editable && today) {
+  if (!task.completed) row.append(button("计时", () => startTask(task)));
+  if (editable && compact) {
     const menu = el("details", "", "task-menu"), summary = el("summary", "⋯");
     summary.setAttribute("aria-label", "操作 " + task.title);
     const actions = el("div", "", "task-menu-actions");
@@ -190,7 +238,7 @@ function renderTasks() {
     const titleQuery = query.trim().toLowerCase();
     const tasks = state.tasks.filter(t => (!list || t.listId === list) && t.title.toLowerCase().includes(titleQuery) && (status === "done" ? t.completed : !t.completed && (status === "open" ? !t.scheduledDate : status === "overdue" ? taskOverdue(t, today) : status === "today" ? taskDisplayDate(t, today) === today : true)));
     taskPage = Math.min(taskPage, Math.max(0, Math.ceil(tasks.length / 100) - 1));
-    root.replaceChildren(); const visible = tasks.slice(taskPage * 100, taskPage * 100 + 100); for (const task of visible) root.append(taskRow(task, visible, true, onTodayPage));
+    root.replaceChildren(); const visible = tasks.slice(taskPage * 100, taskPage * 100 + 100); for (const task of visible) root.append(taskRow(task, visible, true, onTodayPage, true));
     if (!tasks.length) root.append(el("p", status === "today" && !list && !titleQuery ? "今天暂无待办" : "没有符合当前筛选的待办", "empty"));
     if (tasks.length > 100) { const paging = el("div", "", "tools"); paging.append(button("上一页", () => { taskPage = Math.max(0, taskPage - 1); taskSignature = ""; renderTasks(); }), el("span", `${taskPage + 1} / ${Math.ceil(tasks.length / 100)}`), button("下一页", () => { taskPage = Math.min(Math.ceil(tasks.length / 100) - 1, taskPage + 1); taskSignature = ""; renderTasks(); })); root.append(paging); }
   }
@@ -210,14 +258,18 @@ function render() {
   if (!state) return;
   if (!app.childElementCount) skeleton();
   const heading=app.querySelector("header strong");if(heading)heading.textContent=(mode==="calendar"?"桌面日历":"日历与计时")+(state.isolated?" · 离线示例":"");
-  renderTimer(document.querySelector<HTMLElement>("#timer")!);
+  const timer = app.querySelector<HTMLElement>("#timer");
+  if (timer) renderTimer(timer);
+  const picker = app.querySelector<HTMLElement>("#timer-picker");
+  if (picker) { picker.hidden = !!state.active || disconnected; if (!picker.hidden) renderTimerPicker(picker); }
   const status = document.querySelector("#sync-status"); if (status) status.textContent = state.sync.error || (state.sync.refreshing ? "正在同步…" : state.pending.length ? `${state.pending.length} 项待同步` : state.sync.lastSync ? "最近同步 " + new Date(state.sync.lastSync).toLocaleTimeString() : "尚未连接云端，请在设置中连接");
   const date = document.querySelector("#selected-date"); if (date) date.textContent = selected;
   const today = app.querySelector<HTMLTimeElement>("#today-date");
   viewDate = dayKey();
   if (today && today.dateTime !== viewDate) { today.dateTime = viewDate; today.textContent = new Date(viewDate + "T12:00:00").toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" }); }
-  for (const tab of app.querySelectorAll<HTMLButtonElement>("nav [data-page]")) {
+  for (const tab of app.querySelectorAll<HTMLButtonElement>("[data-page]")) {
     if (tab.dataset.page === page) tab.setAttribute("aria-current", "page"); else tab.removeAttribute("aria-current");
+    if (tab.dataset.page === "timer") tab.classList.toggle("running", !!state.active);
   }
   const lists = document.querySelector<HTMLSelectElement>("#list-filter"); if (lists && lists.dataset.signature !== JSON.stringify(state.lists)) { lists.dataset.signature = JSON.stringify(state.lists); lists.replaceChildren(); const all = el("option", "全部分类"); all.value = ""; lists.append(all); for (const list of state.lists) { const o = el("option", list.name); o.value = list.id; lists.append(o); } const filters = currentFilters(); if (![...lists.options].some(option => option.value === filters.list)) filters.list = ""; lists.value = filters.list; }
   calendar?.update(state.tasks, selected); renderTasks();
@@ -315,7 +367,7 @@ function recordForm(record: WorkRecord) {
 }
 function renderSettings(root: HTMLElement) {
   settingsSignature=JSON.stringify([state!.settings,state!.pending]);
-  root.className = "settings"; root.append(el("h2", "账户与同步"));
+  root.className = "settings"; root.append(appearanceSettings(), el("h2", "账户与同步"));
   if(!state!.settings.ownershipAcknowledged&&!state!.isolated){root.append(el("p","已有 OB 用户先退出桌面，加载 0.7.0 旧模式并执行交接，再打开桌面导入；在交接前不会启动第二套计时或提交业务操作。"),button("全新使用：启用独立模式",()=>{const f=form("仅供没有旧计时／同步宿主的新用户"),label=el("label"),check=el("input");check.type="checkbox";label.append(check,el("span","我已停止旧计时器与同步，并确认不需要导入原 OB 数据"));f.fields.append(label);f.submit(()=>{if(!check.checked)throw new Error("请先停止旧写入者；已有数据请使用交接导入。");return command({action:"ownership.activate",stoppedOldWriters:true});});}));}
   root.append(button("连接提醒事项", () => { const f = form("iCloud 提醒事项登录"), username = f.field("Apple 账户"), password = f.field("账户密码", "", "password"), region = f.select("账户区域", [{ id: "china", name: "中国大陆" }, { id: "global", name: "其他地区" }]); f.submit(async () => { const result = await api("/v1/auth", { username: username.value, password: password.value, china: region.value === "china" }); password.value = ""; if (result.needsCode) { const code = form("双重认证"), input = code.field("验证码"); code.submit(async () => { await api("/v1/auth", { code: input.value }); await load(); }); } else await load(); }); }));
   root.append(button("添加日历／订阅", () => { const f = form("日历连接"), url = f.field("CalDAV 地址／ICS 订阅地址", "https://caldav.icloud.com/"), username = f.field("账户"), password = f.field("App 专用密码", "", "password"), type = f.select("类型", [{ id: "caldav", name: "CalDAV（iCloud 日历）" }, { id: "ics", name: "只读 ICS" }]); f.submit(async () => { await api("/v1/calendar", { url: url.value, username: username.value, password: password.value, ics: type.value === "ics" }); password.value = ""; await load(); }); }));
@@ -330,6 +382,7 @@ function renderSettings(root: HTMLElement) {
   root.append(el("p", "关闭主窗口后继续在托盘运行；明确退出会保存为暂停。睡眠与休眠继续计时。", "muted"));
 }
 async function start() {
+  if (mode === "main") startAppearance();
   if (window.__TAURI__) {
     await window.__TAURI__.event.listen<DesktopSnapshot>("desktop-state", event => { pushGeneration++; acceptSnapshot(event.payload); });
     await window.__TAURI__.event.listen<string>("native-error",event=>show(event.payload,true));
