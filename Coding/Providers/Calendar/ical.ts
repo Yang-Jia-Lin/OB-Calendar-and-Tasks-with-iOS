@@ -45,6 +45,16 @@ export function expandResource(parsed:ParsedResource,from:number,to:number,defau
 export function splitFeed(resource:CalendarResource):CalendarResource[]{const c=new ICAL.Component(ICAL.parse(resource.data));if(c.name!=="vcalendar")throw new Error("订阅不是 VCALENDAR。");const groups=new Map<string,ICAL.Component[]>();for(const item of [...c.getAllSubcomponents("vevent"),...c.getAllSubcomponents("vtodo")]){const id=str(item.getFirstPropertyValue("uid"));if(!id)throw new Error("订阅资源缺少 UID。");groups.set(id,[...(groups.get(id)||[]),item]);}if(groups.size<=1)return [resource];return [...groups].map(([id,items])=>{const copy=new ICAL.Component(ICAL.parse(resource.data));copy.removeAllSubcomponents("vevent");copy.removeAllSubcomponents("vtodo");for(const item of items)copy.addSubcomponent(new ICAL.Component(item.toJSON()));return {...resource,href:resource.href+"#"+encodeURIComponent(id),data:copy.toString()};});}
 export function masterRange(parsed:ParsedResource,defaultZone:string) {if(parsed.task)return null;const event=new ICAL.Event(parsed.master),zone=String(parsed.event.timezone||defaultZone);return {start:millis(event.startDate,zone),end:millis(event.endDate,zone)};}
 export function validateRule(value:string) { if(!value)return;const rule=ICAL.Recur.fromString(value);if(!rule.freq)throw new Error("周期规则缺少 FREQ。"); }
+const shanghaiStandardTime = [
+ "BEGIN:VTIMEZONE",
+ "TZID:Asia/Shanghai",
+ "BEGIN:STANDARD",
+ "DTSTART:19920101T000000",
+ "TZOFFSETFROM:+0800",
+ "TZOFFSETTO:+0800",
+ "END:STANDARD",
+ "END:VTIMEZONE",
+].join("\r\n");
 function timeValue(date:string,time:string|undefined,zone:string|undefined,allDay:boolean) {
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error("请填写有效日期。");if(allDay)return ICAL.Time.fromDateString(date);
  const local=`${date}T${time||"00:00:00"}`;
@@ -55,6 +65,10 @@ export function writeResource(event:CalendarEvent,previous?:CalendarResource) {
  if(!event.uid||!event.title.trim())throw new Error("日程标题或 UID 无效。");validateRule(String(event.rrule||""));
  const task=event.isTask===true,c=previous?new ICAL.Component(ICAL.parse(previous.data)):new ICAL.Component(["vcalendar",[],[]]);
  if(!previous){c.updatePropertyWithValue("version","2.0");c.updatePropertyWithValue("prodid","-//Calendar Task Timer//Calendar//ZH");}
+ if (!event.allDay && event.timezone === "Asia/Shanghai" && event.date >= "1992-01-01" &&
+     !c.getAllSubcomponents("vtimezone").some(zone => zone.getFirstPropertyValue("tzid") === event.timezone)) {
+  c.addSubcomponent(new ICAL.Component(ICAL.parse(shanghaiStandardTime)));
+ }
  const tag=task?"vtodo":"vevent",components=c.getAllSubcomponents(tag);let master=components.find(x=>!x.hasProperty("recurrence-id"));if(!master){master=new ICAL.Component(tag);c.addSubcomponent(master);}
  if(previous&&str(master.getFirstPropertyValue("uid"))!==event.uid)throw new Error("原资源 UID 已变化，停止写入。");
  master.updatePropertyWithValue("uid",event.uid);master.updatePropertyWithValue("summary",event.title.trim());master.updatePropertyWithValue("dtstamp",ICAL.Time.fromJSDate(new Date(),true));master.updatePropertyWithValue("sequence",Number(master.getFirstPropertyValue("sequence")||0)+1);

@@ -25,12 +25,18 @@ test("source configuration never serializes a supplied plaintext password",()=>{
 test("resource credentials stay on the configured origin; discovery only trusts iCloud shard transitions",()=>{assert.throws(()=>resourceUrl("https://evil.test/a",source.url));assert.throws(()=>validUrl("http://calendar.test"));assert.throws(()=>validUrl("https://u:p@calendar.test"));assert.equal(discoveryUrl("https://p42-caldav.icloud.com/a","https://caldav.icloud.com"),"https://p42-caldav.icloud.com/a");assert.throws(()=>discoveryUrl("https://icloud.com.evil.test/a","https://caldav.icloud.com"));});
 test("DAV XML decodes entities and accepts only successful propstats",()=>{const r=davResponses('<d:multistatus xmlns:d="DAV:"><d:response><d:href>/a&amp;b.ics</d:href><d:propstat><d:prop><d:getetag>&quot;1&quot;</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat><d:propstat><d:prop><d:displayname>ignore</d:displayname></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response></d:multistatus>')[0];assert.equal(r.href,"/a&b.ics");assert.equal(r.props.getetag,'"1"');assert.equal(r.props.displayname,undefined);assert.throws(()=>davResponses('<!DOCTYPE x><multistatus/>'));});
 test("UTC events round trip without changing the durable work content",()=>{const p=readResource(resource())!;assert.ok(sameCalendarContent(event,p.event));const out=expandResource(p,ms("2026-11-01"),ms("2026-11-02"),"Asia/Shanghai");assert.equal(out.length,1);assert.equal(out[0].start,ms("2026-11-01T09:00Z"));});
-test("a cross-midnight work segment writes both endpoints and preserves the original instants",()=>{
+test("Shanghai work segments write both local endpoints and preserve cross-midnight instants",()=>{
  const start=ms("2026-11-01T23:50:00+08:00"),end=ms("2026-11-02T00:20:00+08:00");
- const wire=writeResource(eventForSegment({title:"示例工时"},{uid:"stable",start,end}));
- assert.match(wire,/DTSTART:20261101T155000Z/);
- assert.match(wire,/DTEND:20261101T162000Z/);
+ const work=eventForSegment({title:"示例工时",calendarZone:"Asia/Shanghai"},{uid:"stable",start,end});
+ const wire=writeResource(work);
+ assert.match(wire,/BEGIN:VTIMEZONE\r\nTZID:Asia\/Shanghai/);
+ assert.match(wire,/DTSTART;TZID=Asia\/Shanghai:20261101T235000/);
+ assert.match(wire,/DTEND;TZID=Asia\/Shanghai:20261102T002000/);
+ assert.ok(sameCalendarContent(readResource(resource(wire))!.event,work));
  assert.deepEqual(masterRange(readResource(resource(wire))!,"Asia/Shanghai"),{start,end});
+ const updated=writeResource(work,resource(wire));
+ assert.equal((updated.match(/BEGIN:VTIMEZONE/g)||[]).length,1);
+ assert.deepEqual(masterRange(readResource(resource(updated))!,"America/New_York"),{start,end});
 });
 test("all-day end remains exclusive and is never shifted by UTC",()=>{const p=readResource(resource(calendar(["BEGIN:VEVENT","UID:all","SUMMARY:Day","DTSTART;VALUE=DATE:20261101","DTEND;VALUE=DATE:20261103","END:VEVENT"])))!;assert.equal(p.event.endDate,"2026-11-03");assert.equal(expandResource(p,+new Date("2026-11-02T00:00:00"),+new Date("2026-11-03T00:00:00"),"Asia/Shanghai").length,1);assert.equal(expandResource(p,+new Date("2026-11-03T00:00:00"),+new Date("2026-11-04T00:00:00"),"Asia/Shanghai").length,0);});
 test("IANA recurrence follows the DST transition",()=>{const p=readResource(resource(calendar(["BEGIN:VEVENT","UID:dst","SUMMARY:DST","DTSTART;TZID=America/New_York:20261031T090000","DTEND;TZID=America/New_York:20261031T100000","RRULE:FREQ=DAILY;COUNT=3","END:VEVENT"])))!;const rows=expandResource(p,ms("2026-10-31"),ms("2026-11-03"),"Asia/Shanghai");assert.equal(rows[0].start,ms("2026-10-31T13:00Z"));assert.equal(rows[1].start,ms("2026-11-01T14:00Z"));});

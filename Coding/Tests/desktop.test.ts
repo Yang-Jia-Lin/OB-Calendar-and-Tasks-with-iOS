@@ -73,6 +73,7 @@ test("sleep passage counts, explicit pause does not, and finish is local before 
     assert.equal(elapsed(paused, Date.now() + 3600000), elapsed(paused));
     const finish = cmd({ action: "timer.finish", sessionId: result.sessionId!, completeTask: false });
     const record = await h.service.command(finish); assert.equal(record.pending, true); assert.equal(h.service.snapshot().active, null); assert.equal(h.store.data.journal.records.length, 1);
+    assert.equal(h.store.data.journal.records[0].calendarZone, "Asia/Shanghai");
     await h.service.command(finish); assert.equal(h.store.data.journal.records.length, 1); assert.equal(h.store.data.journal.records[0].completeTask, false);
   } finally { await h.close(); }
 });
@@ -105,6 +106,8 @@ test("offline work edits survive restart and reconcile each original segment onc
     assert.equal(edited.calendarRevision, beforeEdit.calendarRevision);
     assert.ok(edited.journalRevision > beforeEdit.journalRevision);
     assert.equal(h.store.data.journal.records.at(-1)?.edit?.segments[0].start, draft[0].start);
+    assert.equal(h.store.data.journal.records.at(-1)?.edit?.steps[0].before.timezone, "UTC");
+    assert.equal(h.store.data.journal.records.at(-1)?.edit?.steps[0].after.timezone, "Asia/Shanghai");
     await assert.rejects(h.service.command(cmd({...request,title:"另一个窗口的编辑"})), /记录已变化/);
     await h.service.close();
     recovered = new DesktopService(new DesktopStore(h.store.file),h.service.rpc,h.service.secrets);
@@ -137,6 +140,25 @@ test("offline work edits survive restart and reconcile each original segment onc
     assert.deepEqual(writes,segments.map(part=>part.uid));
     assert.equal(recovered.record(record.id).status,"saved");
   } finally { await recovered?.close(); await h.close(); }
+});
+test("retrying a legacy UTC work upload keeps the same UID and wire times", async () => {
+  const h = await harness();
+  try {
+    const result = await h.service.command(cmd({ action: "timer.start", task: reminderRef(h.task) }));
+    const active = h.service.controller.state.active!;
+    active.startedAt = active.runningSince = Date.now() - 3000;
+    await h.service.command(cmd({ action: "timer.finish", sessionId: result.sessionId!, completeTask: false }));
+    const legacy = h.service.controller.state.records[0];
+    delete legacy.calendarZone;
+    await h.store.update({ journal: h.service.controller.state });
+    const existing = eventForSegment(legacy, legacy.segments[0]);
+    assert.equal(existing.timezone, "UTC");
+    h.service.bridge.ensureEvent = async (_, requested) => {
+      assert.deepEqual(requested, existing);
+      return existing;
+    };
+    assert.equal((await h.service.controller.retry(legacy.id)).status, "saved");
+  } finally { await h.close(); }
 });
 test("scheduling changes only planned date, keeps due date and allows durable guarded undo", async () => {
   const h = await harness(); try {

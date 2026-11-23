@@ -47,7 +47,7 @@ export class TimerController {
   private flights = new Map<string, Promise<unknown>>();
   private stopped = false;
   constructor(private deps: { state?: Journal; persist: (s: Journal) => Promise<void>; calendar: CalendarPort; tasks: TaskPort;
-    now?: () => number; zone?: () => string; ownerDeviceId?: string; onChange?: () => void; background?: boolean }) { this.state = validateJournal(deps.state || blankJournal()); }
+    now?: () => number; zone?: () => string; calendarZone?: WorkRecord["calendarZone"]; ownerDeviceId?: string; onChange?: () => void; background?: boolean }) { this.state = validateJournal(deps.state || blankJournal()); }
   private now() { return this.deps.now?.() ?? Date.now(); }
   private lock<T>(fn: () => Promise<T>): Promise<T> { const p = this.serial.then(fn); this.serial = p.catch(() => {}); return p; }
   private async commit(next: Journal, notify = true) { this.live(); await this.deps.persist(clone(next)); this.state = next; if (notify) this.deps.onChange?.(); }
@@ -131,6 +131,8 @@ export class TimerController {
     const segments = s.segments.filter(p => p.end - p.start >= 1000).map((p, i) => ({ ...p, uid: `simple-task-timer-${s.id}-${i}`, saved: false }));
     validateSegments(segments, now);
     const record: WorkRecord = { ...s, segments, endedAt: now, completeTask, taskSaved: !completeTask, status: "pending", error: "", sync: this.info(), localFirst: !!this.deps.background && s.task.kind === "local" };
+    // Freeze the wire format before the first upload, including retries after an upgrade.
+    if (this.deps.calendarZone) record.calendarZone = this.deps.calendarZone;
     await this.commit({ ...this.state, active: null, records: [...this.state.records, record] });
     if (record.localFirst && completeTask) {
       try { await this.deps.tasks.complete(record.task,{operationId:record.id,completedAt:record.endedAt}); record.taskSaved = true; await this.replace(record); }
@@ -188,7 +190,7 @@ export class TimerController {
       const unchanged = baseline ? sameEventContent(candidate, baseline) : Object.entries(eventForSegment(current, p))
         .every(([key, value]) => value === undefined || sameJson(candidate[key], value));
       if (!unchanged) throw new Error("日历记录已被外部修改，请刷新后重新打开。");
-      const after = { ...candidate, ...eventForSegment({ title }, { ...draft.segments[i], uid: p.uid }) };
+      const after = { ...candidate, ...eventForSegment({ title, calendarZone: this.deps.calendarZone ?? current.calendarZone }, { ...draft.segments[i], uid: p.uid }) };
       return { uid: p.uid!, fromCalendarId: current.calendarId, toCalendarId: draft.calendarId, before: clone(candidate), after, stage: "prepared" as const };
     });
     r.status = "pending"; r.error = ""; r.sync = { revision: (r.sync?.revision || 0) + 1, attempt: 0, retryAt: 0 };

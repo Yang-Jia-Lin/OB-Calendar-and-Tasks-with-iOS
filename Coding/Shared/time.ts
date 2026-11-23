@@ -29,10 +29,12 @@ export function validateSegments(parts: Segment[], now: number) {
     previous = p.end;
   }
 }
-export function eventForSegment(record: Pick<WorkRecord, "title">, part: Segment): CalendarEvent {
-  const start = dateParts(part.start, "UTC"), end = dateParts(part.end, "UTC");
+export function eventForSegment(record: Pick<WorkRecord, "title" | "calendarZone">, part: Segment): CalendarEvent {
+  // The managed Shanghai VTIMEZONE covers modern records. Older intervals keep UTC.
+  const timezone = record.calendarZone === "Asia/Shanghai" && part.start >= Date.UTC(1992, 0, 1) ? record.calendarZone : "UTC";
+  const start = dateParts(part.start, timezone), end = dateParts(part.end, timezone);
   return { type: "single", uid: part.uid, title: record.title, date: start.date, endDate: end.date,
-    startTime: start.time, endTime: end.time, allDay: false, timezone: "UTC", isTask: false,
+    startTime: start.time, endTime: end.time, allDay: false, timezone, isTask: false,
     description: `实际计时：${secondsText(part.end - part.start)}\n原待办：${record.title}\n记录编号：${part.uid}` };
 }
 export function localInput(ms: number) { const p = dateParts(ms); return `${p.date}T${p.time}`; }

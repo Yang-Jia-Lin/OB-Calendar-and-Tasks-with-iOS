@@ -49,7 +49,7 @@ export class DesktopService {
     await this.store.load(); this.engine.configure(this.store.data.settings.calendarSources, this.store.data.calendar);
     if (this.store.data.settings.calendarSources.some(s => s.enabled !== false)) await this.bridge.connect();
     this.reminders.load(this.store.data.reminders);
-    this.controller = new TimerController({ state: this.store.data.journal, ownerDeviceId: this.store.data.settings.deviceId, background: true,
+    this.controller = new TimerController({ state: this.store.data.journal, ownerDeviceId: this.store.data.settings.deviceId, background: true, calendarZone: "Asia/Shanghai",
       calendar: this.bridge, tasks: { complete: (task, context) => { if (task.kind !== "reminder") throw new Error("旧本地任务无法自动确认完成；请核对原笔记，或明确选择仅保留工时。"); return this.reminders.completeRemote(task, context); } },
       persist: journal => this.store.update({ journal }, "journal"), onChange: () => this.changed() });
     if (await this.controller.recover()) this.recovery = "上次程序异常退出，已恢复为暂停；请核对最后已保存的时间，可在记录中修正。";
@@ -306,7 +306,7 @@ export class DesktopService {
     this.secrets.reload?.();
     await this.store.update(data); this.reminders.load(data.reminders); this.engine.configure(data.settings.calendarSources, data.calendar);
     if (data.settings.calendarSources.length) await this.bridge.connect();
-    this.controller = new TimerController({ state: data.journal, ownerDeviceId: data.settings.deviceId, background: true, calendar: this.bridge, tasks: { complete: (task, context) => { if (task.kind !== "reminder") throw new Error("旧本地任务无法自动确认完成；请核对原笔记，或明确选择仅保留工时。"); return this.reminders.completeRemote(task, context); } }, persist: journal => this.store.update({ journal }, "journal"), onChange: () => this.changed() });
+    this.controller = new TimerController({ state: data.journal, ownerDeviceId: data.settings.deviceId, background: true, calendarZone: "Asia/Shanghai", calendar: this.bridge, tasks: { complete: (task, context) => { if (task.kind !== "reminder") throw new Error("旧本地任务无法自动确认完成；请核对原笔记，或明确选择仅保留工时。"); return this.reminders.completeRemote(task, context); } }, persist: journal => this.store.update({ journal }, "journal"), onChange: () => this.changed() });
     this.changed(); this.worker.wake(); return { ok: true };
   }
   async close() {

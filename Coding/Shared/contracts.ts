@@ -27,7 +27,7 @@ export interface WorkRecord extends Session {
   endedAt: number; completeTask: boolean; taskSaved: boolean;
   status: "pending" | "saved"; error: string;
   edit?: { calendarId: string; title: string; segments: Segment[]; steps: EditStep[] };
-  sync?: SyncInfo; localFirst?: boolean;
+  sync?: SyncInfo; localFirst?: boolean; calendarZone?: "Asia/Shanghai";
 }
 export interface EditStep {
   uid: string; fromCalendarId: string; toCalendarId: string;
