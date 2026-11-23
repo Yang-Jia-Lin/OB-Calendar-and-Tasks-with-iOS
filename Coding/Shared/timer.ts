@@ -1,4 +1,4 @@
-import { clone, uid, sameEvent, sameEventContent, isMissingResource, type Syncable, type SyncInfo, type DeleteOperation, type DeleteTarget, type EditStep, type CalendarPort, type TaskPort, type Journal, type Session, type WorkRecord, type Task, type Segment } from "./contracts";
+import { clone, uid, sameEvent, sameEventContent, sameJson, isMissingResource, type Syncable, type SyncInfo, type DeleteOperation, type DeleteTarget, type EditStep, type CalendarPort, type TaskPort, type Journal, type Session, type WorkRecord, type Task, type Segment } from "./contracts";
 import { eventForSegment, validateSegments } from "./time";
 export const blankJournal = (): Journal => ({ version: 2, active: null, records: [], operations: [] });
 export function validateJournal(input: unknown): Journal {
@@ -171,7 +171,7 @@ export class TimerController {
   }
   editRecord(id: string, draft: { title: string; calendarId: string; segments: Segment[]; snapshots?: import("./contracts").CalendarEvent[] }, expected: WorkRecord) { return this.lock(async () => {
     const current = this.state.records.find(r => r.id === id);
-    if (!current || JSON.stringify(current) !== JSON.stringify(expected)) throw new Error("记录已变化，请重新打开。");
+    if (!current || !sameJson(current, expected)) throw new Error("记录已变化，请重新打开。");
     if (current.status !== "saved" || current.edit) throw new Error("请先处理待同步操作，再修改记录。");
     if (this.state.deletions?.some(o => o.recordId === id && o.status !== "saved")) throw new Error("此记录有待同步的删除操作，请先处理。");
     const title = draft.title.trim(); if (!title) throw new Error("请填写标题。");
@@ -179,13 +179,17 @@ export class TimerController {
     if (draft.segments.length !== current.segments.length) throw new Error("本版不增加或删除历史分段。");
     const r = clone(current);
     const steps = current.segments.map((p, i) => {
-      const remote = this.deps.calendar.readByUid(current.calendarId, p.uid!);
-      if (!remote) throw new Error("日历中的原记录已删除，请刷新；不会自动重建。");
-      const before = draft.snapshots?.[i] ?? p.snapshot ?? eventForSegment(current, p);
-      // Full snapshot is captured from the edit dialog, including migrated records.
-      if (draft.snapshots?.[i] || p.snapshot ? !sameEventContent(remote, before) : !Object.entries(before).every(([k, v]) => v === undefined || JSON.stringify(remote[k]) === JSON.stringify(v))) throw new Error("日历记录已被外部修改，请刷新后重新打开。");
-      const after = { ...remote, ...eventForSegment({ title }, { ...draft.segments[i], uid: p.uid }) };
-      return { uid: p.uid!, fromCalendarId: current.calendarId, toCalendarId: draft.calendarId, before: clone(remote), after, stage: "prepared" as const };
+      const cached = this.deps.calendar.readByUid(current.calendarId, p.uid!);
+      const offline = this.deps.background && this.deps.calendar.hasCalendarData?.(current.calendarId) === false;
+      if (!cached && offline) this.deps.calendar.assertWritable(current.calendarId);
+      const candidate = cached ?? (offline ? p.snapshot : undefined);
+      if (!candidate) throw new Error("日历缓存中找不到原记录，请同步后重新打开。若原记录已删除，程序不会重建。");
+      const baseline = draft.snapshots?.[i] ?? p.snapshot;
+      const unchanged = baseline ? sameEventContent(candidate, baseline) : Object.entries(eventForSegment(current, p))
+        .every(([key, value]) => value === undefined || sameJson(candidate[key], value));
+      if (!unchanged) throw new Error("日历记录已被外部修改，请刷新后重新打开。");
+      const after = { ...candidate, ...eventForSegment({ title }, { ...draft.segments[i], uid: p.uid }) };
+      return { uid: p.uid!, fromCalendarId: current.calendarId, toCalendarId: draft.calendarId, before: clone(candidate), after, stage: "prepared" as const };
     });
     r.status = "pending"; r.error = ""; r.sync = { revision: (r.sync?.revision || 0) + 1, attempt: 0, retryAt: 0 };
     r.edit = { calendarId: draft.calendarId, title, segments: draft.segments.map((p, i) => ({ start: p.start, end: p.end, uid: current.segments[i].uid })), steps };
@@ -215,7 +219,7 @@ export class TimerController {
   deleteEvent(target: DeleteTarget, range: { start: number; end: number }, record?: WorkRecord) { return this.lock(async () => {
     if (record) {
       const current = this.state.records.find(r => r.id === record.id);
-      if (!current || JSON.stringify(current) !== JSON.stringify(record)) throw new Error("记录已变化，请重新打开。");
+      if (!current || !sameJson(current, record)) throw new Error("记录已变化，请重新打开。");
       if (current.status !== "saved" || current.edit || !current.segments.some(p => p.uid === target.uid) || current.calendarId !== target.calendarId) throw new Error("请先处理记录的待同步操作，再删除。");
     }
     if (this.state.deletions?.some(o => o.status !== "saved" && (o.recordId && o.recordId === record?.id || o.uid === target.uid && o.calendarId === target.calendarId))) throw new Error("此记录已在等待删除，请在待同步中重试。");

@@ -27,7 +27,7 @@ async function main() {
   try { await service.initialize(process.env.CTT_DESKTOP_OFFLINE !== "1"); } catch (e) { await fs.rm(lock, { force: true }); throw e; }
   const server = await startServer(service, path.join(root, "connection.json"));
   process.stdout.write(JSON.stringify({ event: "ready", ...server.discovery }) + "\n");
-  const off = service.subscribe(() => process.stdout.write(JSON.stringify({ event: "state", data: service.snapshot() }) + "\n"));
+  const off = service.subscribe(() => process.stdout.write(JSON.stringify({ event: "state", data: service.snapshot(false) }) + "\n"));
   let stopping = false;
   const stop = async () => {
     if (stopping) return; stopping = true;

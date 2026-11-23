@@ -10,11 +10,12 @@ type Stored={resource:CalendarResource;parsed:ParsedResource|null;entry:Entry};
 export class CalendarEngine implements CalendarApi {
  private configs:CalendarSource[]=[];private data=new Map<string,Map<string,Stored>>();private synced=new Map<string,number>();private tails=new Map<string,Promise<unknown>>();private listeners=new Set<()=>void>();private flight?:Promise<void>;private stopped=false;private revision=0;private memo=new Map<string,TimelineRow[]>();
  migrationError="";readonly state:CalendarSyncState={syncing:false,error:"",lastSync:0,failures:{}};readonly dav:DavClient;
+ private unpersisted = new Set<string>();
  constructor(private options:{transport:CalendarTransport;secret:(key:string)=>Promise<string|null>|string|null;persist:(cache:CalendarCache)=>Promise<void>;timezone:()=>string;open:()=>Promise<unknown>}) {this.dav=new DavClient(options.transport,options.secret);}
  configure(sources:CalendarSource[],cache?:CalendarCache) {
   const previous=this.configs;this.configs=calendarSources(sources);for(const s of this.configs){const old=previous.find(x=>x.id===s.id);if(old&&(old.url!==s.url||old.username!==s.username||old.type!==s.type)){this.data.delete(s.id);this.synced.delete(s.id);}}for(const [id,values]of [...this.data])if(!this.configs.some(s=>s.id===id)){this.data.delete(id);this.synced.delete(id);void values;}
   if(cache?.version===1)for(const source of this.configs){const saved=cache.sources?.[source.id];if(saved&&saved.authority===this.authority(source)){try{this.data.set(source.id,this.parse(source,saved.resources));this.synced.set(source.id,saved.syncedAt);}catch{this.state.failures[source.id]="本地日历快照损坏，等待重新同步";}}}
-  this.changed();
+  this.changed(true);
  }
  async connect(){if(!this.configs.some(s=>s.enabled!==false))throw new Error("请先在插件设置中添加日历连接。");}
  getCalendarSources(){return this.configs.filter(s=>s.enabled!==false).map(({id,name,color,type})=>({id,name,color,type}));}
@@ -25,11 +26,34 @@ export class CalendarEngine implements CalendarApi {
  private current(s:CalendarSource){return this.configs.some(x=>x.id===s.id&&x.enabled!==false&&this.authority(x)===this.authority(s));}
  private live(){if(this.stopped)throw new Error("日历服务已停止。");}
  private parse(source:CalendarSource,resources:CalendarResource[]){const map=new Map<string,Stored>();for(const resource of (source.type==="ics"?resources.flatMap(splitFeed):resources)){const parsed=readResource(resource,source.type==="caldavtasks"),id=`${source.id}:${encodeURIComponent(resource.href)}`;map.set(resource.href,{resource:clone(resource),parsed,entry:{id,calendarId:source.id,color:source.color,event:parsed?.event || {type:"single",title:"",date:""}}});}return map;}
- private changed(){this.revision++;this.memo.clear();this.state.lastSync=Math.max(0,...this.synced.values());this.state.error=[this.migrationError,...Object.entries(this.state.failures).filter(([id])=>this.configs.some(s=>s.id===id&&s.enabled!==false)).map(([id,error])=>`${this.configs.find(s=>s.id===id)?.name||"日历"}：${error}`)].filter(Boolean).join("；");for(const fn of this.listeners){try{fn();}catch{}}}
+ get contentRevision(){return this.revision;}
+ private changed(content=false){if(content){this.revision++;this.memo.clear();}this.state.lastSync=Math.max(0,...this.synced.values());this.state.error=[this.migrationError,...Object.entries(this.state.failures).filter(([id])=>this.configs.some(s=>s.id===id&&s.enabled!==false)).map(([id,error])=>`${this.configs.find(s=>s.id===id)?.name||"日历"}：${error}`)].filter(Boolean).join("；");for(const fn of this.listeners){try{fn();}catch{}}}
  subscribe(fn:()=>void){this.listeners.add(fn);return ()=>this.listeners.delete(fn);}
  private lock<T>(id:string,fn:()=>Promise<T>){const p=(this.tails.get(id)||Promise.resolve()).catch(()=>{}).then(()=>{this.live();return fn();});this.tails.set(id,p);return p;}
  private snapshot():CalendarCache{return {version:1,sources:Object.fromEntries([...this.data].map(([id,map])=>[id,{resources:[...map.values()].map(x=>x.resource),syncedAt:this.synced.get(id)||0,authority:this.authority(this.configs.find(s=>s.id===id)! )}]))};}
- private async publish(source:CalendarSource,values:Map<string,Stored>){this.live();if(!this.current(source))throw new Error("连接配置已变化，忽略旧同步结果。");const id=source.id;this.data.set(id,values);this.synced.set(id,Date.now());delete this.state.failures[id];await this.options.persist(this.snapshot());this.live();this.changed();}
+ private async publish(source:CalendarSource,values:Map<string,Stored>){
+  this.live();
+  if(!this.current(source))throw new Error("连接配置已变化，忽略旧同步结果。");
+  const id=source.id, previous=this.data.get(id);
+  const content=!previous||previous.size!==values.size||[...values].some(([href,{resource}])=>{
+   const old=previous.get(href)?.resource;
+   return old?.etag!==resource.etag||old?.data!==resource.data;
+  });
+  this.synced.set(id,Date.now());
+  delete this.state.failures[id];
+  if(content){
+   this.data.set(id,values);
+   this.revision++;
+   this.memo.clear();
+   this.unpersisted.add(id);
+  }
+  if(this.unpersisted.has(id)){
+   await this.options.persist(this.snapshot());
+   this.live();
+   this.unpersisted.delete(id);
+  }
+  this.changed();
+ }
  refresh(){if(this.flight)return this.flight;this.live();const p=(async()=>{this.state.syncing=true;this.changed();const queue=this.configs.filter(s=>s.enabled!==false);await Promise.all(Array.from({length:Math.min(3,queue.length)},async()=>{let s:CalendarSource|undefined;while((s=queue.shift())){const source=s;try{await this.lock(source.id,async()=>{
    if(source.type==="ics"){const r=await this.options.transport({url:source.url,method:"GET",headers:{}});if(r.status<200||r.status>=300)throw new Error(`HTTP ${r.status}：订阅日历读取失败`);await this.publish(source,this.parse(source,[{href:source.url,etag:r.headers.etag||"",data:r.text}]));return;}
    const index=await this.dav.index(source),old=this.data.get(source.id)||new Map<string,Stored>(),next=new Map<string,Stored>(),changed=index.filter(x=>old.get(x.href)?.resource.etag!==x.etag);

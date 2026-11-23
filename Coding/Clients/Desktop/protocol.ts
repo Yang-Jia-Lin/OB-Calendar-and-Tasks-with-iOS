@@ -38,6 +38,7 @@ export interface DesktopSnapshot {
   isolated?: boolean;
   version: 1; revision: number; active: Journal["active"]; tasks: Task[]; lists: ReminderList[];
   records: WorkRecord[]; settings: DesktopSettings; pending: { key: string; error: string }[];
+  calendarRevision: number; journalRevision: number; historyRevision: number;
   sync: { refreshing: boolean; lastSync: number; error: string }; recovery: string;
 }
 export type DiarySnapshot = Pick<CalendarDaySnapshot, "calendars" | "rows">;

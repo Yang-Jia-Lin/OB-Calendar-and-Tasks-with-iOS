@@ -7,10 +7,10 @@ import { DesktopStore } from "../Clients/Desktop/store";
 import { DesktopService } from "../Clients/Desktop/service";
 import { startServer } from "../Clients/Desktop/server";
 import { reminderMetadata, withReminderMetadata, SCHEDULE_START, SCHEDULE_END } from "../Shared/scheduling";
-import { elapsed } from "../Shared/time";
+import { dayKey, elapsed, eventForSegment } from "../Shared/time";
 import { reminderRef } from "../Providers/Reminders/provider";
 import type { DesktopCommand, DesktopMutation } from "../Clients/Desktop/protocol";
-import type { Task } from "../Shared/contracts";
+import type { Task, WorkRecord } from "../Shared/contracts";
 import { inspectExport } from "../Clients/Desktop/migration";
 import { createHash } from "node:crypto";
 import { uptime } from "node:os";
@@ -75,6 +75,68 @@ test("sleep passage counts, explicit pause does not, and finish is local before 
     const record = await h.service.command(finish); assert.equal(record.pending, true); assert.equal(h.service.snapshot().active, null); assert.equal(h.store.data.journal.records.length, 1);
     await h.service.command(finish); assert.equal(h.store.data.journal.records.length, 1); assert.equal(h.store.data.journal.records[0].completeTask, false);
   } finally { await h.close(); }
+});
+test("offline work edits survive restart and reconcile each original segment once", async () => {
+  const h = await harness();
+  let recovered: DesktopService | undefined;
+  try {
+    const start = +new Date("2025-10-10T23:50:00"), end = +new Date("2025-10-11T00:30:00");
+    const segments = [
+      { start, end: start + 20 * 60000, uid: "work-first", saved: true },
+      { start: end - 10 * 60000, end, uid: "work-second", saved: true },
+    ].map(part => ({ ...part, snapshot: eventForSegment({title:"计时"},part) }));
+    const record: WorkRecord = { id:"work-test", title:"计时", task:h.task, calendarId:"cal", zone:"Asia/Shanghai",
+      startedAt:start, endedAt:end, lastHeartbeat:end, runningSince:null, segments,
+      completeTask:false, taskSaved:true, status:"saved", error:"" };
+    const history = Array.from({ length: 1500 }, (_, index) => ({
+      ...record, id: "historic-" + index, segments: segments.map(segment => ({ ...segment, uid: segment.uid + "-" + index })),
+    }));
+    h.service.controller.state.records = [...history, record];
+    await h.store.update({ journal:h.service.controller.state, calendar:undefined });
+    const remote = new Map(segments.map(part => [part.uid, part.snapshot]));
+    h.service.bridge.hasCalendarData = () => false;
+    const draft = segments.map(part => ({ ...part, start: part.start + 60000 }));
+    const request = cmd({action:"record.edit", record, title:"调整工时", calendarId:"cal", segments:draft});
+    const beforeEdit = h.service.snapshot(false);
+    const result = await h.service.command(request);
+    assert.equal(result.pending, true);
+    const edited = h.service.snapshot(false);
+    assert.equal(edited.records.length, 0);
+    assert.equal(edited.calendarRevision, beforeEdit.calendarRevision);
+    assert.ok(edited.journalRevision > beforeEdit.journalRevision);
+    assert.equal(h.store.data.journal.records.at(-1)?.edit?.segments[0].start, draft[0].start);
+    await assert.rejects(h.service.command(cmd({...request,title:"另一个窗口的编辑"})), /记录已变化/);
+    await h.service.close();
+    recovered = new DesktopService(new DesktopStore(h.store.file),h.service.rpc,h.service.secrets);
+    await recovered.initialize(false);
+    assert.deepEqual(await recovered.command(request), result);
+    assert.equal(recovered.history(dayKey(start),dayKey(end)).records[0].edit?.title,"调整工时");
+    let release!:()=>void, entered!:()=>void;
+    const slow = new Promise<void>(resolve => { release = resolve; });
+    const syncing = new Promise<void>(resolve => { entered = resolve; });
+    const writes: string[] = [];
+    recovered.bridge.reconcileStep = async (step, checkpoint) => {
+      entered();
+      await slow;
+      assert.deepEqual(remote.get(step.uid),step.before);
+      writes.push(step.uid);
+      remote.set(step.uid,step.after);
+      step.stage = "done";
+      await checkpoint();
+    };
+    const pending = recovered.controller.retry(record.id);
+    await syncing;
+    const noChange = recovered.snapshot(false);
+    try {
+      const task = await recovered.command(cmd({action:"task.create",title:"慢网期间本机保存",listId:"list"}));
+      assert.ok(task.pending);
+      assert.equal(recovered.snapshot(false).journalRevision,noChange.journalRevision);
+      assert.equal(writes.length,0);
+    } finally { release(); await pending; }
+    await recovered.controller.retry(record.id);
+    assert.deepEqual(writes,segments.map(part=>part.uid));
+    assert.equal(recovered.record(record.id).status,"saved");
+  } finally { await recovered?.close(); await h.close(); }
 });
 test("scheduling changes only planned date, keeps due date and allows durable guarded undo", async () => {
   const h = await harness(); try {

@@ -2,3 +2,74 @@
 :root body:has(.island){overflow:hidden}.island .island-timer{height:54px;min-height:54px;overflow:hidden}.island .timer-copy{display:flex;align-items:center;gap:10px}.island .clock{white-space:nowrap}body:has(.island) #notice{position:fixed;bottom:0;left:0;right:0;max-height:20px;overflow:hidden;font-size:10px}
 
 html.island-window,html.island-window body{background:transparent;color-scheme:dark;overflow:hidden}.island-window .island{border:0;box-shadow:none;overflow:hidden}.island button{flex:none}.island #island-toggle{position:relative;z-index:1}.island .timer-copy{cursor:move}.overdue-badge{display:inline-block;color:#b34831;background:#fff0e9;border-radius:4px;padding:1px 4px;font-size:10px}.task-row.overdue .task-copy small{color:#a7583c}
+
+.main {
+  --accent: #4b3b91;
+  --surface: #fff;
+  --border: #e4e0ed;
+  --muted: #656077;
+  min-height: 100vh;
+  background: #f7f6fa;
+  color: #252035;
+  font-family: "Segoe UI Variable", "Microsoft YaHei UI", system-ui, sans-serif;
+}
+.main header, .main nav { background: var(--surface); }
+.main header { border-color: var(--border); }
+.main nav { padding: 8px 18px; border-bottom: 1px solid var(--border); }
+.main button, .main input, .main select { border-color: var(--border); }
+.main button:hover { background: #f1eef9; }
+.main :focus-visible { outline-color: var(--accent); }
+.main nav button { border-color: transparent; background: transparent; }
+.main nav [aria-current="page"] { color: var(--accent); font-weight: 600; background: #eeebf8; }
+.main .refresh-button { margin-left: auto; }
+.main .timer { background: var(--surface); }
+.main .sync-status { padding-top: 8px; color: var(--muted); }
+.main .task-pool, .main .planning { border-color: var(--border); }
+.main .day.selected { background: var(--accent); color: #fff; }
+.main .day.selected:hover { background: #5745a2; }
+.main .day.today { box-shadow: inset 0 0 0 1px #b4a8db; }
+.task-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.task-heading h2 { margin: 0 auto 0 0; }
+.task-filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; margin-top: 16px; }
+.task-filters > * { min-width: 0; max-width: 100%; }
+.workspace .task-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.workspace .task-filters input { grid-column: 1 / -1; }
+.main .primary-button { background: var(--accent); border-color: var(--accent); color: white; }
+.main .primary-button:hover { background: #5745a2; }
+.today-view { max-width: 860px; margin: 0 auto; padding: 20px 22px 40px; }
+.today-view .task-pool { padding: clamp(16px, 4vw, 32px); border-radius: 16px; }
+.today-view h2 { font-size: 30px; font-weight: 650; line-height: 1.15; }
+.today-view h2 time { display: block; font-size: 13px; font-weight: 400; margin-top: 6px; color: var(--muted); }
+.today-view .task-row { gap: 12px; padding: 13px 0; border-color: var(--border); }
+.today-view .task-row:last-child { border-bottom: 0; }
+.today-view .task-copy small { color: var(--muted); }
+.today-view input[type=checkbox] { accent-color: var(--accent); }
+.today-view .task-menu { position: relative; }
+.task-menu summary { list-style: none; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.task-menu summary::-webkit-details-marker { display: none; }
+.task-menu summary:hover, .task-menu[open] summary { background: #eeebf8; }
+.task-menu-actions {
+  position: absolute;
+  right: 0;
+  z-index: 2;
+  display: grid;
+  gap: 4px;
+  min-width: 84px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 24px #25203520;
+}
+.time-range { font-variant-numeric: tabular-nums; }
+.timeline-row { flex-wrap: wrap; }
+.timeline-row > span { min-width: 6ch; overflow-wrap: anywhere; }
+.form-error { margin: 0 0 12px; font-size: 13px; }
+.form-error:empty { display: none; }
+@media (max-width: 520px) {
+  .today-view { padding: 10px 12px 24px; }
+  .today-view .task-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .today-view .task-filters input { grid-column: 1 / -1; }
+  .main header, .main nav, .main .timer { flex-wrap: wrap; }
+  .main .timer-copy { flex-basis: 100%; }
+}

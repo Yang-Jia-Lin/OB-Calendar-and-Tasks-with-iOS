@@ -6,11 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { calendarSources, resourceUrl, validUrl } from "../Providers/Calendar/config";
 import { DavClient, davResponses, discoveryUrl, xml, type CalendarTransport } from "../Providers/Calendar/dav";
-import { readResource, writeResource, expandResource, splitFeed, utcEvent } from "../Providers/Calendar/ical";
+import { readResource, writeResource, expandResource, masterRange, splitFeed, utcEvent } from "../Providers/Calendar/ical";
 import { CalendarEngine } from "../Providers/Calendar/engine";
 import { CalendarBridge } from "../Providers/Calendar/bridge";
 import { sameCalendarContent } from "../Providers/Calendar/content";
 import { mergeTimeline } from "../Shared/timeline";
+import { eventForSegment } from "../Shared/time";
 const loader=Module as any,load=loader._load;let migrateCalendarSettings:any,CalendarCacheFile:any;
 loader._load=function(id:string,...args:any[]){return id==="obsidian"?{}:load.call(this,id,...args);};
 try{({migrateCalendarSettings,CalendarCacheFile}=require("../Clients/Obsidian/calendarStorage"));}finally{loader._load=load;}
@@ -24,6 +25,13 @@ test("source configuration never serializes a supplied plaintext password",()=>{
 test("resource credentials stay on the configured origin; discovery only trusts iCloud shard transitions",()=>{assert.throws(()=>resourceUrl("https://evil.test/a",source.url));assert.throws(()=>validUrl("http://calendar.test"));assert.throws(()=>validUrl("https://u:p@calendar.test"));assert.equal(discoveryUrl("https://p42-caldav.icloud.com/a","https://caldav.icloud.com"),"https://p42-caldav.icloud.com/a");assert.throws(()=>discoveryUrl("https://icloud.com.evil.test/a","https://caldav.icloud.com"));});
 test("DAV XML decodes entities and accepts only successful propstats",()=>{const r=davResponses('<d:multistatus xmlns:d="DAV:"><d:response><d:href>/a&amp;b.ics</d:href><d:propstat><d:prop><d:getetag>&quot;1&quot;</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat><d:propstat><d:prop><d:displayname>ignore</d:displayname></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response></d:multistatus>')[0];assert.equal(r.href,"/a&b.ics");assert.equal(r.props.getetag,'"1"');assert.equal(r.props.displayname,undefined);assert.throws(()=>davResponses('<!DOCTYPE x><multistatus/>'));});
 test("UTC events round trip without changing the durable work content",()=>{const p=readResource(resource())!;assert.ok(sameCalendarContent(event,p.event));const out=expandResource(p,ms("2026-11-01"),ms("2026-11-02"),"Asia/Shanghai");assert.equal(out.length,1);assert.equal(out[0].start,ms("2026-11-01T09:00Z"));});
+test("a cross-midnight work segment writes both endpoints and preserves the original instants",()=>{
+ const start=ms("2026-11-01T23:50:00+08:00"),end=ms("2026-11-02T00:20:00+08:00");
+ const wire=writeResource(eventForSegment({title:"示例工时"},{uid:"stable",start,end}));
+ assert.match(wire,/DTSTART:20261101T155000Z/);
+ assert.match(wire,/DTEND:20261101T162000Z/);
+ assert.deepEqual(masterRange(readResource(resource(wire))!,"Asia/Shanghai"),{start,end});
+});
 test("all-day end remains exclusive and is never shifted by UTC",()=>{const p=readResource(resource(calendar(["BEGIN:VEVENT","UID:all","SUMMARY:Day","DTSTART;VALUE=DATE:20261101","DTEND;VALUE=DATE:20261103","END:VEVENT"])))!;assert.equal(p.event.endDate,"2026-11-03");assert.equal(expandResource(p,+new Date("2026-11-02T00:00:00"),+new Date("2026-11-03T00:00:00"),"Asia/Shanghai").length,1);assert.equal(expandResource(p,+new Date("2026-11-03T00:00:00"),+new Date("2026-11-04T00:00:00"),"Asia/Shanghai").length,0);});
 test("IANA recurrence follows the DST transition",()=>{const p=readResource(resource(calendar(["BEGIN:VEVENT","UID:dst","SUMMARY:DST","DTSTART;TZID=America/New_York:20261031T090000","DTEND;TZID=America/New_York:20261031T100000","RRULE:FREQ=DAILY;COUNT=3","END:VEVENT"])))!;const rows=expandResource(p,ms("2026-10-31"),ms("2026-11-03"),"Asia/Shanghai");assert.equal(rows[0].start,ms("2026-10-31T13:00Z"));assert.equal(rows[1].start,ms("2026-11-01T14:00Z"));});
 test("writing recurring wall time preserves TZID and DST semantics",()=>{const value={...event,type:"recurring",timezone:"America/New_York",date:"2026-10-31",endDate:"2026-10-31",startTime:"09:00:00",endTime:"10:00:00",rrule:"FREQ=DAILY;COUNT=3"};const raw=writeResource(value);assert.match(raw,/DTSTART;TZID=America\/New_York:20261031T090000/);const rows=expandResource(readResource(resource(raw))!,ms("2026-10-31"),ms("2026-11-03"),"UTC");assert.equal(rows[1].start,ms("2026-11-01T14:00Z"));});
@@ -38,7 +46,18 @@ function harness(){let objects=new Map([[resource().href,resource()]]),fail=fals
  const engine=new CalendarEngine({transport,secret:()=>"password",persist:async cache=>{persisted=cache;},timezone:()=>"UTC",open:async()=>{}});engine.configure([source]);
  return{engine,requests,objects,fail:()=>{fail=true;},bad:()=>{malformed=true;objects.get(resource().href)!.etag='"bad"';},lose:()=>{lost=true;},persisted:()=>persisted};
 }
-test("incremental sync skips unchanged bodies and retains the last snapshot on failure",async()=>{const h=harness();await h.engine.refresh();assert.equal(h.engine.getAllEvents()[0].events.length,1);await h.engine.refresh();assert.equal(h.requests.filter(x=>x.method==="REPORT").length,1);h.fail();await h.engine.refresh();assert.equal(h.engine.getAllEvents()[0].events.length,1);assert.match(h.engine.state.error,/offline/);});
+test("unchanged sync and network status retain the content revision and last snapshot",async()=>{
+ const h=harness();
+ await h.engine.refresh();
+ const revision=h.engine.contentRevision;
+ await h.engine.refresh();
+ assert.equal(h.requests.filter(x=>x.method==="REPORT").length,1);
+ h.fail();
+ await h.engine.refresh();
+ assert.equal(h.engine.contentRevision,revision);
+ assert.equal(h.engine.getAllEvents()[0].events.length,1);
+ assert.match(h.engine.state.error,/offline/);
+});
 test("malformed remote updates do not replace a valid snapshot",async()=>{const h=harness();await h.engine.refresh();h.bad();await h.engine.refresh();assert.equal(h.engine.getAllEvents()[0].events[0].event.title,"Test");assert.ok(h.engine.state.error);});
 test("conditional create recovers a lost reply with one stable UID",async()=>{const h=harness();await h.engine.refresh();h.lose();const next={...event,uid:"new"};await assert.rejects(h.engine.createEvent(source.id,next),/lost/);await h.engine.createEvent(source.id,next);assert.equal(h.objects.size,2);assert.ok(h.requests.filter(x=>x.method==="PUT").every(x=>x.headers["If-None-Match"]==="*"));});
 test("lost update reply is reconciled without writing twice",async()=>{const h=harness();await h.engine.refresh();const id=h.engine.getAllEvents()[0].events[0].id;h.lose();await assert.rejects(h.engine.updateEvent(id,{...event,title:"Updated"}),/lost/);await h.engine.updateEvent(id,{...event,title:"Updated"});assert.equal(h.requests.filter(r=>r.method==="PUT").length,1);assert.equal(h.engine.getAllEvents()[0].events[0].event.title,"Updated");});

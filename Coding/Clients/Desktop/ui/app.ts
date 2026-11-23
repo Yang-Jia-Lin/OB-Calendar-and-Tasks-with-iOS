@@ -12,7 +12,10 @@ declare global { interface Window {
 const app = document.querySelector<HTMLDivElement>("#app")!, notice = document.querySelector<HTMLDivElement>("#notice")!;
 const mode = new URLSearchParams(location.search).get("window") || "main";
 document.documentElement.classList.toggle("island-window",mode==="island");
-let state: DesktopSnapshot | undefined, selected = dayKey(), page = "tasks", filter = "open", query = "", listFilter = "", taskPage = 0, lastUndo = "", day: DiarySnapshot = { calendars: [], rows: [] }, requestGeneration = 0;
+let state: DesktopSnapshot | undefined, selected = dayKey(), page = "today", taskPage = 0, lastUndo = "", requestGeneration = 0, pushGeneration = 0;
+const taskFilters = { today: { status: "today", query: "", list: "" }, tasks: { status: "open", query: "", list: "" } };
+const currentFilters = () => page === "today" ? taskFilters.today : taskFilters.tasks;
+let viewDate = dayKey(), historySignature = -1, refreshHistory: (() => Promise<void>) | undefined;
 let calendar: MonthCalendar | undefined, daySignature = "", taskSignature = "", settingsSignature="", islandExpanded = false, disconnected = false;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "", className = "") => { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; };
 const button = (text: string, run: () => unknown, className = "") => { const node = el("button", text, className); node.type = "button"; node.onclick = () => { void act(run); }; return node; };
@@ -28,15 +31,37 @@ async function native(action: string) { if (window.__TAURI__) await window.__TAU
 async function command(mutation: DesktopMutation) {
   const result = await api<CommandResult>("/v1/command", { ...mutation, version: 1, requestId: crypto.randomUUID() });
   if (result.undoId) { lastUndo = result.undoId; const undo = document.querySelector<HTMLButtonElement>("#undo"); if (undo) undo.disabled = false; }
-  await load(); return result;
+  if (!window.__TAURI__) await load();
+  return result;
 }
-function choose(date: string) { selected = date; daySignature = ""; taskSignature = ""; render(); void readDay(); }
-async function readDay() {
-  if (!state) return; const generation = ++requestGeneration;
-  try { const data = await api<DiarySnapshot>("/v1/day?date=" + selected); if (generation !== requestGeneration) return; day = data; renderDay(); }
-  catch (e) { if (generation === requestGeneration) { const root = document.querySelector("#day-rows"); if (root) root.textContent = (e as Error).message; } }
+function choose(date: string) { selected = date; render(); }
+async function readDay(root: HTMLElement, date: string) {
+  const generation = ++requestGeneration;
+  if (root.dataset.date !== date) {
+    root.dataset.date = date;
+    root.replaceChildren(el("p", "正在读取本机日历…", "empty"));
+  }
+  try {
+    const data = await api<DiarySnapshot>("/v1/day?date=" + date);
+    if (generation === requestGeneration && root.isConnected) renderDay(root, data);
+  } catch (e) {
+    if (generation !== requestGeneration || !root.isConnected) return;
+    root.querySelector(".day-error")?.remove();
+    if (!root.querySelector(".timeline-row")) root.replaceChildren();
+    root.append(el("p", (e as Error).message, "day-error error"));
+  }
 }
-async function load() { state = await api<DesktopSnapshot>("/v1/state"); disconnected = false; render(); }
+function acceptSnapshot(next: DesktopSnapshot) {
+  if (state && next.revision < state.revision) return;
+  state = next;
+  disconnected = false;
+  render();
+}
+async function load() {
+  const generation = pushGeneration;
+  const next = await api<DesktopSnapshot>("/v1/state?view=desktop");
+  if (generation === pushGeneration || !state || next.revision > state.revision) acceptSnapshot(next);
+}
 function timerText() {
   const active = state?.active, title = document.querySelector<HTMLElement>("#active-title"), clock = document.querySelector<HTMLElement>("#clock");
   if (title) title.textContent = active?.title || "当前没有计时";
@@ -70,30 +95,55 @@ function skeleton() {
   app.append(header);
   const timer = el("section", "", "timer"); timer.id = "timer"; app.append(timer);
   if (mode === "main") {
-    const nav = el("nav"); for (const [id, name] of [["tasks", "安排"], ["records", "记录"], ["settings", "设置"]]) nav.append(button(name, () => { page = id; buildBody(); render(); }));
-    nav.append(button("刷新", async () => { await api("/v1/refresh", {}); await load(); })); app.append(nav);
+    const nav = el("nav");
+    for (const [id, name] of [["today", "今天"], ["tasks", "安排"], ["records", "记录"], ["settings", "设置"]]) {
+      const tab = button(name, () => { if (id !== page) { page = id; taskPage = 0; buildBody(); render(); } });
+      tab.dataset.page = id;
+      nav.append(tab);
+    }
+    nav.append(button("刷新", async () => {
+      await api("/v1/refresh", {});
+      if (!window.__TAURI__) { daySignature = ""; await load(); }
+    }, "refresh-button"));
+    app.append(nav);
     const status = el("div", "", "sync-status"); status.id = "sync-status"; app.append(status);
   }
   app.append(el("main")); buildBody();
 }
 function buildBody() {
   const main = app.querySelector("main"); if (!main) return; main.replaceChildren(); calendar = undefined; taskSignature = ""; daySignature = "";
+  requestGeneration++; refreshHistory = undefined; historySignature = -1;
   if (page === "settings" && mode === "main") { renderSettings(main); return; }
   if (page === "records" && mode === "main") { renderRecords(main); return; }
-  main.className = mode === "main" ? "workspace" : "widget-body";
+  const today = mode === "main" && page === "today";
+  main.className = today ? "today-view" : mode === "main" ? "workspace" : "widget-body";
   if (mode === "main") {
-    const pool = el("section", "", "task-pool"), tools = el("div", "", "tools"); pool.append(el("h2", "待办"));
-    tools.append(button("新建", () => taskForm()), button("撤销安排", async () => { await command({ action: "undo", undoId: lastUndo }); lastUndo = ""; const b = document.querySelector<HTMLButtonElement>("#undo"); if (b) b.disabled = true; }));
-    (tools.lastElementChild as HTMLButtonElement).id = "undo"; (tools.lastElementChild as HTMLButtonElement).disabled = !lastUndo; pool.append(tools);
-    const today=button("今天待办",()=>{filter="today";selected=dayKey();taskPage=0;buildBody();render();});today.id="today-task-filter";today.setAttribute("aria-pressed",String(filter==="today"));tools.append(today);
-    const search = el("input"); search.placeholder = "搜索待办"; search.setAttribute("aria-label", "搜索待办"); search.value = query; search.oninput = () => { query = search.value; taskPage = 0; taskSignature = ""; renderTasks(); }; pool.append(search);
+    const filters = currentFilters(), pool = el("section", "", "task-pool"), top = el("div", "", "task-heading"), tools = el("div", "", "task-filters");
+    const heading = el("h2", today ? "今天" : "待办");
+    top.append(heading, button("新建待办", () => taskForm(), "primary-button"));
+    if (today) {
+      const date = el("time");
+      date.id = "today-date";
+      heading.append(date);
+    } else {
+      const undo = button("撤销安排", async () => { await command({ action: "undo", undoId: lastUndo }); lastUndo = ""; undo.disabled = true; });
+      undo.id = "undo"; undo.disabled = !lastUndo;
+      top.append(undo);
+    }
+    pool.append(top, tools);
+    const search = el("input"); search.type = "search"; search.placeholder = "搜索待办"; search.setAttribute("aria-label", "搜索待办"); search.value = filters.query;
+    const filterChanged = () => { taskPage = 0; renderTasks(); };
+    search.oninput = () => { filters.query = search.value; filterChanged(); }; tools.append(search);
     const select = el("select"); select.setAttribute("aria-label", "待办状态");
     for (const [value, label] of [["open", "待安排"], ["today", "今天（含逾期）"], ["all-open", "全部未完成"], ["overdue", "已逾期"], ["done", "已完成"]]) { const option = el("option", label); option.value = value; select.append(option); }
-    select.value = filter; select.onchange = () => { filter = select.value; taskPage = 0; taskSignature = ""; renderTasks(); }; pool.append(select);
-    const lists = el("select"); lists.id = "list-filter"; lists.setAttribute("aria-label", "分类筛选"); lists.onchange = () => { listFilter = lists.value; taskPage = 0; taskSignature = ""; renderTasks(); }; pool.append(lists);
+    select.value = filters.status; select.onchange = () => { filters.status = select.value; filterChanged(); }; tools.append(select);
+    const lists = el("select"); lists.id = "list-filter"; lists.setAttribute("aria-label", "分类筛选"); lists.onchange = () => { filters.list = lists.value; filterChanged(); }; tools.append(lists);
     const tasks = el("div", "", "task-list"); tasks.id = "pool-tasks";
-    tasks.ondragover = e => { e.preventDefault(); }; tasks.ondrop = e => { if ((e.target as HTMLElement).closest(".task-row")) return; e.preventDefault(); const id = e.dataTransfer?.getData("application/x-ctt-task"); if (id) void act(() => schedule(id, null)); };
+    if (!today) {
+      tasks.ondragover = e => { e.preventDefault(); }; tasks.ondrop = e => { if ((e.target as HTMLElement).closest(".task-row")) return; e.preventDefault(); const id = e.dataTransfer?.getData("application/x-ctt-task"); if (id) void act(() => schedule(id, null)); };
+    }
     pool.append(tasks); main.append(pool);
+    if (today) return;
   }
   const planning = el("section", "", "planning"), month = el("div"); month.id = "month"; planning.append(month);
   calendar = new MonthCalendar(month, selected, choose, (id, date) => { void act(() => schedule(id, date)); });
@@ -102,40 +152,56 @@ function buildBody() {
   const tasks = el("div"); tasks.id = "day-tasks"; const rows = el("div"); rows.id = "day-rows"; planning.append(tasks, rows); main.append(planning);
 }
 async function schedule(id: string, date: string | null) { const task = state?.tasks.find(t => t.id === id); if (!task) throw new Error("任务已变化。"); await command({ action: "task.schedule", task, date }); show(date ? "安排已在本机保存，后台同步中。" : "已退回待安排。" ); }
-function taskRow(task: Task, visible: Task[], editable: boolean) {
+function taskRow(task: Task, visible: Task[], editable: boolean, today = false) {
   const row = el("article", "", "task-row"); row.dataset.taskId = task.id;
-  if (editable && !task.completed && !task.readonlyReason) {
+  if (editable && !today && !task.completed && !task.readonlyReason) {
     row.draggable = true; row.ondragstart = e => { e.dataTransfer?.setData("application/x-ctt-task", task.id); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; };
     row.ondragover = e => { e.preventDefault(); e.stopPropagation(); };
     row.ondrop = e => { e.preventDefault(); e.stopPropagation(); const from = e.dataTransfer?.getData("application/x-ctt-task"); if (!from || from === task.id) return; const expected = visible.filter(t => !t.completed).map(t => t.id); if (!expected.includes(from)) { void act(() => schedule(from, task.scheduledDate || null)); return; } const next = expected.filter(id => id !== from); next.splice(next.indexOf(task.id), 0, from); void act(() => command({ action: "task.reorder", next, expected })); };
   }
   const check = el("input"); check.type = "checkbox"; check.checked = task.completed; check.setAttribute("aria-label", "完成 " + task.title); check.disabled = !!task.readonlyReason || !!task.pending;
-  check.onchange = () => { check.disabled = true; void act(async () => { await command({ action: "task.update", task, patch: { completed: check.checked } }); }).finally(() => { check.disabled = false; check.checked = state?.tasks.find(t => t.id === task.id)?.completed ?? task.completed; }); };
+  check.onchange = () => {
+    check.disabled = true;
+    void act(() => command({ action: "task.update", task, patch: { completed: check.checked } })).then(result => {
+      if (!result) { check.disabled = false; check.checked = task.completed; }
+    });
+  };
   const copy = el("div", "", "task-copy"); copy.append(el("strong", task.title));if(taskOverdue(task)){row.classList.add("overdue");copy.append(el("span","逾期","overdue-badge"));}const details = [state?.lists.find(l => l.id === task.listId)?.name, task.due ? "截止 " + task.due : "", task.scheduledDate&&task.scheduledDate<dayKey()?"原安排 "+task.scheduledDate:"",task.pending ? "待同步" : "", task.readonlyReason || ""].filter(Boolean).join(" · "); copy.append(el("small", details));
   row.append(check, copy);
   if (!task.completed) row.append(button("计时", () => command({ action: "timer.start", task: { kind: task.kind === "reminder" ? "reminder" : "local", path: task.path!, id: task.id } })));
-  if (editable) {row.append(button("编辑", () => taskForm(task)));const remove=button("删除",()=>deleteTask(task));remove.disabled=!!task.readonlyReason||!!task.pending;remove.title=task.readonlyReason||"删除此待办";row.append(remove);}
+  if (editable && today) {
+    const menu = el("details", "", "task-menu"), summary = el("summary", "⋯");
+    summary.setAttribute("aria-label", "操作 " + task.title);
+    const actions = el("div", "", "task-menu-actions");
+    actions.append(button("编辑", () => { menu.open = false; taskForm(task); }));
+    const remove = button("删除", () => { menu.open = false; deleteTask(task); });
+    remove.disabled = !!task.readonlyReason || !!task.pending;
+    actions.append(remove); menu.append(summary, actions); row.append(menu);
+  } else if (editable) {row.append(button("编辑", () => taskForm(task)));const remove=button("删除",()=>deleteTask(task));remove.disabled=!!task.readonlyReason||!!task.pending;remove.title=task.readonlyReason||"删除此待办";row.append(remove);}
   return row;
 }
 function renderTasks() {
   if (!state) return;
   const root = document.querySelector("#pool-tasks"), dayTasks = document.querySelector("#day-tasks");
-  const signature = JSON.stringify([state.tasks, filter, query, listFilter, selected, taskPage,dayKey()]); if (signature === taskSignature) return; taskSignature = signature;
-  document.querySelector("#today-task-filter")?.setAttribute("aria-pressed",String(filter==="today"));
+  if (!root && !dayTasks) return;
+  const today = dayKey(), { status, query, list } = currentFilters(), onTodayPage = page === "today" && mode === "main";
+  const signature = JSON.stringify([state.tasks, state.lists, status, query, list, selected, taskPage, today]); if (signature === taskSignature) return; taskSignature = signature;
   if (root) {
-    const tasks = state.tasks.filter(t => (!listFilter || t.listId === listFilter) && t.title.toLowerCase().includes(query.toLowerCase()) && (filter === "done" ? t.completed : !t.completed && (filter === "open" ? !t.scheduledDate : filter === "overdue" ? taskOverdue(t) : filter==="today"?taskDisplayDate(t)===dayKey():true)));
-    root.replaceChildren(); const visible = tasks.slice(taskPage * 100, taskPage * 100 + 100); for (const task of visible) root.append(taskRow(task, visible, true));
-    if (!tasks.length) root.append(el("p", "这里没有待办。可新建任务，或拖回任务取消安排。已有 OB 数据时，请先在设置中导入交接快照。", "empty"));
+    const titleQuery = query.trim().toLowerCase();
+    const tasks = state.tasks.filter(t => (!list || t.listId === list) && t.title.toLowerCase().includes(titleQuery) && (status === "done" ? t.completed : !t.completed && (status === "open" ? !t.scheduledDate : status === "overdue" ? taskOverdue(t, today) : status === "today" ? taskDisplayDate(t, today) === today : true)));
+    taskPage = Math.min(taskPage, Math.max(0, Math.ceil(tasks.length / 100) - 1));
+    root.replaceChildren(); const visible = tasks.slice(taskPage * 100, taskPage * 100 + 100); for (const task of visible) root.append(taskRow(task, visible, true, onTodayPage));
+    if (!tasks.length) root.append(el("p", status === "today" && !list && !titleQuery ? "今天暂无待办" : "没有符合当前筛选的待办", "empty"));
     if (tasks.length > 100) { const paging = el("div", "", "tools"); paging.append(button("上一页", () => { taskPage = Math.max(0, taskPage - 1); taskSignature = ""; renderTasks(); }), el("span", `${taskPage + 1} / ${Math.ceil(tasks.length / 100)}`), button("下一页", () => { taskPage = Math.min(Math.ceil(tasks.length / 100) - 1, taskPage + 1); taskSignature = ""; renderTasks(); })); root.append(paging); }
   }
-  if (dayTasks) { const tasks = state.tasks.filter(t => taskDisplayDate(t)===selected); dayTasks.replaceChildren(); for (const task of tasks.slice(0, 100)) dayTasks.append(taskRow(task, tasks.slice(0, 100), mode === "main")); }
+  if (dayTasks) { const tasks = state.tasks.filter(t => taskDisplayDate(t, today) === selected).slice(0, 100); dayTasks.replaceChildren(); for (const task of tasks) dayTasks.append(taskRow(task, tasks, mode === "main")); }
 }
-function renderDay() {
-  const root = document.querySelector("#day-rows"); if (!root) return; root.replaceChildren();
+function renderDay(root: HTMLElement, day: DiarySnapshot) {
+  root.replaceChildren();
   for (const row of day.rows) {
-    const item = el("article", "", "timeline-row"); item.append(el("time", row.allDay ? "全天" : new Date(row.start).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })), el("span", row.title + (row.pending ? " · 待同步" : "")));
+    const item = el("article", "", "timeline-row"); item.append(el("time", row.allDay ? "全天" : timeRange(row.start, row.end, root.dataset.date), "time-range"), el("span", row.title + (row.pending ? " · 待同步" : "")));
     if (row.error) item.append(el("small", row.error, "error"));
-    if (mode === "main" && !row.deleting && (row.recordId||row.original&&!row.pending)) item.append(button("编辑", async () => {if(row.recordId)recordForm(await api<WorkRecord>("/v1/record?id="+encodeURIComponent(row.recordId)));else eventForm(row);}));
+    if (mode === "main" && !row.pending && (row.recordId || row.original)) item.append(button("编辑", async () => {if(row.recordId)recordForm(await api<WorkRecord>("/v1/record?id="+encodeURIComponent(row.recordId)));else eventForm(row);}));
     root.append(item);
   }
   if (!day.rows.length) root.append(el("p", "当天暂无日程或工时记录", "empty"));
@@ -147,10 +213,18 @@ function render() {
   renderTimer(document.querySelector<HTMLElement>("#timer")!);
   const status = document.querySelector("#sync-status"); if (status) status.textContent = state.sync.error || (state.sync.refreshing ? "正在同步…" : state.pending.length ? `${state.pending.length} 项待同步` : state.sync.lastSync ? "最近同步 " + new Date(state.sync.lastSync).toLocaleTimeString() : "尚未连接云端，请在设置中连接");
   const date = document.querySelector("#selected-date"); if (date) date.textContent = selected;
-  const lists = document.querySelector<HTMLSelectElement>("#list-filter"); if (lists && lists.dataset.signature !== JSON.stringify(state.lists)) { lists.dataset.signature = JSON.stringify(state.lists); lists.replaceChildren(); const all = el("option", "全部分类"); all.value = ""; lists.append(all); for (const list of state.lists) { const o = el("option", list.name); o.value = list.id; lists.append(o); } lists.value = listFilter; }
+  const today = app.querySelector<HTMLTimeElement>("#today-date");
+  viewDate = dayKey();
+  if (today && today.dateTime !== viewDate) { today.dateTime = viewDate; today.textContent = new Date(viewDate + "T12:00:00").toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" }); }
+  for (const tab of app.querySelectorAll<HTMLButtonElement>("nav [data-page]")) {
+    if (tab.dataset.page === page) tab.setAttribute("aria-current", "page"); else tab.removeAttribute("aria-current");
+  }
+  const lists = document.querySelector<HTMLSelectElement>("#list-filter"); if (lists && lists.dataset.signature !== JSON.stringify(state.lists)) { lists.dataset.signature = JSON.stringify(state.lists); lists.replaceChildren(); const all = el("option", "全部分类"); all.value = ""; lists.append(all); for (const list of state.lists) { const o = el("option", list.name); o.value = list.id; lists.append(o); } const filters = currentFilters(); if (![...lists.options].some(option => option.value === filters.list)) filters.list = ""; lists.value = filters.list; }
   calendar?.update(state.tasks, selected); renderTasks();
   if (mode === "main" && page === "settings" && settingsSignature!==JSON.stringify([state.settings,state.pending])) { const main = app.querySelector("main")!; main.replaceChildren(); renderSettings(main); }
-  const signature = selected + ":" + state.revision; if (calendar && signature !== daySignature) { daySignature = signature; void readDay(); }
+  const dayRoot = app.querySelector<HTMLElement>("#day-rows"), signature = [selected, state.calendarRevision, state.journalRevision].join(":");
+  if (dayRoot && signature !== daySignature) { daySignature = signature; void readDay(dayRoot, selected); }
+  if (refreshHistory && historySignature !== state.historyRevision) { historySignature = state.historyRevision; void act(refreshHistory); }
   if (state.recovery) show(state.recovery);
 }
 function form(title: string) {
@@ -158,7 +232,18 @@ function form(title: string) {
   const close = () => { dialog.close(); dialog.remove(); }; dialog.addEventListener("close", () => dialog.remove(), { once: true }); actions.append(button("取消", close));
   const field = (name: string, value = "", type = "text") => { const label = el("label", name), input = type === "textarea" ? el("textarea") : el("input"); if (input instanceof HTMLInputElement) input.type = type; input.value = value; input.setAttribute("aria-label", name); label.append(input); fields.append(label); return input; };
   const select = (name: string, values: { id: string; name: string }[], value = "") => { const label = el("label", name), input = el("select"); input.setAttribute("aria-label", name); for (const v of values) { const option = el("option", v.name); option.value = v.id; input.append(option); } if (value) input.value = value; label.append(input); fields.append(label); return input; };
-  const submit = (run: () => Promise<unknown>) => { const save = button("保存", async () => { if (!fields.reportValidity()) return; save.disabled = true; try { await run(); close(); show("已保存到本机，后台处理同步。"); } finally { save.disabled = false; } }); actions.append(save); fields.onsubmit = e => { e.preventDefault(); save.click(); }; };
+  const submit = (run: () => Promise<unknown>) => {
+    const error = el("p", "", "form-error error"); error.setAttribute("role", "alert");
+    dialog.insertBefore(error, actions);
+    const save = button("保存", async () => {
+      if (!fields.reportValidity()) return;
+      error.textContent = ""; save.disabled = true;
+      try { await run(); close(); show("已保存到本机，后台处理同步。"); }
+      catch (e) { error.textContent = e instanceof Error ? e.message : String(e); }
+      finally { save.disabled = false; }
+    });
+    actions.append(save); fields.onsubmit = e => { e.preventDefault(); save.click(); };
+  };
   return { dialog, fields, actions, field, select, submit, close };
 }
 function taskForm(task?: Task) {
@@ -181,6 +266,12 @@ function taskForm(task?: Task) {
 }
 function deleteTask(task:Task){const f=form("删除待办");f.fields.append(el("p",`确认删除“${task.title}”？已记录的工时会保留。`));const remove=button("确认删除",async()=>{remove.disabled=true;try{await command({action:"task.delete",task});f.close();show("待办已删除，后台同步中。");}finally{remove.disabled=false;}});f.actions.append(remove);}
 function localTime(n: number) { const date = new Date(n); return `${dayKey(n)}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`; }
+function timeRange(start: number, end: number, currentDate?: string) {
+  const [startDate, startTime] = localTime(start).split("T"), [endDate, endTime] = localTime(end).split("T");
+  const crossDay = startDate !== endDate;
+  const first = crossDay || startDate !== currentDate ? `${startDate} ${startTime}` : startTime;
+  return `${first}–${crossDay ? endDate + " " : ""}${endTime}`;
+}
 function editedTime(value:string,original?:number){return original!==undefined&&value===localTime(original)?original:+new Date(value);}
 function eventForm(row?: TimelineRow) {
   if (!state) return; const f = form(row ? "编辑日程（重复事件修改整个系列）" : "日程／生活补记"), title = f.field("标题", row?.title || ""), start = f.field("开始", localTime(row?.seriesStart || row?.start || +new Date(selected + "T09:00:00")), "datetime-local"), end = f.field("结束", localTime(row?.seriesEnd || row?.end || +new Date(selected + "T10:00:00")), "datetime-local"); title.required = true;
@@ -190,14 +281,34 @@ function eventForm(row?: TimelineRow) {
 }
 function renderRecords(root: HTMLElement) {
   root.className = "records"; root.append(el("h2", "工时记录")); const tools = el("div", "", "tools"), from = el("input"), to = el("input"), rows = el("div"); from.type = to.type = "date"; from.value = selected.slice(0, 8) + "01"; to.value = selected; from.setAttribute("aria-label", "查询开始日期"); to.setAttribute("aria-label", "查询结束日期"); let offset = 0;
-  const queryRecords = async () => { const result = await api<{ total: number; records: WorkRecord[] }>(`/v1/history?from=${from.value}&to=${to.value}&offset=${offset}`); rows.replaceChildren(el("p", `共 ${result.total} 条，当前 ${offset + 1}–${Math.min(result.total, offset + 100)}`)); for (const record of result.records) {
-    const item = el("article", "", "record"); const visible = record.edit ? {...record,...record.edit} : record;
-    item.append(el("strong", visible.title), el("span", `${new Date(record.startedAt).toLocaleString()} · ${secondsText(visible.segments.reduce((sum, p) => sum + p.end - p.start, 0))} · ${record.status === "saved" ? "已同步" : "待同步"}`), button("修改", () => recordForm(record)));
-    if (record.completeTask && !record.taskSaved && record.segments.every(p=>p.saved)) item.append(button("确认仅保留工时，不完成原任务", async()=>{await command({action:"record.calendar-only",recordId:record.id});await queryRecords();})); rows.append(item);
-  } };
-  tools.append(from, to, button("查询", () => { offset = 0; return queryRecords(); }), button("上一页", () => { offset = Math.max(0, offset - 100); return queryRecords(); }), button("下一页", () => { offset += 100; return queryRecords(); }), button("补记", () => eventForm())); root.append(tools, rows); void act(queryRecords);
+  let generation = 0, total = 0, range = { from: from.value, to: to.value };
+  const queryRecords = async () => {
+    const request = ++generation;
+    const result = await api<{ total: number; records: WorkRecord[] }>(`/v1/history?from=${range.from}&to=${range.to}&offset=${offset}`);
+    if (request !== generation || !rows.isConnected) return;
+    total = result.total;
+    if (offset && offset >= total) { offset = Math.max(0, Math.floor((total - 1) / 100) * 100); return queryRecords(); }
+    previous.disabled = offset === 0; next.disabled = offset + 100 >= total;
+    rows.replaceChildren(el("p", total ? `共 ${total} 条 · ${offset + 1}–${Math.min(total, offset + 100)}` : "这段时间暂无工时记录", "empty"));
+    for (const record of result.records) {
+      const item = el("article", "", "record"), visible = record.edit || record;
+      const start = visible.segments[0]?.start ?? record.startedAt, end = visible.segments.at(-1)?.end ?? record.endedAt;
+      item.append(el("strong", visible.title), el("time", timeRange(start, end), "time-range"), el("span", secondsText(visible.segments.reduce((sum, p) => sum + p.end - p.start, 0))), el("span", record.status === "saved" ? "已同步" : "待同步"));
+      if (record.error) item.append(el("small", record.error, "error"));
+      if (record.status === "saved" && visible.segments.length) item.append(button("修改", () => recordForm(record)));
+      if (record.completeTask && !record.taskSaved && record.segments.every(p => p.saved)) item.append(button("确认仅保留工时，不完成原任务", () => command({ action: "record.calendar-only", recordId: record.id })));
+      rows.append(item);
+    }
+  };
+  const previous = button("上一页", () => { offset = Math.max(0, offset - 100); return queryRecords(); });
+  const next = button("下一页", () => { offset += 100; return queryRecords(); });
+  previous.disabled = next.disabled = true;
+  tools.append(from, to, button("查询", () => { range = { from: from.value, to: to.value }; offset = 0; return queryRecords(); }), previous, next, button("补记", () => eventForm()));
+  root.append(tools, rows);
+  refreshHistory = queryRecords;
 }
 function recordForm(record: WorkRecord) {
+  if (record.status !== "saved") throw new Error("这条记录有待同步的操作，请在同步后再编辑。");
   const f = form("编辑计时记录"), title = f.field("标题", record.title), calendarId = f.select("日历", state!.settings.calendarSources.filter(s => s.type === "caldav" && !s.readOnly), record.calendarId);
   const parts = record.segments.map((part, i) => ({ part, start: f.field(record.segments.length===1?"开始":`第 ${i + 1} 段开始`, localTime(part.start), "datetime-local"), end: f.field(record.segments.length===1?"结束":`第 ${i + 1} 段结束`, localTime(part.end), "datetime-local") }));
   f.submit(() => command({ action: "record.edit", record, title: title.value, calendarId: calendarId.value, segments: parts.map(p => ({ ...p.part, start: editedTime(p.start.value,p.part.start), end: editedTime(p.end.value,p.part.end) })) }));
@@ -220,14 +331,14 @@ function renderSettings(root: HTMLElement) {
 }
 async function start() {
   if (window.__TAURI__) {
-    await window.__TAURI__.event.listen<DesktopSnapshot>("desktop-state", event => { state = event.payload; render(); });
+    await window.__TAURI__.event.listen<DesktopSnapshot>("desktop-state", event => { pushGeneration++; acceptSnapshot(event.payload); });
     await window.__TAURI__.event.listen<string>("native-error",event=>show(event.payload,true));
-    await window.__TAURI__.event.listen<string>("backend-error",event=>{disconnected=true;show(event.payload||"桌面后台连接中断",true);renderTimer(document.querySelector<HTMLElement>("#timer")!);});
-    await window.__TAURI__.event.listen<boolean>("backend-ready", () => { void act(load); });
+    await window.__TAURI__.event.listen<string>("backend-error",event=>{disconnected=true;show(event.payload||"桌面后台连接中断",true);const timer = app.querySelector<HTMLElement>("#timer"); if (timer) renderTimer(timer);});
+    await window.__TAURI__.event.listen<boolean>("backend-ready", () => { state = undefined; daySignature = ""; historySignature = -1; void act(load); });
   }
   await load();
   if (window.__TAURI__) requestAnimationFrame(()=>requestAnimationFrame(()=>{void window.__TAURI__!.core.invoke("frontend_ready",{label:mode});}));
-  setInterval(() => { if (!document.hidden) timerText(); }, 1000);
+  setInterval(() => { if (!document.hidden) { if (viewDate !== dayKey()) render(); else timerText(); } }, 1000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { timerText(); void act(load); } });
 }
 void act(start);

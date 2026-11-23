@@ -30,6 +30,9 @@ export class DesktopService {
   private heartbeat?: ReturnType<typeof setInterval>; private refreshTimer?: ReturnType<typeof setTimeout>;
   private notification?: ReturnType<typeof setTimeout>; private closed = false; private refreshFlight?: Promise<void>;
   private autoSync = false;
+  private lastTimeline?: Pick<DesktopService["controller"]["state"], "records" | "operations" | "deletions">;
+  private journalRevision = 0;
+  private historyRevision = 0;
   private clockAnchor={wall:Date.now(),uptime:uptime()*1000};
   constructor(readonly store: DesktopStore, readonly rpc: ReminderRpc, readonly secrets: SecretPort, transport: CalendarTransport = desktopTransport) {
     this.engine = new CalendarEngine({ transport, secret: key => secrets.get(key), persist: calendar => store.update({ calendar }), timezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone, open: async () => {} });
@@ -87,9 +90,17 @@ export class DesktopService {
       catch (e) { return { ...task, scheduledDate: null, readonlyReason: (e as Error).message }; }
     });
   }
-  snapshot(): DesktopSnapshot {
+  snapshot(includeRecentRecords = true): DesktopSnapshot {
+    const { records, operations, deletions } = this.controller.state;
+    const last = this.lastTimeline;
+    if (last?.records !== records || last?.operations !== operations || last?.deletions !== deletions) {
+      if (last?.records !== records) this.historyRevision++;
+      this.journalRevision++;
+      this.lastTimeline = { records, operations, deletions };
+    }
     return { version: 1, isolated:this.isolated, revision: this.store.data.revision, active: clone(this.controller.state.active), tasks: this.taskList(), lists: clone(this.reminders.data.lists),
-      records: clone(this.controller.state.records.slice(-200)), settings: clone(this.store.data.settings),
+      records: includeRecentRecords ? clone(records.slice(-200)) : [], settings: clone(this.store.data.settings),
+      calendarRevision: this.engine.contentRevision, journalRevision: this.journalRevision, historyRevision: this.historyRevision,
       pending: [...this.controller.jobs(), ...this.reminders.jobs()].map(j => ({ key: j.key, error: j.value.error })),
       sync: { refreshing: !!this.refreshFlight, lastSync: Math.max(this.reminders.data.syncedAt, this.engine.state.lastSync), error: this.error || this.reminders.error || this.engine.state.error || this.worker?.view.error || "" }, recovery: this.recovery };
   }
@@ -101,7 +112,11 @@ export class DesktopService {
   history(from: string, to: string, offset = 0) {
     if (!validDay(from) || !validDay(to) || from > to || !Number.isInteger(offset) || offset < 0) throw new Error("查询日期范围无效。");
     const a = +new Date(from + "T00:00:00"), b = new Date(to + "T00:00:00"); b.setDate(b.getDate() + 1);
-    const records = this.controller.state.records.filter(r => r.endedAt >= a && r.startedAt < +b).reverse();
+    const records = this.controller.state.records.filter(r => {
+      const segments = r.edit?.segments || r.segments;
+      const start = segments[0]?.start ?? r.startedAt, end = segments.at(-1)?.end ?? r.endedAt;
+      return end > a && start < +b;
+    }).reverse();
     return { total: records.length, records: clone(records.slice(offset, offset + 100)) };
   }
   record(id:string){const record=this.controller.state.records.find(r=>r.id===id);if(!record)throw new Error("计时记录不存在或已变化。");return clone(record);}
@@ -134,6 +149,7 @@ export class DesktopService {
     if (c.action === "settings.save" || c.action === "binding.save" || c.action === "calendar.configure" || c.action === "categories.save"||c.action==="ownership.activate") partition = "settings";
     if (c.action === "timer.start") result = data => ({ ok: true, sessionId: data.journal.active!.id });
     if (c.action === "timer.finish") result = () => ({ ok: true, sessionId: c.sessionId, recordId: c.sessionId, pending: true });
+    if (c.action === "record.edit") result = () => ({ ok: true, recordId: c.record.id, pending: true });
     if (c.action === "timer.pause" || c.action === "timer.resume") result = () => ({ ok: true, sessionId: c.sessionId });
     if (c.action === "task.create") result = () => ({ ok: true, taskId: "Reminder/" + c.requestId.toUpperCase(), pending: true });
     if (c.action === "task.migrate") result = data => ({ ok: true, taskId: data.reminders.aliases[refKey(c.task)]?.id || data.reminders.operations.find(o => o.migration && refKey(o.migration) === refKey(c.task))?.task.id, pending: true });

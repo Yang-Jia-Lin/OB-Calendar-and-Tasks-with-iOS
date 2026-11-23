@@ -85,6 +85,9 @@ export class CalendarBridge implements CalendarPort, CalendarQuery {
     this.assertWritable(step.toCalendarId);
     if (!step.fromCalendarId) { step.after = await this.ensureEvent(step.toCalendarId, step.after); step.stage = "done"; await checkpoint(); return; }
     const same = step.fromCalendarId === step.toCalendarId;
+    if (!this.hasCalendarData(step.fromCalendarId) || (!same && !this.hasCalendarData(step.toCalendarId))) {
+      throw new Error("日历缓存尚未就绪，请等待后台同步。");
+    }
     let source = this.find(step.fromCalendarId, step.uid);
     let target = this.find(step.toCalendarId, step.uid);
     if (same) {

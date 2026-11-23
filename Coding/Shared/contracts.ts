@@ -64,11 +64,12 @@ export interface TimelineRow {
 }
 export const clone = <T>(value: T): T => value == null ? value : JSON.parse(JSON.stringify(value));
 export const uid = () => globalThis.crypto.randomUUID();
-export function sameEvent(a: CalendarEvent, b: CalendarEvent): boolean {
+export function sameJson(a: unknown, b: unknown): boolean {
   const stable = (v: unknown): unknown => Array.isArray(v) ? v.map(stable) : v && typeof v === "object"
     ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, stable(x)])) : v;
   return JSON.stringify(stable(a)) === JSON.stringify(stable(b));
 }
+export const sameEvent = (a: CalendarEvent, b: CalendarEvent) => sameJson(a, b);
 // CalDAV round trips can omit default fields and format zero seconds as HH:mm.
 // Normalize only equivalent representations; never round away nonzero seconds,
 // alter timezones, or change the inclusive/exclusive semantics of all-day events.

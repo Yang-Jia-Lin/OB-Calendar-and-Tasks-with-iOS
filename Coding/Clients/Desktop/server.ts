@@ -20,7 +20,7 @@ export async function startServer(service: DesktopService, discoveryFile: string
     if (request.headers.origin || request.headers.host !== "127.0.0.1:" + port || auth.length !== expected.length || !timingSafeEqual(Buffer.from(auth), Buffer.from(expected))) { send(response, 403, { error: "本机连接验证失败。" }); return; }
     const url = new URL(request.url || "/", "http://127.0.0.1");
     if (request.method === "GET") {
-      if (url.pathname === "/v1/state") { send(response, 200, service.snapshot()); return; }
+      if (url.pathname === "/v1/state") { send(response, 200, service.snapshot(url.searchParams.get("view") !== "desktop")); return; }
       if (url.pathname === "/v1/record") { send(response,200,service.record(url.searchParams.get("id")||""));return; }
       if (url.pathname === "/v1/day") { send(response, 200, service.day(url.searchParams.get("date") || "")); return; }
       if (url.pathname === "/v1/history") { send(response, 200, service.history(url.searchParams.get("from") || "", url.searchParams.get("to") || "", Number(url.searchParams.get("offset") || 0))); return; }
@@ -53,7 +53,7 @@ export async function startServer(service: DesktopService, discoveryFile: string
   const discovery: Discovery = { version: 1, port, token, pid: process.pid };
   await fs.mkdir(path.dirname(discoveryFile), { recursive: true });
   await fs.writeFile(discoveryFile + ".tmp", JSON.stringify(discovery), { mode: 0o600 }); await fs.rename(discoveryFile + ".tmp", discoveryFile);
-  const unsubscribe = service.subscribe(() => { const data = "event: state\ndata: " + JSON.stringify(service.snapshot()) + "\n\n"; for (const stream of streams) { if (stream.writableLength > 4 * 1024 * 1024) { streams.delete(stream); stream.destroy(); } else stream.write(data); } });
+  const unsubscribe = service.subscribe(() => { if (!streams.size) return; const data = "event: state\ndata: " + JSON.stringify(service.snapshot()) + "\n\n"; for (const stream of streams) { if (stream.writableLength > 4 * 1024 * 1024) { streams.delete(stream); stream.destroy(); } else stream.write(data); } });
   const keepalive = setInterval(() => { for (const stream of streams) stream.write(": heartbeat\n\n"); }, 30000); keepalive.unref();
   return { discovery, close: async () => {
     clearInterval(keepalive); unsubscribe(); for (const stream of streams) stream.end();
